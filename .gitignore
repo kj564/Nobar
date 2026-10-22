@@ -1,24 +1,15 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Nobar — .gitignore
+# After audit cleanup the project is Go + vanilla JS only. Next.js, Prisma
+# and Bun-specific entries have been removed.
 
 # dependencies
 node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
 
 # testing
 /coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
+/tests/playwright/node_modules
+/tests/playwright/playwright-report
+/tests/playwright/test-results
 
 # misc
 .DS_Store
@@ -26,30 +17,21 @@ node_modules
 
 # debug
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
+*.log
+dev.log
+server.log
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
 
-# vercel
-.vercel
+# build artefacts
+backend/nobar-server
+backend/nobar-backend
+/backend/bin
 
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# sandbox
 local-*
 .claude
 .z-ai-config
-*.log
-dev.log
-dev.out.log
 test
 prompt
-
-server.log
-# Skills directory
-/skills/nobar-server
-backend/nobar-server

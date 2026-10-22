@@ -8,7 +8,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"time"
 )
+
+// ──────────────────────────────────────────────────────────────────────────
+// TMDB types
+// ──────────────────────────────────────────────────────────────────────────
 
 type TMDBMovie struct {
 	ID          int     `json:"id"`
@@ -21,16 +27,16 @@ type TMDBMovie struct {
 }
 
 type MovieDetail struct {
-	ID          int         `json:"id"`
-	Title       string      `json:"title"`
-	Overview    string      `json:"overview"`
-	Runtime     int         `json:"runtime"`
-	ReleaseDate string      `json:"release_date"`
-	VoteAverage float64     `json:"vote_average"`
-	VoteCount   int         `json:"vote_count"`
-	Genres      []Genre     `json:"genres"`
-	Credits     Credits     `json:"credits"`
-	Similar     Similar     `json:"similar"`
+	ID          int     `json:"id"`
+	Title       string  `json:"title"`
+	Overview    string  `json:"overview"`
+	Runtime     int     `json:"runtime"`
+	ReleaseDate string  `json:"release_date"`
+	VoteAverage float64 `json:"vote_average"`
+	VoteCount   int     `json:"vote_count"`
+	Genres      []Genre `json:"genres"`
+	Credits     Credits `json:"credits"`
+	Similar     Similar `json:"similar"`
 }
 
 type Genre struct {
@@ -81,8 +87,28 @@ type AppConfig struct {
 	Creators []Creator `json:"creators"`
 }
 
-var tmdbAPIKey string
-var tmdbBase = "https://api.themoviedb.org/3"
+// ──────────────────────────────────────────────────────────────────────────
+// Config (env-driven)
+// ──────────────────────────────────────────────────────────────────────────
+
+var (
+	tmdbAPIKey string
+	tmdbBase   = "https://api.themoviedb.org/3"
+
+	// CORS allowlist — comma-separated origins in ALLOWED_ORIGINS env var.
+	// Empty/unset = same-origin only (browser blocks cross-origin requests).
+	allowedOrigins = map[string]struct{}{}
+
+	// In-memory cache (5 min TTL) — drastically reduces TMDB quota usage.
+	cache    = map[string]cacheEntry{}
+	cacheMu  sync.RWMutex
+	cacheTTL = 5 * time.Minute
+)
+
+type cacheEntry struct {
+	at   time.Time
+	data []byte
+}
 
 var appConfig = AppConfig{
 	Servers: []Server{
@@ -94,7 +120,7 @@ var appConfig = AppConfig{
 		{Name: "Bayu Mahendra", Role: "Musisi", Avatar: "https://images.unsplash.com/photo-1500648767791-00dcc664aec0?auto=format&fit=crop&w=200&q=80"},
 		{Name: "Koli Animation", Role: "Studio Animasi", Avatar: "https://images.unsplash.com/photo-1611162616475-46b9b41f9f9b?auto=format&fit=crop&w=200&q=80"},
 		{Name: "Reza Pamungkas", Role: "Sineas", Avatar: "https://images.unsplash.com/photo-1507003181164-6e864c1e1f77?auto=format&fit=crop&w=200&q=80"},
-		{Name: "Lintas Pantura", Role: "Kolektif", Avatar: "https://images.unsplash.com/photo-1502685104226-ee32379fef5f?auto=format&fit=crop&w=200&q=80"},
+		{Name: "Lintas Pantura", Role: "Kolektif", Avatar: "https://images.unsplash.com/photo-1502685104226-ee32379fefbe?auto=format&fit=crop&w=200&q=80"},
 		{Name: "Devi Anjani", Role: "Sineas", Avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d35?auto=format&fit=crop&w=200&q=80"},
 	},
 }
@@ -104,7 +130,19 @@ func init() {
 	if tmdbAPIKey == "" {
 		tmdbAPIKey = "a3ce3ae3ddb29e9417ffcc2889becf9b"
 	}
+	if raw := os.Getenv("ALLOWED_ORIGINS"); raw != "" {
+		for _, o := range strings.Split(raw, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" {
+				allowedOrigins[o] = struct{}{}
+			}
+		}
+	}
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// TMDB fetch + cache
+// ──────────────────────────────────────────────────────────────────────────
 
 func tmdbGet(path string, params map[string]string) ([]byte, error) {
 	u, _ := url.Parse(tmdbBase + path)
@@ -115,6 +153,19 @@ func tmdbGet(path string, params map[string]string) ([]byte, error) {
 		q.Set(k, v)
 	}
 	u.RawQuery = q.Encode()
+
+	cacheKey := u.String()
+
+	// Cache hit?
+	cacheMu.RLock()
+	if entry, ok := cache[cacheKey]; ok {
+		cacheMu.RUnlock()
+		if time.Since(entry.at) < cacheTTL {
+			return entry.data, nil
+		}
+	} else {
+		cacheMu.RUnlock()
+	}
 
 	resp, err := http.Get(u.String())
 	if err != nil {
@@ -137,23 +188,52 @@ func tmdbGet(path string, params map[string]string) ([]byte, error) {
 			break
 		}
 	}
+
+	// Store in cache
+	cacheMu.Lock()
+	cache[cacheKey] = cacheEntry{at: time.Now(), data: buf}
+	cacheMu.Unlock()
+
 	return buf, nil
 }
 
-func enableCORS(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+// ──────────────────────────────────────────────────────────────────────────
+// HTTP helpers — CORS allowlist (not wildcard)
+// ──────────────────────────────────────────────────────────────────────────
+
+func enableCORS(w http.ResponseWriter, r *http.Request) {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return
+	}
+	if _, ok := allowedOrigins[origin]; ok {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+	}
 }
 
-func writeJSON(w http.ResponseWriter, data interface{}) {
+func writeJSON(w http.ResponseWriter, r *http.Request, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	enableCORS(w)
+	enableCORS(w, r)
 	json.NewEncoder(w).Encode(data)
 }
 
+func passThrough(w http.ResponseWriter, r *http.Request, data []byte) {
+	enableCORS(w, r)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(data)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Handlers
+// ──────────────────────────────────────────────────────────────────────────
+
 func handleConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, appConfig)
+	writeJSON(w, r, appConfig)
 }
 
 func handleTrending(w http.ResponseWriter, r *http.Request) {
@@ -166,9 +246,7 @@ func handleTrending(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 502)
 		return
 	}
-	enableCORS(w)
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	passThrough(w, r, data)
 }
 
 func handleDiscover(w http.ResponseWriter, r *http.Request) {
@@ -187,9 +265,7 @@ func handleDiscover(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 502)
 		return
 	}
-	enableCORS(w)
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	passThrough(w, r, data)
 }
 
 func handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -199,7 +275,7 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		page = "1"
 	}
 	if q == "" {
-		writeJSON(w, map[string]interface{}{"results": []interface{}{}, "page": 1, "total_pages": 0})
+		writeJSON(w, r, map[string]interface{}{"results": []interface{}{}, "page": 1, "total_pages": 0})
 		return
 	}
 	data, err := tmdbGet("/search/movie", map[string]string{
@@ -211,9 +287,7 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 502)
 		return
 	}
-	enableCORS(w)
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	passThrough(w, r, data)
 }
 
 func handleMovieDetail(w http.ResponseWriter, r *http.Request) {
@@ -230,9 +304,7 @@ func handleMovieDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 502)
 		return
 	}
-	enableCORS(w)
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	passThrough(w, r, data)
 }
 
 func main() {
@@ -242,9 +314,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-
 	mux.Handle("/", http.FileServer(http.Dir("../docs")))
-
 	mux.HandleFunc("/api/config", handleConfig)
 	mux.HandleFunc("/api/trending", handleTrending)
 	mux.HandleFunc("/api/discover", handleDiscover)

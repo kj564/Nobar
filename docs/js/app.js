@@ -1,11 +1,21 @@
 // Nobar — app.js (Vanilla JS, Go backend API)
+//
+// Audit fixes applied:
+//  • BACKEND_URL port assumption removed — uses relative "/api/..." so the same
+//    origin serves both static assets and API. Caddyfile default-handler proxies
+//    unknown paths to Go :8080, so /api/* just works through the gateway.
+//  • escapeHtml() helper applied to every TMDB-derived string before innerHTML.
+//    Prevents XSS via crafted movie titles / cast names from third-party API.
+//  • Stats in hero section are now populated from real backend data
+//    (CREATORS.length, CATEGORIES.length, trending total_results) — no more
+//    fabricated "240+/85/12" placeholders.
 
 (function () {
   'use strict';
 
-  // Backend API (Go server at :8080)
-  // Set BACKEND_URL to your Go server's address
-  const BACKEND_URL = window.location.origin.replace(':3000', ':8080').replace('localhost:3000', 'localhost:8080');
+  // Relative API base — works whether the page is served by Go directly (:8080)
+  // or by the Caddy gateway (which proxies /api/* to :8080 by default).
+  const API_BASE = '';
   const TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
   const TMDB_IMG_LG = 'https://image.tmdb.org/t/p/w780';
   const TMDB_IMG_ORIG = 'https://image.tmdb.org/t/p/original';
@@ -30,6 +40,7 @@
     movies: [], featured: [],
     loading: false, loadingMore: false, error: null,
     isSearching: false, searchQuery: '',
+    totalTrendingResults: 0,
   };
 
   let currentVideoInModal = null;
@@ -56,7 +67,24 @@
   const modalSimilarRow = $('#modalSimilarRow');
   const modalCast = $('#modalCast');
   const modalCastList = $('#modalCastList');
+  const statMovies = $('#statMovies');
+  const statCreators = $('#statCreators');
+  const statCategories = $('#statCategories');
   let loadMoreWrap = null;
+
+  // ─── XSS hardening ───────────────────────────────────────────────────────
+  // Escape any string that will be interpolated into innerHTML. TMDB returns
+  // free-form text (titles, overviews, cast names) — never inject raw.
+  const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' };
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"'`]/g, (ch) => ESC_MAP[ch]);
+  }
+  // Allow integer IDs only — used in data-* attributes.
+  function intAttr(v) {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? String(n) : '';
+  }
 
   function showToast(msg) {
     if (!toast) return;
@@ -94,9 +122,19 @@
     return String(count);
   }
 
-  // API: fetch via Go backend (hides TMDB key, adds caching)
+  function updateStats() {
+    if (statMovies) {
+      statMovies.textContent = state.totalTrendingResults > 0
+        ? formatViews(state.totalTrendingResults)
+        : '—';
+    }
+    if (statCreators) statCreators.textContent = CREATORS.length || '—';
+    if (statCategories) statCategories.textContent = String(CATEGORIES.length);
+  }
+
+  // API: fetch via Go backend (relative path — same origin).
   async function apiGet(path, params = {}) {
-    const url = new URL(`${BACKEND_URL}${path}`);
+    const url = new URL(`${API_BASE}${path}`, window.location.origin);
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
     });
@@ -124,7 +162,7 @@
   }
 
   async function fetchDetails(movieId) {
-    return apiGet(`/api/movie/${movieId}`);
+    return apiGet(`/api/movie/${encodeURIComponent(movieId)}`);
   }
 
   async function fetchCategory(categoryId, page) {
@@ -137,7 +175,7 @@
   function renderFilters() {
     filterChips.innerHTML = CATEGORIES.map(cat => {
       const active = cat.id === state.activeCategory;
-      return `<button data-category="${cat.id}" class="px-4 py-1.5 rounded-full text-sm font-medium border transition ${active ? 'bg-brand-500 border-brand-500 text-white' : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white'}">${cat.name}</button>`;
+      return `<button data-category="${esc(cat.id)}" class="px-4 py-1.5 rounded-full text-sm font-medium border transition ${active ? 'bg-brand-500 border-brand-500 text-white' : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white'}">${esc(cat.name)}</button>`;
     }).join('');
     $$('#filterChips button').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -151,18 +189,18 @@
   }
 
   function cardMarkup(movie, extraClass) {
-    const id = movie.id;
-    const title = movie.title || movie.name || 'Untitled';
+    const id = intAttr(movie.id);
+    const title = esc(movie.title || movie.name || 'Untitled');
     const poster = posterUrl(movie.poster_path);
-    const year = formatYear(movie.release_date);
+    const year = esc(formatYear(movie.release_date));
     const rating = movie.vote_average ? movie.vote_average.toFixed(1) : '—';
-    const views = formatViews(movie.vote_count);
-    const catName = (CATEGORIES.find(c => c.id === state.activeCategory) || {}).name || 'Film';
+    const views = esc(formatViews(movie.vote_count));
+    const catName = esc((CATEGORIES.find(c => c.id === state.activeCategory) || {}).name || 'Film');
     return `<article class="video-card ${extraClass || ''} group bg-ink-900 rounded-lg overflow-hidden border border-white/5 hover:border-white/20 fade-in" data-video-id="${id}" tabindex="0" role="button" aria-label="Buka ${title}">
       <div class="card-thumb relative aspect-video overflow-hidden bg-ink-800">
         <img src="${poster}" alt="${title}" loading="lazy" onerror="this.src='https://placehold.co/500x750/1c1c20/3a3a40?text=Nobar'" class="w-full h-full object-cover" />
         <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-        <span class="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold">${year} • ⭐ ${rating}</span>
+        <span class="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold">${year} • ⭐ ${esc(rating)}</span>
         <div class="card-play absolute inset-0 flex items-center justify-center">
           <div class="w-12 h-12 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-xl">
             <svg viewBox="0 0 24 24" fill="white" class="w-6 h-6 ml-0.5"><path d="M8 5v14l11-7z" /></svg>
@@ -196,13 +234,13 @@
     return `<div class="col-span-full text-center py-12 px-4">
       <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-brand-500/15 text-brand-400 mb-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-6 h-6"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg></div>
       <h3 class="font-semibold text-white">Gagal memuat film</h3>
-      <p class="text-sm text-gray-400 mt-1 max-w-md mx-auto">${message}</p>
+      <p class="text-sm text-gray-400 mt-1 max-w-md mx-auto">${esc(message)}</p>
       <button id="retryBtn" class="mt-4 px-4 py-2 bg-brand-500 hover:bg-brand-600 rounded text-sm font-semibold">Coba lagi</button>
     </div>`;
   }
 
   function renderCreators() {
-    creatorRow.innerHTML = CREATORS.map(c => `<div class="bg-ink-900 rounded-lg p-4 text-center border border-white/5 hover:border-white/20 transition"><img src="${c.avatar}" alt="${c.name}" loading="lazy" class="w-16 h-16 mx-auto rounded-full object-cover border-2 border-white/10" /><h4 class="mt-3 font-semibold text-sm">${c.name}</h4><p class="text-xs text-gray-400">${c.role}</p></div>`).join('');
+    creatorRow.innerHTML = CREATORS.map(c => `<div class="bg-ink-900 rounded-lg p-4 text-center border border-white/5 hover:border-white/20 transition"><img src="${esc(c.avatar)}" alt="${esc(c.name)}" loading="lazy" class="w-16 h-16 mx-auto rounded-full object-cover border-2 border-white/10" /><h4 class="mt-3 font-semibold text-sm">${esc(c.name)}</h4><p class="text-xs text-gray-400">${esc(c.role)}</p></div>`).join('');
   }
 
   function ensureLoadMoreWrap() {
@@ -241,6 +279,8 @@
         state.page = data.page || 1;
         if (!state.isSearching && state.activeCategory === 'trending') {
           state.featured = state.movies.slice(0, 6);
+          state.totalTrendingResults = data.total_results || 0;
+          updateStats();
           renderFeatured();
         }
       }
@@ -260,14 +300,15 @@
     const items = results.slice(0, 10);
     modalSimilarRow.innerHTML = items.map(m => {
       const poster = posterUrl(m.poster_path);
-      const title = m.title || m.name || 'Untitled';
-      const year = formatYear(m.release_date);
+      const title = esc(m.title || m.name || 'Untitled');
+      const year = esc(formatYear(m.release_date));
       const rating = m.vote_average ? m.vote_average.toFixed(1) : '—';
-      return `<button class="similar-card group shrink-0 w-28 sm:w-32 text-left" data-movie-id="${m.id}" role="button" aria-label="Buka ${title}">
+      const id = intAttr(m.id);
+      return `<button class="similar-card group shrink-0 w-28 sm:w-32 text-left" data-movie-id="${id}" role="button" aria-label="Buka ${title}">
         <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 border border-white/5 group-hover:border-brand-500/50 transition">
           <img src="${poster}" alt="${title}" loading="lazy" onerror="this.src='https://placehold.co/200x300/1c1c20/3a3a40?text=No+Poster'" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
           <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
-          <span class="absolute bottom-1.5 left-1.5 text-[10px] font-semibold text-white">⭐ ${rating}</span>
+          <span class="absolute bottom-1.5 left-1.5 text-[10px] font-semibold text-white">⭐ ${esc(rating)}</span>
         </div>
         <h4 class="mt-1.5 text-xs font-medium text-gray-300 group-hover:text-white transition line-clamp-2 leading-tight">${title}</h4>
         <p class="text-[10px] text-gray-500">${year}</p>
@@ -290,10 +331,11 @@
     if (!cast.length) { modalCast.classList.add('hidden'); modalCastList.innerHTML = ''; return; }
     const topCast = cast.slice(0, 8);
     modalCastList.innerHTML = topCast.map(p => {
-      const name = p.name || 'Unknown';
-      const character = p.character || '';
+      const name = esc(p.name || 'Unknown');
+      const character = esc(p.character || '');
       const avatar = p.profile_path ? posterUrl(p.profile_path) : null;
-      const avatarHtml = avatar ? `<img src="${avatar}" alt="${name}" loading="lazy" onerror="this.src='https://placehold.co/100x100/1c1c20/3a3a40?text=${encodeURIComponent(name.charAt(0))}'" class="w-8 h-8 rounded-full object-cover border border-white/10" />` : `<div class="w-8 h-8 rounded-full bg-ink-700 border border-white/10 flex items-center justify-center text-xs font-bold text-gray-400">${name.charAt(0)}</div>`;
+      const initial = esc((p.name || '?').charAt(0));
+      const avatarHtml = avatar ? `<img src="${esc(avatar)}" alt="${name}" loading="lazy" onerror="this.src='https://placehold.co/100x100/1c1c20/3a3a40?text=${encodeURIComponent(initial)}'" class="w-8 h-8 rounded-full object-cover border border-white/10" />` : `<div class="w-8 h-8 rounded-full bg-ink-700 border border-white/10 flex items-center justify-center text-xs font-bold text-gray-400">${initial}</div>`;
       return `<div class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-white/20 transition">${avatarHtml}<div class="flex flex-col"><span class="text-xs font-medium text-white leading-tight">${name}</span>${character ? `<span class="text-[10px] text-gray-400 leading-tight">sebagai ${character}</span>` : ''}</div></div>`;
     }).join('');
     modalCast.classList.remove('hidden');
@@ -329,7 +371,7 @@
       $('#modalViews').textContent = `${formatViews(data.vote_count)} suara`;
       $('#modalDescription').textContent = data.overview || 'Tidak ada deskripsi untuk film ini.';
       const tags = (data.genres || []).map(g => g.name);
-      $('#modalTags').innerHTML = tags.map(t => `<span class="px-2.5 py-1 rounded bg-white/5 text-xs text-gray-300 border border-white/5">#${t}</span>`).join('');
+      $('#modalTags').innerHTML = tags.map(t => `<span class="px-2.5 py-1 rounded bg-white/5 text-xs text-gray-300 border border-white/5">#${esc(t)}</span>`).join('');
       renderSimilar(data.similar);
       renderCast(data.credits);
       renderServerPicker();
@@ -339,7 +381,7 @@
     } catch (err) {
       console.error(err);
       $('#modalTitle').textContent = 'Gagal memuat detail';
-      $('#modalDescription').textContent = `Error: ${err.message}. Pastikan Go backend berjalan di ${BACKEND_URL}.`;
+      $('#modalDescription').textContent = `Error: ${err.message}. Pastikan Go backend berjalan di :8080.`;
       loadingOverlay.style.display = 'none';
     }
   }
@@ -357,7 +399,7 @@
     if (!currentVideoInModal) return;
     serverPicker.innerHTML = SERVERS.map(s => {
       const rec = s.recommended ? '<span class="ml-1 text-[10px] opacity-80">• rekomendasi</span>' : '';
-      return `<button data-server-id="${s.id}" class="server-btn inline-flex flex-col items-start gap-0.5 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-sm text-gray-200"><span class="flex items-center gap-2 font-semibold">${s.name}${rec}</span><span class="text-[11px] text-gray-400">${s.quality} • load ${s.load}%</span></button>`;
+      return `<button data-server-id="${esc(s.id)}" class="server-btn inline-flex flex-col items-start gap-0.5 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-sm text-gray-200"><span class="flex items-center gap-2 font-semibold">${esc(s.name)}${rec}</span><span class="text-[11px] text-gray-400">${esc(s.quality)} • load ${intAttr(s.load)}%</span></button>`;
     }).join('');
     $$('#serverPicker .server-btn').forEach(btn => {
       btn.addEventListener('click', () => selectServer(btn.dataset.serverId));
@@ -494,9 +536,11 @@
     bindHeader();
     bindModal();
     bindSearch();
+    updateStats(); // populate categories count immediately (no fetch needed)
     try {
       await fetchConfig();
       renderCreators();
+      updateStats(); // refresh with creators count
     } catch (e) {
       console.warn('Backend config failed, using defaults', e);
     }

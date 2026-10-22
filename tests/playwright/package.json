@@ -1,0 +1,15 @@
+{
+  "name": "nobar-playwright-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end tests for Nobar vanilla JS app (audit point 4).",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "PWDEBUG=1 playwright test",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

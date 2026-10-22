@@ -12,6 +12,12 @@ import {
 } from "lucide-react";
 import {
   CATEGORIES,
+  SERVERS as SERVERS_CONST,
+  CREATORS as CREATORS_CONST,
+  fetchTrending,
+  fetchByGenre,
+  searchMovies,
+  fetchMovieDetail,
   type TMDBMovie,
   type TMDBMovieDetail,
   type TMDBPaged,
@@ -50,15 +56,11 @@ export default function NobarPage() {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load config (servers + creators) on mount
+  // Static config — imported directly (no /api/config fetch needed for
+  // static export on GitHub Pages).
   useEffect(() => {
-    fetch("/api/config")
-      .then((r) => r.json())
-      .then((d) => {
-        setServers(d.servers || []);
-        setCreators(d.creators || []);
-      })
-      .catch((e) => console.warn("Backend config failed", e));
+    setServers(SERVERS_CONST as unknown as Server[]);
+    setCreators(CREATORS_CONST as unknown as Creator[]);
   }, []);
 
   const showToast = useCallback((msg: string) => {
@@ -79,17 +81,11 @@ export default function NobarPage() {
       try {
         let data: TMDBPaged<TMDBMovie>;
         if (isSearching && searchQuery) {
-          const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&page=${targetPage}`);
-          if (!res.ok) throw new Error(`Backend ${res.status}`);
-          data = await res.json();
+          data = await searchMovies(searchQuery, targetPage);
         } else if (cat.tmdbGenreId === null) {
-          const res = await fetch(`/api/trending?page=${targetPage}`);
-          if (!res.ok) throw new Error(`Backend ${res.status}`);
-          data = await res.json();
+          data = await fetchTrending(targetPage);
         } else {
-          const res = await fetch(`/api/discover?genre=${cat.tmdbGenreId}&page=${targetPage}`);
-          if (!res.ok) throw new Error(`Backend ${res.status}`);
-          data = await res.json();
+          data = await fetchByGenre(cat.tmdbGenreId, targetPage);
         }
         if (append) {
           setMovies((prev) => {
@@ -161,9 +157,7 @@ export default function NobarPage() {
     setSelectedMovie(null);
     setActiveServer(null);
     try {
-      const res = await fetch(`/api/movie/${movieId}`);
-      if (!res.ok) throw new Error(`Backend ${res.status}`);
-      const data: TMDBMovieDetail = await res.json();
+      const data: TMDBMovieDetail = await fetchMovieDetail(movieId);
       setSelectedMovie(data);
       const defaultServer = servers.find((s) => s.recommended) || servers[0];
       if (defaultServer) {
@@ -173,7 +167,7 @@ export default function NobarPage() {
       setSelectedMovie({
         id: movieId,
         title: "Gagal memuat detail",
-        overview: `Error: ${err instanceof Error ? err.message : "unknown"}. Pastikan API route /api/movie/[id] berfungsi.`,
+        overview: `Error: ${err instanceof Error ? err.message : "unknown"}. Pastikan koneksi internet stabil dan TMDB API dapat diakses.`,
       });
     } finally {
       setModalLoading(false);

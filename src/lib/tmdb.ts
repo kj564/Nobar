@@ -1,10 +1,18 @@
-// TMDB client — server-side only.
-// Port of the audit-fixed Go backend: in-memory cache (5min TTL),
-// env-driven API key (with hardcoded fallback per user request),
-// no third-party libraries.
+// TMDB client — works in browser AND Node (static export friendly).
+//
+// Audit context:
+//  • API key: env-driven with hardcoded fallback (per user request:
+//    "untuk TMDB API jangan dihapus").
+//  • Cache: in-memory Map with 5min TTL (server: persistent per process;
+//    browser: ephemeral per page load — HTTP cache also helps via
+//    Cache-Control headers from TMDB).
+//  • No third-party deps. Server-only APIs (process.env) are guarded so
+//    the module is safe to import from client components.
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_API_KEY = process.env.TMDB_API_KEY || "a3ce3ae3ddb29e9417ffcc2889becf9b";
+const TMDB_API_KEY =
+  (typeof process !== "undefined" && process.env?.TMDB_API_KEY) ||
+  "a3ce3ae3ddb29e9417ffcc2889becf9b";
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 type CacheEntry = { at: number; data: unknown };
@@ -70,7 +78,7 @@ async function tmdbGet<T>(path: string, params: Record<string, string | number> 
     return cached.data as T;
   }
 
-  const res = await fetch(url.toString(), { next: { revalidate: 300 } });
+  const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`TMDB ${res.status}: ${res.statusText}`);
   const data = (await res.json()) as T;
   cache.set(cacheKey, { at: Date.now(), data });
@@ -94,7 +102,7 @@ export async function searchMovies(query: string, page = 1): Promise<TMDBPaged<T
   return tmdbGet<TMDBPaged<TMDBMovie>>("/search/movie", {
     query,
     page,
-    include_adult: false,
+    include_adult: "false",
   });
 }
 
@@ -134,6 +142,15 @@ export const SERVERS = [
   },
 ] as const;
 
+export type Server = {
+  id: string;
+  name: string;
+  pattern: string;
+  quality: string;
+  load: number;
+  recommended: boolean;
+};
+
 export const CREATORS = [
   { name: "Aisyah Putri", role: "Dokumenter", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80" },
   { name: "Bayu Mahendra", role: "Musisi", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc664aec0?auto=format&fit=crop&w=200&q=80" },
@@ -142,6 +159,8 @@ export const CREATORS = [
   { name: "Lintas Pantura", role: "Kolektif", avatar: "https://images.unsplash.com/photo-1502685104226-ee32379fefbe?auto=format&fit=crop&w=200&q=80" },
   { name: "Devi Anjani", role: "Sineas", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d35?auto=format&fit=crop&w=200&q=80" },
 ] as const;
+
+export type Creator = { name: string; role: string; avatar: string };
 
 export function posterUrl(path?: string | null, size: "sm" | "lg" | "orig" = "sm"): string {
   if (!path) return "https://placehold.co/500x750/1c1c20/3a3a40?text=Nobar";

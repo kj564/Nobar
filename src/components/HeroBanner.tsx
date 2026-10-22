@@ -5,10 +5,12 @@ import Link from "next/link";
 import { Play, Star, Info, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   type TMDBMovie,
+  type TMDBMovieDetail,
   backdropUrl,
   formatYear,
   formatViews,
   slugify,
+  fetchMovieDetail,
 } from "@/lib/tmdb";
 
 type HeroBannerProps = {
@@ -17,8 +19,9 @@ type HeroBannerProps = {
 
 export function HeroBanner({ movies }: HeroBannerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [activeDetail, setActiveDetail] = useState<TMDBMovieDetail | null>(null);
 
-  // Auto-rotate every 8 seconds when multiple movies available
+  // Auto-rotate every 8 seconds
   useEffect(() => {
     if (movies.length <= 1) return;
     const timer = setInterval(() => {
@@ -26,6 +29,23 @@ export function HeroBanner({ movies }: HeroBannerProps) {
     }, 8000);
     return () => clearInterval(timer);
   }, [movies.length]);
+
+  // Lazy fetch detail for active slide (tagline + genres)
+  useEffect(() => {
+    if (movies.length === 0) return;
+    const movie = movies[activeIndex];
+    if (!movie) return;
+    let cancelled = false;
+    setActiveDetail(null);
+    fetchMovieDetail(movie.id)
+      .then((detail) => {
+        if (!cancelled) setActiveDetail(detail);
+      })
+      .catch((e) => console.warn("Hero detail fetch failed", e));
+    return () => {
+      cancelled = true;
+    };
+  }, [activeIndex, movies]);
 
   const goToSlide = useCallback(
     (index: number) => {
@@ -38,17 +58,17 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const goPrev = useCallback(() => goToSlide(activeIndex - 1), [activeIndex, goToSlide]);
   const goNext = useCallback(() => goToSlide(activeIndex + 1), [activeIndex, goToSlide]);
 
-  // Skeleton state — no movies loaded yet
+  // Skeleton state
   if (movies.length === 0) {
     return (
       <div className="relative w-full h-[65vh] sm:h-[75vh] md:h-[85vh] min-h-[460px] max-h-[720px] bg-[#141414] overflow-hidden">
         <div className="absolute inset-0 skeleton opacity-30" />
-        <div className="absolute bottom-0 left-0 w-full p-5 sm:p-10 md:p-14 flex flex-col items-start justify-end h-full gap-4">
-          <div className="skeleton h-6 w-24 rounded" />
-          <div className="skeleton h-12 w-3/4 max-w-2xl rounded" />
+        <div className="absolute bottom-0 left-0 w-full md:w-3/4 lg:w-3/5 xl:w-1/2 p-6 md:p-16 pb-28 flex flex-col justify-end gap-4">
+          <div className="skeleton h-5 w-20 rounded" />
+          <div className="skeleton h-12 w-3/4 rounded" />
           <div className="skeleton h-4 w-48 rounded" />
-          <div className="skeleton h-16 w-full max-w-md rounded" />
-          <div className="skeleton h-12 w-40 rounded" />
+          <div className="skeleton h-24 w-full rounded" />
+          <div className="skeleton h-12 w-40 rounded-lg" />
         </div>
       </div>
     );
@@ -61,6 +81,8 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const isMovie = Boolean(movie.title);
   const mediaTypeLabel = isMovie ? "Film" : "TV Series";
   const href = isMovie ? `/movie/${slug}` : `/series/${slug}`;
+  const tagline = activeDetail?.tagline;
+  const genres = activeDetail?.genres?.slice(0, 3).map((g) => g.name).join(", ");
 
   return (
     <div
@@ -68,9 +90,23 @@ export function HeroBanner({ movies }: HeroBannerProps) {
       className="relative w-full h-[65vh] sm:h-[75vh] md:h-[85vh] min-h-[460px] max-h-[720px] bg-[#141414] bg-cover bg-center bg-no-repeat overflow-hidden"
       style={backdrop ? { backgroundImage: `url(${backdrop})` } : undefined}
     >
-      {/* Gradient overlays — dual layer for text contrast on mobile */}
-      <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/75 to-[#141414]/30 md:via-[#141414]/40 md:to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-r from-[#141414] via-[#141414]/60 to-transparent" />
+      {/* Background image with opacity (template: opacity-80) */}
+      {backdrop && (
+        <div className="absolute inset-0 z-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={backdrop}
+            alt={title}
+            className="w-full h-full object-cover opacity-80"
+          />
+        </div>
+      )}
+
+      {/* Heavy dark gradient overlays (template: dual layer) */}
+      {/* Left to Right */}
+      <div className="absolute inset-0 bg-gradient-to-r from-[#141414] via-[#141414]/80 to-transparent z-0" />
+      {/* Bottom to Top */}
+      <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/40 to-transparent z-0" />
 
       {/* Slider arrows (desktop) */}
       {movies.length > 1 && (
@@ -92,73 +128,82 @@ export function HeroBanner({ movies }: HeroBannerProps) {
         </>
       )}
 
-      {/* Content — bottom left, flex column */}
-      <div className="absolute bottom-0 left-0 w-full p-5 sm:p-10 md:p-14 z-10 flex flex-col items-start justify-end h-full">
+      {/* Main content — bottom left, half width on desktop (template: w-full md:w-3/4 lg:w-3/5 xl:w-1/2) */}
+      <main className="relative z-10 flex-grow flex flex-col justify-end px-6 md:px-16 pb-28 w-full md:w-3/4 lg:w-3/5 xl:w-1/2 h-full">
         {/* Red badge — media type */}
-        <div className="bg-brand-500 text-white text-xs font-bold px-3 py-1.5 rounded mb-4 uppercase tracking-wider">
+        <div className="bg-brand-500 text-white text-xs font-bold px-3 py-1.5 rounded w-max mb-4 uppercase tracking-wider">
           {mediaTypeLabel}
         </div>
 
+        {/* Italic tagline (lazy from detail) */}
+        {tagline && (
+          <p className="text-gray-400 italic text-lg md:text-xl mb-6 font-light">
+            {tagline}
+          </p>
+        )}
+
         {/* Title */}
-        <h1 className="font-display text-3xl sm:text-5xl md:text-6xl font-extrabold leading-[1.05] tracking-tight mb-4 max-w-2xl text-balance">
+        <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight mb-6 text-balance">
           {title}
         </h1>
 
-        {/* Metadata info bar */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm font-semibold mb-4 text-gray-200">
+        {/* Metadata row (template: flex flex-wrap items-center text-xs md:text-sm gap-y-2) */}
+        <div className="flex flex-wrap items-center text-xs md:text-sm text-gray-300 mb-6 gap-y-2">
           {/* Rating — gold star */}
-          <span className="flex items-center gap-1">
-            <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" />
+          <div className="flex items-center mr-3 font-semibold">
+            <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500 mr-1.5" />
             <span className="text-yellow-500">
               {movie.vote_average ? movie.vote_average.toFixed(1) : "—"}
             </span>
-          </span>
-          <span className="text-gray-600">•</span>
+          </div>
+
+          <span className="mx-2 text-gray-600 hidden sm:inline">•</span>
+
           {/* Year */}
-          <span>{formatYear(movie.release_date)}</span>
-          <span className="text-gray-600">•</span>
+          <span className="mr-3">{formatYear(movie.release_date)}</span>
+
+          <span className="mx-2 text-gray-600 hidden sm:inline">•</span>
+
           {/* Vote count */}
-          <span className="text-gray-400 font-normal">
-            {formatViews(movie.vote_count)} suara
-          </span>
-          {/* Ongoing badge — green */}
-          <span className="bg-emerald-600/90 text-white text-[10px] sm:text-xs px-2 py-0.5 rounded font-bold uppercase">
+          <span className="mr-3">{formatViews(movie.vote_count)} suara</span>
+
+          {/* Genres (lazy from detail) */}
+          {genres && (
+            <>
+              <span className="mx-2 text-gray-600 hidden md:inline">•</span>
+              <span className="mr-4 text-gray-400">{genres}</span>
+            </>
+          )}
+
+          {/* Ongoing badge — outline style (template: border + green text, not filled) */}
+          <span className="border border-green-500 text-green-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-green-500/10 mt-2 sm:mt-0">
             Ongoing
           </span>
         </div>
 
-        {/* Synopsis — line-clamp responsive */}
-        <p className="line-clamp-2 sm:line-clamp-3 text-xs sm:text-sm max-w-xs sm:max-w-md md:max-w-xl text-gray-300 mb-6 leading-relaxed">
+        {/* Synopsis — no line-clamp, natural height (template: text-sm md:text-base max-w-xl) */}
+        <p className="text-gray-300 text-sm md:text-base leading-relaxed mb-8 max-w-xl">
           {movie.overview || "Tidak ada deskripsi tersedia untuk saat ini."}
         </p>
 
-        {/* CTA buttons */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <Link
-            href={href}
-            className="bg-brand-500 text-white flex items-center gap-2 px-6 py-2.5 sm:px-8 sm:py-3.5 rounded font-bold text-sm sm:text-base hover:bg-red-700 transition transform active:scale-95 shadow-lg shadow-brand-500/30"
-          >
-            <Play className="w-4 h-4 fill-white" />
-            Watch Now
-          </Link>
-          <Link
-            href={href}
-            className="bg-white/10 backdrop-blur text-white flex items-center gap-2 px-6 py-2.5 sm:px-8 sm:py-3.5 rounded font-bold text-sm sm:text-base hover:bg-white/20 transition border border-white/10"
-          >
-            <Info className="w-4 h-4" />
-            Detail
-          </Link>
-        </div>
-      </div>
+        {/* CTA button — rounded-lg + shadow + group hover (template style) */}
+        <Link
+          href={href}
+          className="bg-brand-500 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-lg flex items-center justify-center space-x-3 w-max transition-all shadow-lg shadow-brand-500/30 group"
+        >
+          <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
+          <span>Watch Now</span>
+        </Link>
+      </main>
 
-      {/* Slider dots — bottom center */}
+      {/* Slider dots — LEFT aligned (template: left-6 md:left-16, not center) */}
       {movies.length > 1 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20">
+        <div className="absolute bottom-8 left-6 md:left-16 flex space-x-3 items-center z-10">
           {movies.map((_, i) => (
             <button
               key={i}
               onClick={() => goToSlide(i)}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
+              className={`h-1.5 rounded-full cursor-pointer transition-colors ${
                 i === activeIndex
                   ? "w-10 bg-brand-500 hover:bg-red-400"
                   : "w-1.5 bg-gray-500 hover:bg-gray-400"

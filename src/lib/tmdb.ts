@@ -48,6 +48,7 @@ export type TMDBCrewMember = { id: number; name: string; job?: string };
 
 export type TMDBMovieDetail = TMDBMovie & {
   runtime?: number | null;
+  tagline?: string;
   genres?: TMDBGenre[];
   credits?: {
     cast: TMDBCastMember[];

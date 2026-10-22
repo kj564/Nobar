@@ -24,7 +24,7 @@
   // dengan endpoint streaming Anda sendiri.
   // ---------------------------------------------------------------------------
 
-  const API_KEY    = 'YOUR_API_KEY';
+  const API_KEY    = 'a3ce3ae3ddb29e9417ffcc2889becf9b';
   const TMDB_BASE  = 'https://api.themoviedb.org/3';
   const TMDB_IMG   = 'https://image.tmdb.org/t/p/w500';
   const TMDB_IMG_LG = 'https://image.tmdb.org/t/p/w780';

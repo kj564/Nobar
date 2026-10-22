@@ -13,7 +13,6 @@ import {
 import {
   CATEGORIES,
   SERVERS as SERVERS_CONST,
-  CREATORS as CREATORS_CONST,
   fetchTrending,
   fetchByGenre,
   searchMovies,
@@ -27,7 +26,6 @@ import {
   formatViews,
   buildServerUrl,
   type Server,
-  type Creator,
 } from "@/lib/tmdb";
 
 type Category = (typeof CATEGORIES)[number];
@@ -49,18 +47,15 @@ export default function NobarPage() {
   const [modalLoading, setModalLoading] = useState(false);
   const [activeServer, setActiveServer] = useState<Server | null>(null);
   const [servers, setServers] = useState<Server[]>([]);
-  const [creators, setCreators] = useState<Creator[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [statMovies, setStatMovies] = useState<string>("—");
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Static config — imported directly (no /api/config fetch needed for
-  // static export on GitHub Pages).
+  // Static server config (no /api/config fetch needed for static export).
   useEffect(() => {
     setServers(SERVERS_CONST as unknown as Server[]);
-    setCreators(CREATORS_CONST as unknown as Creator[]);
   }, []);
 
   const showToast = useCallback((msg: string) => {
@@ -69,8 +64,19 @@ export default function NobarPage() {
     toastTimer.current = setTimeout(() => setToast(null), 2400);
   }, []);
 
+  // loadCategory accepts explicit search override so callers that change
+  // isSearching/searchQuery state don't read stale closure values.
+  // (React state updates are async — old closure sees old values.)
   const loadCategory = useCallback(
-    async (cat: Category, targetPage: number, append: boolean) => {
+    async (
+      cat: Category,
+      targetPage: number,
+      append: boolean,
+      searchOverride?: { searching: boolean; query: string }
+    ) => {
+      const searching = searchOverride?.searching ?? isSearching;
+      const query = searchOverride?.query ?? searchQuery;
+
       if (!append) {
         setLoading(true);
         setMovies([]);
@@ -80,8 +86,8 @@ export default function NobarPage() {
       setError(null);
       try {
         let data: TMDBPaged<TMDBMovie>;
-        if (isSearching && searchQuery) {
-          data = await searchMovies(searchQuery, targetPage);
+        if (searching && query) {
+          data = await searchMovies(query, targetPage);
         } else if (cat.tmdbGenreId === null) {
           data = await fetchTrending(targetPage);
         } else {
@@ -94,7 +100,7 @@ export default function NobarPage() {
           });
         } else {
           setMovies(data.results || []);
-          if (!isSearching && cat.id === "trending" && targetPage === 1) {
+          if (!searching && cat.id === "trending" && targetPage === 1) {
             setFeatured((data.results || []).slice(0, 6));
             setStatMovies(formatViews(data.total_results || 0));
           }
@@ -111,9 +117,9 @@ export default function NobarPage() {
     [isSearching, searchQuery]
   );
 
-  // Initial load
+  // Initial load (no search).
   useEffect(() => {
-    loadCategory(CATEGORIES[0], 1, false);
+    loadCategory(CATEGORIES[0], 1, false, { searching: false, query: "" });
   }, [loadCategory]);
 
   const switchCategory = (cat: Category) => {
@@ -122,14 +128,16 @@ export default function NobarPage() {
     setIsSearching(false);
     setSearchQuery("");
     setPage(1);
-    loadCategory(cat, 1, false);
+    // Pass explicit override so loadCategory doesn't read stale isSearching=true.
+    loadCategory(cat, 1, false, { searching: false, query: "" });
   };
 
   const enterSearch = (q: string) => {
     setIsSearching(true);
     setSearchQuery(q);
     setPage(1);
-    loadCategory(activeCategory, 1, false);
+    // Pass explicit override so loadCategory sees the new query immediately.
+    loadCategory(activeCategory, 1, false, { searching: true, query: q });
   };
 
   const exitSearch = () => {
@@ -137,7 +145,7 @@ export default function NobarPage() {
     setIsSearching(false);
     setSearchQuery("");
     setPage(1);
-    loadCategory(activeCategory, 1, false);
+    loadCategory(activeCategory, 1, false, { searching: false, query: "" });
   };
 
   const handleSearchInput = (value: string) => {
@@ -219,8 +227,6 @@ export default function NobarPage() {
               <button onClick={scrollTop} className="px-3 py-2 hover:text-white transition">Beranda</button>
               <button onClick={scrollTop} className="px-3 py-2 hover:text-white transition">Kategori</button>
               <a href="#featured" className="px-3 py-2 hover:text-white transition">Unggulan</a>
-              <a href="#kreator" className="px-3 py-2 hover:text-white transition">Kreator</a>
-              <a href="#tentang" className="px-3 py-2 hover:text-white transition">Tentang</a>
             </div>
             <div className="flex items-center gap-3">
               <div className="relative flex-1 min-w-[140px] max-w-[200px] sm:max-w-xs">
@@ -242,9 +248,6 @@ export default function NobarPage() {
                   className="w-full pl-9 pr-3 py-1.5 rounded-full bg-ink-800 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 focus:bg-ink-700 transition"
                 />
               </div>
-              <button className="hidden sm:inline-flex px-4 py-1.5 text-sm font-semibold bg-white text-ink-950 rounded hover:bg-gray-200 transition">
-                Masuk
-              </button>
               <button
                 onClick={scrollTop}
                 className="md:hidden p-2 text-gray-200"
@@ -298,19 +301,19 @@ export default function NobarPage() {
                 Jelajahi Kategori
               </a>
             </div>
-            {/* Dynamic stats (audit fix: no more hardcoded 240+/85/12) */}
+          {/* Stats — dynamic from live TMDB response (audit fix: no hardcoded 240+/85/12) */}
             <dl className="mt-10 grid grid-cols-3 gap-6 max-w-md">
               <div>
                 <dt className="text-2xl font-display font-bold">{statMovies}</dt>
                 <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Film Minggu Ini</dd>
               </div>
               <div>
-                <dt className="text-2xl font-display font-bold">{creators.length || "—"}</dt>
-                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Kreator</dd>
-              </div>
-              <div>
                 <dt className="text-2xl font-display font-bold">{CATEGORIES.length}</dt>
                 <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Kategori</dd>
+              </div>
+              <div>
+                <dt className="text-2xl font-display font-bold">{servers.length || "—"}</dt>
+                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Server Tersedia</dd>
               </div>
             </dl>
           </div>
@@ -445,82 +448,6 @@ export default function NobarPage() {
           )}
         </div>
       </main>
-
-      {/* Creators */}
-      <section id="kreator" className="py-12 border-t border-white/5">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="font-display text-2xl sm:text-3xl font-bold mb-6">Kreator Pilihan</h2>
-          {creators.length === 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="bg-ink-900 rounded-lg p-4 text-center border border-white/5">
-                  <div className="skeleton w-16 h-16 mx-auto rounded-full"></div>
-                  <div className="skeleton h-3 mt-3 w-2/3 mx-auto rounded"></div>
-                  <div className="skeleton h-2 mt-2 w-1/2 mx-auto rounded"></div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {creators.map((c, i) => (
-                <div
-                  key={i}
-                  className="bg-ink-900 rounded-lg p-4 text-center border border-white/5 hover:border-white/20 transition"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={c.avatar}
-                    alt={c.name}
-                    loading="lazy"
-                    className="w-16 h-16 mx-auto rounded-full object-cover border-2 border-white/10"
-                  />
-                  <h4 className="mt-3 font-semibold text-sm">{c.name}</h4>
-                  <p className="text-xs text-gray-400">{c.role}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* About / Tentang */}
-      <section id="tentang" className="py-12 border-t border-white/5">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-          <div>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold mb-4">
-              Platform untuk kreator, oleh kreator.
-            </h2>
-            <p className="text-gray-300 leading-relaxed">
-              Nobar adalah ruang streaming untuk film pendek dan karya audiovisual indie
-              Indonesia. Setiap judul dapat diakses melalui beberapa server cadangan,
-              sehingga pemutaran tetap stabil meski satu server sibuk.
-            </p>
-            <ul className="mt-6 space-y-3 text-sm text-gray-300">
-              <li className="flex items-start gap-3">
-                <span className="mt-1 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0"></span>
-                Multi-server load balancing untuk stabilitas streaming.
-              </li>
-              <li className="flex items-start gap-3">
-                <span className="mt-1 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0"></span>
-                Katalog dinamis dari TMDB (trending, discover, search).
-              </li>
-              <li className="flex items-start gap-3">
-                <span className="mt-1 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0"></span>
-                Profil kreator dengan tautan portofolio & sosial media.
-              </li>
-            </ul>
-          </div>
-          <div className="aspect-[4/3] rounded-2xl overflow-hidden border border-white/10">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="https://images.unsplash.com/photo-1536440136628-849c0f2a5103?auto=format&fit=crop&w=1200&q=80"
-              alt="Behind the scenes"
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-          </div>
-        </div>
-      </section>
 
       {/* Footer — sticky to bottom (audit fix: 2025, not 2026) */}
       <footer className="border-t border-white/5 py-10 mt-auto">

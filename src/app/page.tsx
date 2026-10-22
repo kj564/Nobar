@@ -4,10 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   Play,
-  Star,
   X,
   Search as SearchIcon,
-  Menu,
   Tv,
 } from "lucide-react";
 import {
@@ -22,6 +20,7 @@ import {
 } from "@/lib/tmdb";
 import { MovieCard, SeriesCard } from "@/components/MovieCard";
 import { HeroBanner } from "@/components/HeroBanner";
+import { Navbar } from "@/components/Navbar";
 
 type Category = (typeof CATEGORIES)[number];
 
@@ -155,59 +154,28 @@ export default function NobarPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-ink-950 text-white">
-      {/* Header */}
-      <header id="header" className="fixed top-0 inset-x-0 z-40 transition-all duration-300">
-        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 gap-4">
-            {/* Left: Logo + Nav links */}
-            <div className="flex items-center gap-6">
-              <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
-                <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition">
-                  <Play className="w-5 h-5 fill-white" />
-                </div>
-                <span className="font-display text-xl font-extrabold tracking-tight">
-                  No<span className="text-brand-500">bar</span>
-                </span>
-              </Link>
-              <div className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-300">
-                <Link href="/" className="px-3 py-2 text-white border-b-2 border-brand-500">Home</Link>
-                <Link href="/movie/" className="px-3 py-2 hover:text-white transition">Movies</Link>
-                <Link href="/series/" className="px-3 py-2 hover:text-white transition">TV Series</Link>
-              </div>
-            </div>
-
-            {/* Right: Search */}
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <div className="relative w-[200px] sm:w-[280px]">
-                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Cari film, judul…"
-                  autoComplete="off"
-                  aria-label="Cari film"
-                  onChange={(e) => handleSearchInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const v = (e.target as HTMLInputElement).value.trim();
-                      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-                      if (v.length >= 2) enterSearch(v);
-                      else if (v.length === 0) exitSearch();
-                    } else if (e.key === "Escape" && isSearching) exitSearch();
-                  }}
-                  className="w-full pl-9 pr-3 py-1.5 rounded-full bg-ink-800 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 focus:bg-ink-700 transition"
-                />
-              </div>
-              <button
-                onClick={scrollTop}
-                className="md:hidden p-2 text-gray-200"
-                aria-label="Menu"
-              >
-                <Menu className="w-6 h-6" />
-              </button>
-            </div>
-          </div>
-        </nav>
-      </header>
+      {/* Header — IDLIX pill style (shared component) */}
+      <Navbar>
+        <div className="relative w-[200px] sm:w-[280px]">
+          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Cari film, judul…"
+            autoComplete="off"
+            aria-label="Cari film"
+            onChange={(e) => handleSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const v = (e.target as HTMLInputElement).value.trim();
+                if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                if (v.length >= 2) enterSearch(v);
+                else if (v.length === 0) exitSearch();
+              } else if (e.key === "Escape" && isSearching) exitSearch();
+            }}
+            className="w-full pl-9 pr-3 py-1.5 rounded-full bg-ink-800 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 focus:bg-ink-700 transition"
+          />
+        </div>
+      </Navbar>
 
       {/* Hero Banner — Netflix-style, dynamic from trending movies.
           pt-16 wrapper pushes hero below fixed navbar (z-40) so content

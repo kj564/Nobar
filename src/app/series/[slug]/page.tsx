@@ -13,6 +13,7 @@ import {
   type Server,
 } from "@/lib/tmdb";
 import { MoviePlayer } from "@/components/MoviePlayer";
+import { Navbar } from "@/components/Navbar";
 
 // Pre-render detail pages for top 20 trending TV series at build time.
 export const dynamicParams = false;
@@ -62,36 +63,19 @@ export default async function SeriesDetailPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen flex flex-col bg-ink-950 text-white">
-      {/* Header */}
-      <header className="sticky top-0 z-40 backdrop-blur-md bg-ink-950/80 border-b border-white/5">
-        <nav className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
-              <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition">
-                <Play className="w-5 h-5 fill-white" />
-              </div>
-              <span className="font-display text-xl font-extrabold tracking-tight">
-                No<span className="text-brand-500">bar</span>
-              </span>
-            </Link>
-            <div className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-300">
-              <Link href="/" className="px-3 py-2 hover:text-white transition">Home</Link>
-              <Link href="/movie/" className="px-3 py-2 hover:text-white transition">Movies</Link>
-              <Link href="/series/" className="px-3 py-2 text-white border-b-2 border-brand-500">TV Series</Link>
-            </div>
-          </div>
-          <Link
-            href="/series/"
-            className="inline-flex items-center gap-2 text-sm text-gray-300 hover:text-white transition"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Kembali</span>
-          </Link>
-        </nav>
-      </header>
+      {/* Header — IDLIX pill style (shared component) */}
+      <Navbar>
+        <Link
+          href="/series/"
+          className="inline-flex items-center gap-2 text-sm text-gray-300 hover:text-white transition"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span className="hidden sm:inline">Kembali</span>
+        </Link>
+      </Navbar>
 
-      {/* Body */}
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      {/* Body — pt-16 pushes content below fixed navbar */}
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pt-24 space-y-6">
         {/* Title + meta */}
         <div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 mb-2">

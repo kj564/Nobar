@@ -113,6 +113,35 @@ export async function fetchMovieDetail(id: number): Promise<TMDBMovieDetail> {
   });
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Movie images (logos, posters, backdrops) — used by hero banner for
+// cinematic title logo display instead of plain text.
+// ──────────────────────────────────────────────────────────────────────────
+
+export type TMDBLogo = {
+  file_path: string;
+  iso_639_1: string | null;
+  aspect_ratio: number;
+  height: number;
+  width: number;
+  vote_average: number;
+  vote_count: number;
+};
+
+export type TMDBImages = {
+  logos: TMDBLogo[];
+  posters: TMDBMovie[];
+  backdrops: TMDBMovie[];
+};
+
+export async function fetchMovieImages(id: number): Promise<TMDBImages> {
+  // include_image_language=en,null → prefer English logos, fall back to
+  // language-neutral (no text) logos so we get a logo for every movie.
+  return tmdbGet<TMDBImages>(`/movie/${id}/images`, {
+    include_image_language: "en,null",
+  });
+}
+
 export const CATEGORIES = [
   { id: "trending", name: "Trending", tmdbGenreId: null as number | null },
   { id: 28, name: "Action", tmdbGenreId: 28 },
@@ -202,6 +231,24 @@ export function backdropUrl(
         ? "https://image.tmdb.org/t/p/w780"
         : TMDB_IMG_ORIG;
   return base + path;
+}
+
+// Logo image URL — used by hero banner to display movie title as a
+// cinematic logo image (PNG with transparency) instead of plain text.
+// Example: logoUrl('/2wgUnrYEGtbcpZCl83ta2hS8d6J.png')
+//        → 'https://image.tmdb.org/t/p/w500/2wgUnrYEGtbcpZCl83ta2hS8d6J.png'
+export function logoUrl(
+  filePath?: string | null,
+  size: "w300" | "w500" | "original" = "w500"
+): string {
+  if (!filePath) return "";
+  const base =
+    size === "w300"
+      ? "https://image.tmdb.org/t/p/w300"
+      : size === "original"
+        ? TMDB_IMG_ORIG
+        : "https://image.tmdb.org/t/p/w500";
+  return base + filePath;
 }
 
 export function formatRuntime(minutes?: number | null): string {

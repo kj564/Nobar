@@ -2,15 +2,17 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Play, Star, Info, ChevronLeft, ChevronRight } from "lucide-react";
+import { Play, Star, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   type TMDBMovie,
   type TMDBMovieDetail,
   backdropUrl,
+  logoUrl,
   formatYear,
   formatViews,
   slugify,
   fetchMovieDetail,
+  fetchMovieImages,
 } from "@/lib/tmdb";
 
 type HeroBannerProps = {
@@ -20,6 +22,7 @@ type HeroBannerProps = {
 export function HeroBanner({ movies }: HeroBannerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [details, setDetails] = useState<Record<number, TMDBMovieDetail>>({});
+  const [logos, setLogos] = useState<Record<number, string | null>>({});
 
   // Auto-rotate every 8 seconds
   useEffect(() => {
@@ -30,27 +33,39 @@ export function HeroBanner({ movies }: HeroBannerProps) {
     return () => clearInterval(timer);
   }, [movies.length]);
 
-  // Fetch ALL movie details once on mount (NOT lazy per-slide).
-  // Promise.all — parallel fetch, store in map keyed by movie id.
+  // Fetch ALL movie details + images in parallel on mount (NOT lazy).
+  // Promise.all → parallel fetch, store in maps keyed by movie id.
   useEffect(() => {
     if (movies.length === 0) return;
     let cancelled = false;
     Promise.all(
-      movies.map((m) =>
-        fetchMovieDetail(m.id)
-          .then((detail) => [m.id, detail] as const)
-          .catch((e) => {
-            console.warn("Hero detail fetch failed for", m.id, e);
-            return [m.id, null] as const;
-          })
-      )
+      movies.map(async (m) => {
+        try {
+          const [detail, images] = await Promise.all([
+            fetchMovieDetail(m.id),
+            fetchMovieImages(m.id),
+          ]);
+          return {
+            id: m.id,
+            detail,
+            // Prefer first logo (English or language-neutral)
+            logo: images.logos?.[0]?.file_path || null,
+          };
+        } catch (e) {
+          console.warn("Hero fetch failed for", m.id, e);
+          return { id: m.id, detail: null, logo: null };
+        }
+      })
     ).then((results) => {
       if (cancelled) return;
-      const map: Record<number, TMDBMovieDetail> = {};
-      for (const [id, detail] of results) {
-        if (detail) map[id as number] = detail as TMDBMovieDetail;
+      const detailMap: Record<number, TMDBMovieDetail> = {};
+      const logoMap: Record<number, string | null> = {};
+      for (const r of results) {
+        if (r.detail) detailMap[r.id] = r.detail;
+        logoMap[r.id] = r.logo;
       }
-      setDetails(map);
+      setDetails(detailMap);
+      setLogos(logoMap);
     });
     return () => {
       cancelled = true;
@@ -75,9 +90,10 @@ export function HeroBanner({ movies }: HeroBannerProps) {
         <div className="absolute inset-0 skeleton opacity-30" />
         <div className="absolute bottom-0 left-0 w-full md:w-3/4 lg:w-3/5 xl:w-1/2 p-6 md:p-16 pb-28 flex flex-col justify-end gap-4">
           <div className="skeleton h-5 w-20 rounded" />
-          <div className="skeleton h-12 w-3/4 rounded" />
+          <div className="skeleton h-24 w-80 rounded" />
           <div className="skeleton h-4 w-48 rounded" />
-          <div className="skeleton h-24 w-full rounded" />
+          <div className="skeleton h-4 w-64 rounded" />
+          <div className="skeleton h-24 w-full max-w-md rounded" />
           <div className="skeleton h-12 w-40 rounded-lg" />
         </div>
       </div>
@@ -91,8 +107,11 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const isMovie = Boolean(movie.title);
   const mediaTypeLabel = isMovie ? "Film" : "TV Series";
   const href = isMovie ? `/movie/${slug}` : `/series/${slug}`;
-  const tagline = details[movie.id]?.tagline;
-  const genres = details[movie.id]?.genres?.slice(0, 3).map((g) => g.name).join(", ");
+  const detail = details[movie.id];
+  const logo = logos[movie.id];
+  const tagline = detail?.tagline;
+  const genres = detail?.genres?.slice(0, 3).map((g) => g.name).join(", ");
+  const overview = movie.overview || "Belum ada sinopsis resmi untuk film ini.";
 
   return (
     <div
@@ -113,9 +132,7 @@ export function HeroBanner({ movies }: HeroBannerProps) {
       )}
 
       {/* Heavy dark gradient overlays (template: dual layer) */}
-      {/* Left to Right */}
       <div className="absolute inset-0 bg-gradient-to-r from-[#141414] via-[#141414]/80 to-transparent z-0" />
-      {/* Bottom to Top */}
       <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/40 to-transparent z-0" />
 
       {/* Slider arrows (desktop) */}
@@ -138,27 +155,37 @@ export function HeroBanner({ movies }: HeroBannerProps) {
         </>
       )}
 
-      {/* Main content — bottom left, half width on desktop (template: w-full md:w-3/4 lg:w-3/5 xl:w-1/2) */}
+      {/* Main content — bottom left, half width on desktop */}
       <main className="relative z-10 flex-grow flex flex-col justify-end px-6 md:px-16 pb-28 w-full md:w-3/4 lg:w-3/5 xl:w-1/2 h-full">
         {/* Red badge — media type */}
         <div className="bg-brand-500 text-white text-xs font-bold px-3 py-1.5 rounded w-max mb-4 uppercase tracking-wider">
           {mediaTypeLabel}
         </div>
 
-        {/* Italic tagline (lazy from detail) */}
-        {tagline && (
-          <p className="text-gray-400 italic text-lg md:text-xl mb-6 font-light">
+        {/* Title — logo image (TMDB /movie/{id}/images) if available, else text */}
+        {logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={logoUrl(logo, "w500")}
+            alt={title}
+            className="w-80 md:w-96 lg:max-w-md object-contain mb-2 drop-shadow-2xl"
+          />
+        ) : (
+          <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight mb-2 text-balance">
+            {title}
+          </h1>
+        )}
+
+        {/* Tagline — conditional render (hidden if empty), below title.
+            line-clamp-1 truncates with "..." if too long. */}
+        {tagline && tagline.trim() !== "" && (
+          <p className="text-gray-400 italic text-xs sm:text-sm font-medium tracking-wide mb-2 block line-clamp-1">
             {tagline}
           </p>
         )}
 
-        {/* Title */}
-        <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight mb-6 text-balance">
-          {title}
-        </h1>
-
-        {/* Metadata row (template: flex flex-wrap items-center text-xs md:text-sm gap-y-2) */}
-        <div className="flex flex-wrap items-center text-xs md:text-sm text-gray-300 mb-6 gap-y-2">
+        {/* Metadata row */}
+        <div className="flex flex-wrap items-center text-xs md:text-sm text-gray-300 mb-6 gap-y-2 mt-2">
           {/* Rating — gold star */}
           <div className="flex items-center mr-3 font-semibold">
             <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500 mr-1.5" />
@@ -177,7 +204,7 @@ export function HeroBanner({ movies }: HeroBannerProps) {
           {/* Vote count */}
           <span className="mr-3">{formatViews(movie.vote_count)} suara</span>
 
-          {/* Genres (lazy from detail) */}
+          {/* Genres (from pre-fetched detail) */}
           {genres && (
             <>
               <span className="mx-2 text-gray-600 hidden md:inline">•</span>
@@ -185,18 +212,19 @@ export function HeroBanner({ movies }: HeroBannerProps) {
             </>
           )}
 
-          {/* Ongoing badge — outline style (template: border + green text, not filled) */}
+          {/* Ongoing badge — outline style */}
           <span className="border border-green-500 text-green-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-green-500/10 mt-2 sm:mt-0">
             Ongoing
           </span>
         </div>
 
-        {/* Synopsis — no line-clamp, natural height (template: text-sm md:text-base max-w-xl) */}
-        <p className="text-gray-300 text-sm md:text-base leading-relaxed mb-8 max-w-xl">
-          {movie.overview || "Tidak ada deskripsi tersedia untuk saat ini."}
+        {/* Synopsis — responsive line-clamp + fallback text.
+            line-clamp-2 on mobile, line-clamp-3 on sm+ truncates with "..." */}
+        <p className="text-gray-300 text-xs sm:text-sm md:text-base max-w-xs sm:max-w-md md:max-w-xl mb-6 line-clamp-2 sm:line-clamp-3 leading-relaxed">
+          {overview}
         </p>
 
-        {/* CTA button — rounded-lg + shadow + group hover (template style) */}
+        {/* CTA button — rounded-lg + shadow + group hover */}
         <Link
           href={href}
           className="bg-brand-500 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-lg flex items-center justify-center space-x-3 w-max transition-all shadow-lg shadow-brand-500/30 group"
@@ -206,7 +234,7 @@ export function HeroBanner({ movies }: HeroBannerProps) {
         </Link>
       </main>
 
-      {/* Slider dots — LEFT aligned (template: left-6 md:left-16, not center) */}
+      {/* Slider dots — LEFT aligned (template: left-6 md:left-16) */}
       {movies.length > 1 && (
         <div className="absolute bottom-8 left-6 md:left-16 flex space-x-3 items-center z-10">
           {movies.map((_, i) => (

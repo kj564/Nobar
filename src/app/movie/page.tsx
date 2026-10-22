@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import Link from "next/link";
-import { Play, ArrowLeft, X } from "lucide-react";
+import { Search as SearchIcon, X } from "lucide-react";
 import {
   CATEGORIES,
   fetchTrending,
@@ -12,6 +11,7 @@ import {
   type TMDBPaged,
 } from "@/lib/tmdb";
 import { MovieCard } from "@/components/MovieCard";
+import { Navbar } from "@/components/Navbar";
 
 type Category = (typeof CATEGORIES)[number];
 
@@ -116,48 +116,26 @@ export default function MovieListingPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-ink-950 text-white">
-      {/* Header */}
-      <header className="sticky top-0 z-40 backdrop-blur-md bg-ink-950/80 border-b border-white/5">
-        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 gap-4">
-            <div className="flex items-center gap-6">
-              <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
-                <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition">
-                  <Play className="w-5 h-5 fill-white" />
-                </div>
-                <span className="font-display text-xl font-extrabold tracking-tight">
-                  No<span className="text-brand-500">bar</span>
-                </span>
-              </Link>
-              <div className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-300">
-                <Link href="/" className="px-3 py-2 hover:text-white transition">Home</Link>
-                <Link href="/movie/" className="px-3 py-2 text-white border-b-2 border-brand-500">
-                  Movies
-                </Link>
-                <Link href="/series/" className="px-3 py-2 hover:text-white transition">TV Series</Link>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <div className="relative w-[200px] sm:w-[280px]">
-                <input
-                  type="text"
-                  placeholder="Cari film, judul…"
-                  autoComplete="off"
-                  aria-label="Cari film"
-                  onChange={(e) => handleSearchInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape" && isSearching) exitSearch();
-                  }}
-                  className="w-full pl-9 pr-3 py-1.5 rounded-full bg-ink-800 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 focus:bg-ink-700 transition"
-                />
-              </div>
-            </div>
-          </div>
-        </nav>
-      </header>
+      {/* Header — IDLIX pill style (shared component) */}
+      <Navbar>
+        <div className="relative w-[200px] sm:w-[280px]">
+          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Cari film, judul…"
+            autoComplete="off"
+            aria-label="Cari film"
+            onChange={(e) => handleSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && isSearching) exitSearch();
+            }}
+            className="w-full pl-9 pr-3 py-1.5 rounded-full bg-ink-800 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 focus:bg-ink-700 transition"
+          />
+        </div>
+      </Navbar>
 
-      {/* Body */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+      {/* Body — pt-16 pushes content below fixed navbar */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 pt-24">
         <div className="mb-6">
           <h1 className="font-display text-3xl sm:text-4xl font-extrabold">Movies</h1>
           <p className="text-sm text-gray-400 mt-1">

@@ -176,9 +176,9 @@ export default function NobarPage() {
                 </span>
               </Link>
               <div className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-300">
-                <a href="#hero" className="px-3 py-2 hover:text-white transition">Home</a>
-                <a href="#featured" className="px-3 py-2 hover:text-white transition">Movies</a>
-                <a href="#series" className="px-3 py-2 hover:text-white transition">TV Series</a>
+                <Link href="/" className="px-3 py-2 text-white border-b-2 border-brand-500">Home</Link>
+                <Link href="/movie/" className="px-3 py-2 hover:text-white transition">Movies</Link>
+                <Link href="/series/" className="px-3 py-2 hover:text-white transition">TV Series</Link>
               </div>
             </div>
 

@@ -16,25 +16,29 @@ window.NOBAR_DATA = (function () {
     {
       id: 'utama',
       name: 'Server 1 (HD)',
-      pattern: 'https://vidsrc.to{video_id}',  // ← PERBAIKAN: Ditambahkan /embed/movie/
-      quality: '1080p'
+      pattern: 'https://vidsrc.to{video_id}', // ← PERBAIKAN: Sub-path ditambahkan dengan benar
+      quality: '1080p',
+      load: 32,
+      recommended: true
     },
     {
       id: 'cadangan',
       name: 'Server 2 (Fast)',
-      pattern: 'https://vidsrc.sh{video_id}',  // ← PERBAIKAN: Ditambahkan /embed/movie/
-      quality: '720p'
+      pattern: 'https://vidsrc.sh{video_id}', // ← PERBAIKAN: Sub-path ditambahkan dengan benar
+      quality: '720p',
+      load: 15,
+      recommended: false
     }
   ];
 
   // Sample kreator untuk section "Kreator Pilihan" (static, decorative).
   const CREATORS = [
-    { name: 'Aisyah Putri',    role: 'Dokumenter',       avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80' },
-    { name: 'Bayu Mahendra',   role: 'Musisi',           avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc664aec0?auto=format&fit=crop&w=200&q=80' },
-    { name: 'Koli Animation', role: 'Studio Animasi',   avatar: 'https://images.unsplash.com/photo-1611162616475-46b9b41f9f9b?auto=format&fit=crop&w=200&q=80' },
-    { name: 'Reza Pamungkas',  role: 'Sineas',           avatar: 'https://images.unsplash.com/photo-1507003181164-6e864c1e1f77?auto=format&fit=crop&w=200&q=80' },
-    { name: 'Lintas Pantura',  role: 'Kolektif',         avatar: 'https://images.unsplash.com/photo-1502685104226-ee32379f9f7f?auto=format&fit=crop&w=200&q=80' },
-    { name: 'Devi Anjani',     role: 'Sineas',           avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d35?auto=format&fit=crop&w=200&q=80' },
+    { name: 'Aisyah Putri',    role: 'Dokumenter',       avatar: 'https://unsplash.com' },
+    { name: 'Bayu Mahendra',   role: 'Musisi',           avatar: 'https://unsplash.com' },
+    { name: 'Koli Animation', role: 'Studio Animasi',   avatar: 'https://unsplash.com' },
+    { name: 'Reza Pamungkas',  role: 'Sineas',           avatar: 'https://unsplash.com' },
+    { name: 'Lintas Pantura',  role: 'Kolektif',         avatar: 'https://unsplash.com' },
+    { name: 'Devi Anjani',     role: 'Sineas',           avatar: 'https://unsplash.com' },
   ];
 
   return { SERVERS, CREATORS };

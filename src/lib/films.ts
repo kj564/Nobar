@@ -1,16 +1,15 @@
-// Curated catalog of public-domain films + our own hosted feature.
-// All entries are either (a) films in the public domain, (b) trailers
-// streamed from YouTube's official embed, or (c) our own hosted source.
-// No third-party piracy embeds.
+// Curated catalog of public-domain films.
+// All entries stream from the Internet Archive (legal, free, public domain)
+// or YouTube's official embed (trailers). No third-party piracy embeds,
+// no private-drive proxies, no ffmpeg.
 
-export type SourceKind = 'drive' | 'youtube' | 'archive';
+export type SourceKind = 'youtube' | 'archive';
 
 export type Source = {
   kind: SourceKind;
   label: string;
-  // For 'drive': path to our proxy API.
-  // For 'youtube': official YouTube embed URL (trailer).
   // For 'archive': Internet Archive embed URL (public-domain player).
+  // For 'youtube': official YouTube embed URL (trailer).
   url: string;
 };
 
@@ -27,8 +26,7 @@ export type Film = {
   logline: string;
   synopsis: string;
   posterColor: string; // tailwind gradient classes for poster placeholder
-  // A still frame for the hero background.
-  stillColor: string;
+  stillColor: string; // tailwind gradient for hero backdrop
   sources: Source[];
   featured?: boolean;
 };
@@ -37,28 +35,6 @@ const Y = (id: string) => `https://www.youtube.com/embed/${id}?rel=0&modestbrand
 const IA = (id: string) => `https://archive.org/embed/${id}`;
 
 export const FILMS: Film[] = [
-  {
-    id: 'nobar-drive',
-    title: 'Nobar',
-    year: 2026,
-    director: 'Unlisted',
-    runtime: '2h 10m',
-    country: 'ID',
-    language: 'Indonesia',
-    rating: 8.4,
-    genres: ['Feature', 'Private', 'Soft-subbed'],
-    logline:
-      'A single feature, streamed plainly. No carousel, no algorithm, no autoplay trailer of something else. One room, one screen, one film.',
-    synopsis:
-      'A late-night screening. The lights are low, the room is quiet, and the only thing playing is the film itself. Subtitles are carried inside the container and surfaced on first request. Streamed straight from a private source with byte-range seeking.',
-    posterColor: 'from-amber-900 via-stone-800 to-stone-950',
-    stillColor: 'from-stone-950 via-stone-900 to-amber-950/40',
-    sources: [
-      { kind: 'drive', label: 'Original · Google Drive', url: '/api/stream' },
-      { kind: 'youtube', label: 'Trailer', url: Y('dQw4w9WgXcQ') },
-    ],
-    featured: true,
-  },
   {
     id: 'nosferatu',
     title: 'Nosferatu',
@@ -79,6 +55,7 @@ export const FILMS: Film[] = [
       { kind: 'archive', label: 'Internet Archive', url: IA('Nosferatu1922') },
       { kind: 'youtube', label: 'Trailer · Restoration', url: Y('1zG4MBsWYpA') },
     ],
+    featured: true,
   },
   {
     id: 'metropolis',
@@ -186,7 +163,7 @@ export const FILMS: Film[] = [
     ],
   },
   {
-    id: 'pancake-mountain',
+    id: 'movie-camera',
     title: 'Man with a Movie Camera',
     year: 1929,
     director: 'Dziga Vertov',
@@ -210,19 +187,24 @@ export const FILMS: Film[] = [
 
 export const ROWS: { title: string; subtitle?: string; ids: string[] }[] = [
   {
-    title: 'Now Showing',
-    subtitle: 'Tonight’s single feature.',
-    ids: ['nobar-drive'],
+    title: 'Featured Tonight',
+    subtitle: 'Tonight’s pick.',
+    ids: ['nosferatu'],
   },
   {
     title: 'Public Domain · The Silent Era',
     subtitle: 'Free to watch, free to keep.',
-    ids: ['nosferatu', 'metropolis', 'general', 'trip-moon', 'charlie-chaplin-kid', 'pancake-mountain'],
+    ids: ['nosferatu', 'metropolis', 'general', 'trip-moon', 'charlie-chaplin-kid', 'movie-camera'],
   },
   {
     title: 'After Dark · Horror',
     subtitle: 'For the lights-low hours.',
     ids: ['night-living-dead', 'nosferatu'],
+  },
+  {
+    title: 'Short & Strange',
+    subtitle: 'Under 15 minutes.',
+    ids: ['trip-moon'],
   },
 ];
 

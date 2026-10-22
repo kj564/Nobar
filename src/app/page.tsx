@@ -164,23 +164,27 @@ export default function NobarPage() {
       {/* Header */}
       <header id="header" className="fixed top-0 inset-x-0 z-40 transition-all duration-300">
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <Link href="/" className="flex items-center gap-2 group">
-              <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition">
-                <Play className="w-5 h-5 fill-white" />
+          <div className="flex items-center justify-between h-16 gap-4">
+            {/* Left: Logo + Nav links */}
+            <div className="flex items-center gap-6">
+              <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
+                <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition">
+                  <Play className="w-5 h-5 fill-white" />
+                </div>
+                <span className="font-display text-xl font-extrabold tracking-tight">
+                  No<span className="text-brand-500">bar</span>
+                </span>
+              </Link>
+              <div className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-300">
+                <a href="#hero" className="px-3 py-2 hover:text-white transition">Home</a>
+                <a href="#featured" className="px-3 py-2 hover:text-white transition">Movies</a>
+                <a href="#series" className="px-3 py-2 hover:text-white transition">TV Series</a>
               </div>
-              <span className="font-display text-xl font-extrabold tracking-tight">
-                No<span className="text-brand-500">bar</span>
-              </span>
-            </Link>
-            <div className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-300">
-              <button onClick={scrollTop} className="px-3 py-2 hover:text-white transition">Beranda</button>
-              <button onClick={scrollTop} className="px-3 py-2 hover:text-white transition">Kategori</button>
-              <a href="#featured" className="px-3 py-2 hover:text-white transition">Unggulan</a>
-              <a href="#series" className="px-3 py-2 hover:text-white transition">Series</a>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="relative flex-1 min-w-[140px] max-w-[200px] sm:max-w-xs">
+
+            {/* Right: Search */}
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="relative w-[200px] sm:w-[280px]">
                 <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 <input
                   type="text"

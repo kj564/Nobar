@@ -151,6 +151,26 @@ export type Server = {
   recommended: boolean;
 };
 
+// Server patterns for TV series — vidsrc uses /tv/ instead of /movie/
+export const SERVERS_TV = [
+  {
+    id: "utama",
+    name: "Server 1 (HD)",
+    pattern: "https://vidsrc.to/embed/tv/{video_id}",
+    quality: "1080p",
+    load: 32,
+    recommended: true,
+  },
+  {
+    id: "cadangan",
+    name: "Server 2 (Fast)",
+    pattern: "https://vidsrc.sh/embed/tv/{video_id}",
+    quality: "720p",
+    load: 15,
+    recommended: false,
+  },
+] as const;
+
 export const CREATORS = [
   { name: "Aisyah Putri", role: "Dokumenter", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80" },
   { name: "Bayu Mahendra", role: "Musisi", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc664aec0?auto=format&fit=crop&w=200&q=80" },
@@ -189,4 +209,81 @@ export function formatViews(count?: number | null): string {
 
 export function buildServerUrl(serverPattern: string, videoId: string | number): string {
   return serverPattern.replace("{video_id}", encodeURIComponent(String(videoId)));
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// TV Series types + fetchers
+// ──────────────────────────────────────────────────────────────────────────
+
+export type TMDBSeries = {
+  id: number;
+  name?: string;
+  title?: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  first_air_date?: string;
+  vote_average?: number;
+  vote_count?: number;
+};
+
+export type TMDBSeriesDetail = TMDBSeries & {
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+  episode_run_time?: number[];
+  status?: string;
+  genres?: TMDBGenre[];
+  created_by?: Array<{ id: number; name: string; profile_path?: string | null }>;
+  credits?: {
+    cast: TMDBCastMember[];
+    crew: TMDBCrewMember[];
+  };
+  similar?: { results: TMDBSeries[] };
+  videos?: { results: Array<{ id: string; key: string; site: string; type: string; name: string }> };
+};
+
+export async function fetchTrendingTV(page = 1): Promise<TMDBPaged<TMDBSeries>> {
+  return tmdbGet<TMDBPaged<TMDBSeries>>("/trending/tv/week", { page });
+}
+
+export async function fetchTVDetail(id: number): Promise<TMDBSeriesDetail> {
+  return tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {
+    append_to_response: "videos,credits,similar",
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Slug helper — generates URL-safe slug from title + year
+// Examples:
+//   slugify("The Hunt", "2012-06-15")     → "the-hunt-2012"
+//   slugify("Cyberpunk: Edgerunners", "2022-09-13") → "cyberpunk-edgerunners-2022"
+//   slugify("Spider-Man: Brand New Day", "2026-07-31") → "spider-man-brand-new-day-2026"
+// ──────────────────────────────────────────────────────────────────────────
+
+export function slugify(
+  title: string | undefined,
+  dateStr: string | undefined
+): string {
+  const titlePart = (title || "untitled")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const year = dateStr ? String(dateStr).slice(0, 4) : "";
+  return year ? `${titlePart}-${year}` : titlePart;
+}
+
+// Find a movie by slug within a list (used by detail pages to resolve
+// slug → TMDB ID at build time).
+export function findMovieBySlug(
+  movies: TMDBMovie[],
+  slug: string
+): TMDBMovie | undefined {
+  return movies.find((m) => slugify(m.title || m.name, m.release_date) === slug);
+}
+
+export function findSeriesBySlug(
+  series: TMDBSeries[],
+  slug: string
+): TMDBSeries | undefined {
+  return series.find((s) => slugify(s.name || s.title, s.first_air_date) === slug);
 }

@@ -1,31 +1,28 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import {
   Play,
   Star,
   X,
   Search as SearchIcon,
-  ChevronLeft,
-  ChevronRight,
   Menu,
+  Tv,
 } from "lucide-react";
 import {
   CATEGORIES,
-  SERVERS as SERVERS_CONST,
   fetchTrending,
   fetchByGenre,
+  fetchTrendingTV,
   searchMovies,
-  fetchMovieDetail,
+  slugify,
   type TMDBMovie,
-  type TMDBMovieDetail,
+  type TMDBSeries,
   type TMDBPaged,
   posterUrl,
-  formatRuntime,
   formatYear,
   formatViews,
-  buildServerUrl,
-  type Server,
 } from "@/lib/tmdb";
 
 type Category = (typeof CATEGORIES)[number];
@@ -34,6 +31,7 @@ export default function NobarPage() {
   const [activeCategory, setActiveCategory] = useState<Category>(CATEGORIES[0]);
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [featured, setFeatured] = useState<TMDBMovie[]>([]);
+  const [tvSeries, setTvSeries] = useState<TMDBSeries[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -41,32 +39,23 @@ export default function NobarPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-
-  const [selectedMovie, setSelectedMovie] = useState<TMDBMovieDetail | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalLoading, setModalLoading] = useState(false);
-  const [activeServer, setActiveServer] = useState<Server | null>(null);
-  const [servers, setServers] = useState<Server[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
   const [statMovies, setStatMovies] = useState<string>("—");
+  const [statSeries, setStatSeries] = useState<string>("—");
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Static server config (no /api/config fetch needed for static export).
+  // Fetch TV trending once on mount (separate from movie category switching).
   useEffect(() => {
-    setServers(SERVERS_CONST as unknown as Server[]);
-  }, []);
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2400);
+    fetchTrendingTV(1)
+      .then((data) => {
+        setTvSeries((data.results || []).slice(0, 12));
+        setStatSeries(formatViews(data.total_results || 0));
+      })
+      .catch((e) => console.warn("TV trending fetch failed", e));
   }, []);
 
   // loadCategory accepts explicit search override so callers that change
   // isSearching/searchQuery state don't read stale closure values.
-  // (React state updates are async — old closure sees old values.)
   const loadCategory = useCallback(
     async (
       cat: Category,
@@ -128,7 +117,6 @@ export default function NobarPage() {
     setIsSearching(false);
     setSearchQuery("");
     setPage(1);
-    // Pass explicit override so loadCategory doesn't read stale isSearching=true.
     loadCategory(cat, 1, false, { searching: false, query: "" });
   };
 
@@ -136,7 +124,6 @@ export default function NobarPage() {
     setIsSearching(true);
     setSearchQuery(q);
     setPage(1);
-    // Pass explicit override so loadCategory sees the new query immediately.
     loadCategory(activeCategory, 1, false, { searching: true, query: q });
   };
 
@@ -159,43 +146,6 @@ export default function NobarPage() {
 
   const loadMore = () => loadCategory(activeCategory, page + 1, true);
 
-  const openModal = async (movieId: number) => {
-    setModalOpen(true);
-    setModalLoading(true);
-    setSelectedMovie(null);
-    setActiveServer(null);
-    try {
-      const data: TMDBMovieDetail = await fetchMovieDetail(movieId);
-      setSelectedMovie(data);
-      const defaultServer = servers.find((s) => s.recommended) || servers[0];
-      if (defaultServer) {
-        setActiveServer(defaultServer);
-      }
-    } catch (err) {
-      setSelectedMovie({
-        id: movieId,
-        title: "Gagal memuat detail",
-        overview: `Error: ${err instanceof Error ? err.message : "unknown"}. Pastikan koneksi internet stabil dan TMDB API dapat diakses.`,
-      });
-    } finally {
-      setModalLoading(false);
-    }
-  };
-
-  const selectServer = (server: Server) => {
-    setActiveServer(server);
-    showToast(`Beralih ke ${server.name}`);
-  };
-
-  // Escape closes modal
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && modalOpen) setModalOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [modalOpen]);
-
   // Header scroll state
   useEffect(() => {
     const onScroll = () => {
@@ -215,18 +165,19 @@ export default function NobarPage() {
       <header id="header" className="fixed top-0 inset-x-0 z-40 transition-all duration-300">
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <a href="#hero" className="flex items-center gap-2 group">
+            <Link href="/" className="flex items-center gap-2 group">
               <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition">
                 <Play className="w-5 h-5 fill-white" />
               </div>
               <span className="font-display text-xl font-extrabold tracking-tight">
                 No<span className="text-brand-500">bar</span>
               </span>
-            </a>
+            </Link>
             <div className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-300">
               <button onClick={scrollTop} className="px-3 py-2 hover:text-white transition">Beranda</button>
               <button onClick={scrollTop} className="px-3 py-2 hover:text-white transition">Kategori</button>
               <a href="#featured" className="px-3 py-2 hover:text-white transition">Unggulan</a>
+              <a href="#series" className="px-3 py-2 hover:text-white transition">Series</a>
             </div>
             <div className="flex items-center gap-3">
               <div className="relative flex-1 min-w-[140px] max-w-[200px] sm:max-w-xs">
@@ -301,26 +252,26 @@ export default function NobarPage() {
                 Jelajahi Kategori
               </a>
             </div>
-          {/* Stats — dynamic from live TMDB response (audit fix: no hardcoded 240+/85/12) */}
+            {/* Stats — dynamic from live TMDB response */}
             <dl className="mt-10 grid grid-cols-3 gap-6 max-w-md">
               <div>
                 <dt className="text-2xl font-display font-bold">{statMovies}</dt>
                 <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Film Minggu Ini</dd>
               </div>
               <div>
-                <dt className="text-2xl font-display font-bold">{CATEGORIES.length}</dt>
-                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Kategori</dd>
+                <dt className="text-2xl font-display font-bold">{statSeries}</dt>
+                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Series Tersedia</dd>
               </div>
               <div>
-                <dt className="text-2xl font-display font-bold">{servers.length || "—"}</dt>
-                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Server Tersedia</dd>
+                <dt className="text-2xl font-display font-bold">{CATEGORIES.length}</dt>
+                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Kategori</dd>
               </div>
             </dl>
           </div>
         </div>
       </section>
 
-      {/* Featured */}
+      {/* Featured Movies */}
       <section id="featured" className="py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-end justify-between mb-6">
@@ -340,14 +291,56 @@ export default function NobarPage() {
           ) : (
             <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x scroll-row">
               {featured.map((m) => (
-                <MovieCard key={m.id} movie={m} onClick={() => openModal(m.id)} featured />
+                <MovieCard
+                  key={m.id}
+                  movie={m}
+                  href={`/movie/${slugify(m.title || m.name, m.release_date)}`}
+                  featured
+                />
               ))}
             </div>
           )}
         </div>
       </section>
 
-      {/* Main grid */}
+      {/* TV Series Trending */}
+      <section id="series" className="py-12 border-t border-white/5">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-end justify-between mb-6">
+            <div>
+              <h2 className="font-display text-2xl sm:text-3xl font-bold flex items-center gap-3">
+                <Tv className="w-6 h-6 text-brand-500" />
+                Series Trending
+              </h2>
+              <p className="text-sm text-gray-400 mt-1">Serial TV populer minggu ini.</p>
+            </div>
+          </div>
+          {tvSeries.length === 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="rounded-lg overflow-hidden border border-white/5">
+                  <div className="skeleton aspect-video"></div>
+                  <div className="p-3 space-y-2">
+                    <div className="skeleton h-3 rounded w-3/4"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {tvSeries.map((s) => (
+                <SeriesCard
+                  key={s.id}
+                  series={s}
+                  href={`/series/${slugify(s.name || s.title, s.first_air_date)}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Movie Grid */}
       <main id="kategori" className="py-8 flex-1">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Filter chips */}
@@ -408,7 +401,7 @@ export default function NobarPage() {
               <h3 className="font-semibold text-white">Gagal memuat film</h3>
               <p className="text-sm text-gray-400 mt-1 max-w-md mx-auto">{error}</p>
               <button
-                onClick={() => loadCategory(activeCategory, 1, false)}
+                onClick={() => loadCategory(activeCategory, 1, false, { searching: false, query: "" })}
                 className="mt-4 px-4 py-2 bg-brand-500 hover:bg-brand-600 rounded text-sm font-semibold"
               >
                 Coba lagi
@@ -419,7 +412,11 @@ export default function NobarPage() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {movies.map((m) => (
-                <MovieCard key={m.id} movie={m} onClick={() => openModal(m.id)} />
+                <MovieCard
+                  key={m.id}
+                  movie={m}
+                  href={`/movie/${slugify(m.title || m.name, m.release_date)}`}
+                />
               ))}
             </div>
           )}
@@ -449,7 +446,7 @@ export default function NobarPage() {
         </div>
       </main>
 
-      {/* Footer — sticky to bottom (audit fix: 2025, not 2026) */}
+      {/* Footer */}
       <footer className="border-t border-white/5 py-10 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -482,242 +479,26 @@ export default function NobarPage() {
           </div>
         </div>
       </footer>
-
-      {/* Modal */}
-      {modalOpen && (
-        <div
-          id="videoModal"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modalTitle"
-          className="fixed inset-0 z-50 modal-open-state"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setModalOpen(false);
-          }}
-        >
-          <div className="modal-backdrop absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
-          <div className="relative h-full w-full flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
-            <div className="modal-panel relative w-full max-w-4xl bg-ink-900 sm:rounded-xl overflow-hidden border border-white/10 shadow-2xl">
-              <div className="relative bg-black aspect-video">
-                <iframe
-                  title="player"
-                  className="absolute inset-0 w-full h-full"
-                  src={
-                    selectedMovie && activeServer
-                      ? buildServerUrl(activeServer.pattern, selectedMovie.id)
-                      : "about:blank"
-                  }
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                ></iframe>
-                <button
-                  onClick={() => setModalOpen(false)}
-                  className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition"
-                  aria-label="Tutup"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-                {modalLoading && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white bg-ink-950">
-                    <div className="w-10 h-10 rounded-full border-4 border-white/10 border-t-brand-500 animate-spin"></div>
-                    <span className="text-sm text-gray-400">Memuat pemutar…</span>
-                  </div>
-                )}
-              </div>
-              <div className="p-5 sm:p-6 space-y-5">
-                <header>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 mb-2">
-                    <span className="px-2 py-0.5 rounded bg-brand-500/15 text-brand-400 font-semibold uppercase tracking-wide">
-                      {selectedMovie?.genres?.[0]?.name || "Film"}
-                    </span>
-                    <span>{selectedMovie ? formatRuntime(selectedMovie.runtime) : ""}</span>
-                    <span>•</span>
-                    <span>{selectedMovie ? formatYear(selectedMovie.release_date) : ""}</span>
-                    <span>•</span>
-                    <span>{selectedMovie ? `${formatViews(selectedMovie.vote_count)} suara` : ""}</span>
-                  </div>
-                  <h2 id="modalTitle" className="font-display text-xl sm:text-2xl font-bold leading-snug">
-                    {selectedMovie?.title || selectedMovie?.name || "Memuat…"}
-                  </h2>
-                  <p className="mt-1 text-sm text-gray-400">
-                    oleh{" "}
-                    <span className="text-white font-medium">
-                      {selectedMovie?.credits?.crew?.find((p) => p.job === "Director")?.name || "—"}
-                    </span>
-                  </p>
-                </header>
-
-                {/* Server picker */}
-                {selectedMovie && servers.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-semibold text-gray-300">Pilih Server</h3>
-                      <span className="text-xs text-gray-500">
-                        {activeServer ? `Memutar dari ${activeServer.name} (${activeServer.quality})` : ""}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {servers.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => selectServer(s)}
-                          className={`server-btn inline-flex flex-col items-start gap-0.5 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-sm text-gray-200 ${
-                            activeServer?.id === s.id ? "active" : ""
-                          }`}
-                        >
-                          <span className="flex items-center gap-2 font-semibold">
-                            {s.name}
-                            {s.recommended && (
-                              <span className="ml-1 text-[10px] opacity-80">• rekomendasi</span>
-                            )}
-                          </span>
-                          <span className="text-[11px] text-gray-400">
-                            {s.quality} • load {s.load}%
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-xs text-gray-500">
-                      Jika pemutaran macet, coba pindah server cadangan untuk sumber alternatif.
-                    </p>
-                  </div>
-                )}
-
-                {/* Description */}
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-300 mb-2">Deskripsi</h3>
-                  <p className="text-sm text-gray-300 leading-relaxed">
-                    {selectedMovie?.overview || "Tidak ada deskripsi untuk film ini."}
-                  </p>
-                </div>
-
-                {/* Tags */}
-                {selectedMovie?.genres && selectedMovie.genres.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedMovie.genres.map((g) => (
-                      <span
-                        key={g.id}
-                        className="px-2.5 py-1 rounded bg-white/5 text-xs text-gray-300 border border-white/5"
-                      >
-                        #{g.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Similar */}
-                {selectedMovie?.similar?.results && selectedMovie.similar.results.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-300 mb-3">Karya Terkait</h3>
-                    <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scroll-row">
-                      {selectedMovie.similar.results.slice(0, 10).map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => openModal(m.id)}
-                          className="shrink-0 w-28 sm:w-32 text-left"
-                          aria-label={`Buka ${m.title || m.name || "Untitled"}`}
-                        >
-                          <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 border border-white/5 hover:border-brand-500/50 transition">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={posterUrl(m.poster_path)}
-                              alt={m.title || m.name || "Untitled"}
-                              loading="lazy"
-                              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
-                            <span className="absolute bottom-1.5 left-1.5 text-[10px] font-semibold text-white">
-                              ⭐ {m.vote_average ? m.vote_average.toFixed(1) : "—"}
-                            </span>
-                          </div>
-                          <h4 className="mt-1.5 text-xs font-medium text-gray-300 hover:text-white transition line-clamp-2 leading-tight">
-                            {m.title || m.name || "Untitled"}
-                          </h4>
-                          <p className="text-[10px] text-gray-500">{formatYear(m.release_date)}</p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Cast */}
-                {selectedMovie?.credits?.cast && selectedMovie.credits.cast.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-300 mb-3">Daftar Tim & Kreator</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedMovie.credits.cast.slice(0, 8).map((p) => {
-                        const initial = (p.name || "?").charAt(0);
-                        return (
-                          <div
-                            key={p.id}
-                            className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-white/20 transition"
-                          >
-                            {p.profile_path ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={posterUrl(p.profile_path)}
-                                alt={p.name}
-                                loading="lazy"
-                                className="w-8 h-8 rounded-full object-cover border border-white/10"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-ink-700 border border-white/10 flex items-center justify-center text-xs font-bold text-gray-400">
-                                {initial}
-                              </div>
-                            )}
-                            <div className="flex flex-col">
-                              <span className="text-xs font-medium text-white leading-tight">{p.name}</span>
-                              {p.character && (
-                                <span className="text-[10px] text-gray-400 leading-tight">
-                                  sebagai {p.character}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-lg bg-ink-800 border border-white/10 text-sm text-white shadow-xl toast-show pointer-events-none">
-          {toast}
-        </div>
-      )}
     </div>
   );
 }
 
+// ─── Movie Card (navigates to /movie/[slug]) ──────────────────────────────
+
 function MovieCard({
   movie,
-  onClick,
+  href,
   featured = false,
 }: {
   movie: TMDBMovie;
-  onClick: () => void;
+  href: string;
   featured?: boolean;
 }) {
   const title = movie.title || movie.name || "Untitled";
   return (
-    <article
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      }}
-      tabIndex={0}
-      role="button"
-      aria-label={`Buka ${title}`}
-      className={`video-card group bg-ink-900 rounded-lg overflow-hidden border border-white/5 hover:border-white/20 fade-in ${
+    <Link
+      href={href}
+      className={`video-card group bg-ink-900 rounded-lg overflow-hidden border border-white/5 hover:border-white/20 fade-in block ${
         featured ? "flex-shrink-0 w-[280px] snap-start" : ""
       }`}
     >
@@ -745,6 +526,50 @@ function MovieCard({
           {formatViews(movie.vote_count)} suara
         </p>
       </div>
-    </article>
+    </Link>
+  );
+}
+
+// ─── Series Card (navigates to /series/[slug]) ───────────────────────────
+
+function SeriesCard({
+  series,
+  href,
+}: {
+  series: TMDBSeries;
+  href: string;
+}) {
+  const title = series.name || series.title || "Untitled";
+  return (
+    <Link
+      href={href}
+      className="video-card group bg-ink-900 rounded-lg overflow-hidden border border-white/5 hover:border-white/20 fade-in block"
+    >
+      <div className="card-thumb relative aspect-video overflow-hidden bg-ink-800">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={posterUrl(series.poster_path)}
+          alt={title}
+          loading="lazy"
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+        <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold inline-flex items-center gap-1">
+          <Tv className="w-2.5 h-2.5" />
+          {formatYear(series.first_air_date)} • ⭐ {series.vote_average ? series.vote_average.toFixed(1) : "—"}
+        </span>
+        <div className="card-play absolute inset-0 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-xl">
+            <Play className="w-6 h-6 fill-white ml-0.5" />
+          </div>
+        </div>
+      </div>
+      <div className="p-3">
+        <h3 className="font-display text-sm font-bold leading-snug line-clamp-2">{title}</h3>
+        <p className="mt-1 text-xs text-gray-400 line-clamp-1">
+          {formatViews(series.vote_count)} suara
+        </p>
+      </div>
+    </Link>
   );
 }

@@ -20,31 +20,19 @@ window.NOBAR_DATA = (function () {
    *   { name: 'Server Cadangan', pattern: 'https://backup.nobar.id/embed/{video_id}' }
    */
   const SERVERS = [
-    {
-      id: 'utama',
-      name: 'Server Utama',
-      pattern: 'https://example.org/{video_id}',
-      quality: '1080p',
-      load: 70,
-      recommended: true,
-    },
-    {
-      id: 'cadangan',
-      name: 'Server Cadangan',
-      pattern: 'https://example.org/{video_id}',
-      quality: '720p',
-      load: 35,
-      recommended: false,
-    },
-    {
-      id: 'mirror',
-      name: 'Mirror 3',
-      pattern: 'https://example.org/{video_id}',
-      quality: '480p',
-      load: 20,
-      recommended: false,
-    },
-  ];
+  {
+    id: 'utama',
+    name: 'Server 1 (HD)',
+    pattern: 'https://vidsrc.to{video_id}',  // ← Sudah diganti
+    quality: '1080p'
+  },
+  {
+    id: 'cadangan',
+    name: 'Server 2 (Fast)',
+    pattern: 'https://vidsrc.sh{video_id}',  // ← Sudah diganti
+    quality: '720p'
+  }
+];
 
   // Sample kreator untuk section "Kreator Pilihan" (static, decorative).
   // Di dunia nyata, ini juga bisa di-fetch dari /person/popular TMDB.

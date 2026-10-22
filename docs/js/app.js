@@ -84,6 +84,11 @@
   const toast      = document.getElementById('toast');
   const serverPicker = document.getElementById('serverPicker');
   const currentServerLabel = document.getElementById('currentServerLabel');
+  // Similar + Cast elements
+  const modalSimilar = document.getElementById('modalSimilar');
+  const modalSimilarRow = document.getElementById('modalSimilarRow');
+  const modalCast = document.getElementById('modalCast');
+  const modalCastList = document.getElementById('modalCastList');
 
   // Container untuk tombol "Load More" + status pagination
   let loadMoreWrap = null;
@@ -427,6 +432,97 @@
   // ---------------------------------------------------------------------------
   // MODAL: open / close
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // RENDER: Similar Movies + Cast List
+  // ---------------------------------------------------------------------------
+
+  /** Render "Karya Terkait" — barisan kartu horizontal dari data.similar.results */
+  function renderSimilar(similarData) {
+    const results = (similarData && similarData.results) || [];
+    if (!results.length) {
+      modalSimilar.classList.add('hidden');
+      modalSimilarRow.innerHTML = '';
+      return;
+    }
+
+    // Ambil max 10 kartu
+    const items = results.slice(0, 10);
+    modalSimilarRow.innerHTML = items.map(m => {
+      const poster = posterUrl(m.poster_path);
+      const title = m.title || m.name || 'Untitled';
+      const year = formatYear(m.release_date);
+      const rating = m.vote_average ? m.vote_average.toFixed(1) : '—';
+      return `
+        <button class="similar-card group shrink-0 w-28 sm:w-32 text-left"
+                data-movie-id="${m.id}"
+                role="button"
+                aria-label="Buka ${title}">
+          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 border border-white/5 group-hover:border-brand-500/50 transition">
+            <img src="${poster}" alt="${title}" loading="lazy"
+                 onerror="this.src='https://placehold.co/200x300/1c1c20/3a3a40?text=No+Poster'"
+                 class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+            <span class="absolute bottom-1.5 left-1.5 text-[10px] font-semibold text-white">⭐ ${rating}</span>
+          </div>
+          <h4 class="mt-1.5 text-xs font-medium text-gray-300 group-hover:text-white transition line-clamp-2 leading-tight">${title}</h4>
+          <p class="text-[10px] text-gray-500">${year}</p>
+        </button>`;
+    }).join('');
+
+    modalSimilar.classList.remove('hidden');
+
+    // Bind click: re-open modal dengan movie baru (tanpa tutup modal utama)
+    $$('#modalSimilarRow .similar-card').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const newId = parseInt(btn.dataset.movieId, 10);
+        if (Number.isFinite(newId)) {
+          // Refresh modal dengan video baru — modal tetap terbuka
+          openModal(newId);
+          // Scroll ke atas modal untuk lihat player baru
+          modal.querySelector('.modal-panel')?.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      });
+    });
+  }
+
+  /** Render "Daftar Tim & Kreator" — badge list dari data.credits.cast (top 8) */
+  function renderCast(creditsData) {
+    const cast = (creditsData && creditsData.cast) || [];
+    if (!cast.length) {
+      modalCast.classList.add('hidden');
+      modalCastList.innerHTML = '';
+      return;
+    }
+
+    // Ambil top 8 aktor
+    const topCast = cast.slice(0, 8);
+    modalCastList.innerHTML = topCast.map(p => {
+      const name = p.name || 'Unknown';
+      const character = p.character || '';
+      const avatar = p.profile_path ? posterUrl(p.profile_path) : null;
+
+      const avatarHtml = avatar
+        ? `<img src="${avatar}" alt="${name}" loading="lazy"
+               onerror="this.src='https://placehold.co/100x100/1c1c20/3a3a40?text=${encodeURIComponent(name.charAt(0))}'"
+               class="w-8 h-8 rounded-full object-cover border border-white/10" />`
+        : `<div class="w-8 h-8 rounded-full bg-ink-700 border border-white/10 flex items-center justify-center text-xs font-bold text-gray-400">${name.charAt(0)}</div>`;
+
+      return `
+        <div class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-white/20 transition">
+          ${avatarHtml}
+          <div class="flex flex-col">
+            <span class="text-xs font-medium text-white leading-tight">${name}</span>
+            ${character ? `<span class="text-[10px] text-gray-400 leading-tight">sebagai ${character}</span>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    modalCast.classList.remove('hidden');
+  }
+
+  // ---------------------------------------------------------------------------
+  // MODAL: open / close
+  // ---------------------------------------------------------------------------
   async function openModal(movieId) {
     if (!movieId) return;
 
@@ -445,6 +541,10 @@
     $('#modalViews').textContent = '';
     $('#modalDescription').textContent = 'Mengambil detail dari TMDB…';
     $('#modalTags').innerHTML = '';
+    modalSimilar.classList.add('hidden');
+    modalSimilarRow.innerHTML = '';
+    modalCast.classList.add('hidden');
+    modalCastList.innerHTML = '';
     serverPicker.innerHTML = '';
 
     iframe.src = 'about:blank';
@@ -467,6 +567,12 @@
       $('#modalTags').innerHTML = tags.map(t => `
         <span class="px-2.5 py-1 rounded bg-white/5 text-xs text-gray-300 border border-white/5">#${t}</span>
       `).join('');
+
+      // ===== Render Karya Terkait (Similar Movies) =====
+      renderSimilar(data.similar);
+
+      // ===== Render Daftar Tim & Kreator (Cast List) =====
+      renderCast(data.credits);
 
       // Render server picker
       renderServerPicker();

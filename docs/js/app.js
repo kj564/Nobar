@@ -1,23 +1,79 @@
 /* ==========================================================================
-   Nobar — Application logic (Vanilla JavaScript)
-   Fitur utama:
-   1. Render grid kartu video per kategori + filter chip
-   2. Open/close modal detail video
-   3. Multi-server source picker — swap src <iframe> berdasarkan video_id
+   Nobar — Application logic (Vanilla JavaScript, dynamic)
+   Data katalog di-fetch dari TMDB API saat runtime, bukan array lokal.
+   Fitur:
+   1. fetchTrending()  — ambil film Trending Now saat halaman dimuat
+   2. fetchByGenre()   — ambil film berdasarkan kategori (genre TMDB)
+   3. fetchDetails()   — ambil detail + ID film saat kartu diklik → masuk modal
+   4. Multi-server source picker — swap src <iframe> berdasarkan TMDB movie ID
+   5. Endless content — tombol Load More untuk page berikutnya
    ========================================================================== */
 
 (function () {
   'use strict';
 
-  const { SERVERS, VIDEOS, CREATORS, CATEGORIES } = window.NOBAR_DATA;
+  // ---------------------------------------------------------------------------
+  // KONFIGURASI
+  // ---------------------------------------------------------------------------
+  //
+  // ⚠ KEAMANAN: API_KEY di bawah adalah PLACEHOLDER. Ganti dengan TMDB API
+  // key Anda sendiri secara lokal (jangan commit ke public repo).
+  // Dapatkan di: https://www.themoviedb.org/settings/api
+  //
+  // ⚠ URL `https://example.org` di SERVERS.pattern juga placeholder. Ganti
+  // dengan endpoint streaming Anda sendiri.
+  // ---------------------------------------------------------------------------
 
-  // ---- Element references ----
+  const API_KEY    = 'YOUR_API_KEY';
+  const TMDB_BASE  = 'https://api.themoviedb.org/3';
+  const TMDB_IMG   = 'https://image.tmdb.org/t/p/w500';
+  const TMDB_IMG_LG = 'https://image.tmdb.org/t/p/w780';
+  const TMDB_IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original';
+
+  const { SERVERS, CREATORS } = window.NOBAR_DATA;
+
+  // Kategori = TMDB genre. 'trending' adalah special — pakai endpoint /trending.
+  const CATEGORIES = [
+    { id: 'trending', name: 'Trending',     tmdbGenreId: null },
+    { id: 28,         name: 'Action',      tmdbGenreId: 28 },
+    { id: 16,         name: 'Animation',   tmdbGenreId: 16 },
+    { id: 35,         name: 'Comedy',      tmdbGenreId: 35 },
+    { id: 18,         name: 'Drama',       tmdbGenreId: 18 },
+    { id: 99,         name: 'Documentary', tmdbGenreId: 99 },
+    { id: 27,         name: 'Horror',      tmdbGenreId: 27 },
+    { id: 10749,      name: 'Romance',     tmdbGenreId: 10749 },
+  ];
+
+  // ---------------------------------------------------------------------------
+  // STATE
+  // ---------------------------------------------------------------------------
+  const state = {
+    activeCategory: 'trending',
+    page: 1,
+    totalPages: 1,
+    movies: [],          // list of {id, title, poster_path, ...}
+    featured: [],        // subset untuk row Trending (top 6)
+    loading: false,
+    loadingMore: false,
+    error: null,
+  };
+
+  let currentVideoInModal = null;
+  let currentServerId = null;
+  let toastTimer = null;
+
+  // ---------------------------------------------------------------------------
+  // ELEMENT REFERENCES
+  // ---------------------------------------------------------------------------
+  const $ = (sel, ctx) => (ctx || document).querySelector(sel);
+  const $$ = (sel, ctx) => Array.from((ctx || document).querySelectorAll(sel));
+
+  const header      = document.getElementById('header');
+  const menuBtn     = document.getElementById('menuBtn');
   const featuredRow = document.getElementById('featuredRow');
   const filterChips = document.getElementById('filterChips');
   const videoGrid   = document.getElementById('videoGrid');
   const creatorRow  = document.getElementById('creatorRow');
-  const header      = document.getElementById('header');
-  const menuBtn     = document.getElementById('menuBtn');
   const modal       = document.getElementById('videoModal');
   const modalClose  = document.getElementById('modalClose');
   const iframe      = document.getElementById('videoIframe');
@@ -26,102 +82,231 @@
   const serverPicker = document.getElementById('serverPicker');
   const currentServerLabel = document.getElementById('currentServerLabel');
 
-  let activeFilter = 'Semua';
-  let currentVideo = null;
-  let currentServerId = null;
-  let toastTimer = null;
+  // Container untuk tombol "Load More" + status pagination
+  let loadMoreWrap = null;
 
-  // =========================================================================
+  // ---------------------------------------------------------------------------
   // UTIL
-  // =========================================================================
-  function $(sel, ctx) { return (ctx || document).querySelector(sel); }
-  function $$(sel, ctx) { return Array.from((ctx || document).querySelectorAll(sel)); }
-
+  // ---------------------------------------------------------------------------
   function showToast(msg) {
+    if (!toast) return;
     toast.textContent = msg;
     toast.classList.add('toast-show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove('toast-show'), 2200);
+    toastTimer = setTimeout(() => toast.classList.remove('toast-show'), 2400);
   }
 
-  function buildServerUrl(server, video) {
-    return server.pattern.replace('{video_id}', encodeURIComponent(video.video_id));
+  function buildServerUrl(server, videoId) {
+    return server.pattern.replace('{video_id}', encodeURIComponent(videoId));
   }
 
-  // =========================================================================
-  // RENDER: Filter chips
-  // =========================================================================
+  function posterUrl(path, size) {
+    if (!path) {
+      // fallback placeholder
+      return 'https://placehold.co/500x750/1c1c20/3a3a40?text=Nobar';
+    }
+    const base = size === 'lg' ? TMDB_IMG_LG : (size === 'original' ? TMDB_IMG_ORIGINAL : TMDB_IMG);
+    return base + path;
+  }
+
+  function formatRuntime(minutes) {
+    if (!minutes) return '—';
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h > 0 ? `${h}j ${m}m` : `${m}m`;
+  }
+
+  function formatYear(dateStr) {
+    if (!dateStr) return '—';
+    return String(dateStr).slice(0, 4);
+  }
+
+  function formatViews(count) {
+    if (!count) return '—';
+    if (count >= 1e9) return (count / 1e9).toFixed(1) + 'B';
+    if (count >= 1e6) return (count / 1e6).toFixed(1) + 'M';
+    if (count >= 1e3) return (count / 1e3).toFixed(1) + 'k';
+    return String(count);
+  }
+
+  // ---------------------------------------------------------------------------
+  // API: fetch helpers
+  // ---------------------------------------------------------------------------
+  async function tmdbGet(path, params = {}) {
+    const url = new URL(`${TMDB_BASE}${path}`);
+    url.searchParams.set('api_key', API_KEY);
+    url.searchParams.set('language', 'id-ID');
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+    });
+
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      throw new Error(`TMDB ${res.status}: ${res.statusText}`);
+    }
+    return res.json();
+  }
+
+  /** Fetch trending movies for the week. */
+  async function fetchTrending(page = 1) {
+    return tmdbGet('/trending/movie/week', { page });
+  }
+
+  /** Fetch movies by TMDB genre via /discover. */
+  async function fetchByGenre(genreId, page = 1) {
+    return tmdbGet('/discover/movie', {
+      with_genres: genreId,
+      page,
+      sort_by: 'popularity.desc',
+      'vote_count.gte': 50,
+    });
+  }
+
+  /** Fetch movie detail (untuk modal). */
+  async function fetchDetails(movieId) {
+    return tmdbGet(`/movie/${movieId}`, {
+      append_to_response: 'videos,credits,similar',
+    });
+  }
+
+  /** Wrapper: ambil list sesuai kategori aktif. */
+  async function fetchCategory(categoryId, page) {
+    const cat = CATEGORIES.find(c => c.id === categoryId);
+    if (!cat) throw new Error('Kategori tidak dikenal');
+    if (cat.tmdbGenreId === null) {
+      return fetchTrending(page);
+    }
+    return fetchByGenre(cat.tmdbGenreId, page);
+  }
+
+  // ---------------------------------------------------------------------------
+  // RENDER: filter chips
+  // ---------------------------------------------------------------------------
   function renderFilters() {
     filterChips.innerHTML = CATEGORIES.map(cat => {
-      const active = cat === activeFilter;
+      const active = cat.id === state.activeCategory;
       return `
-        <button data-filter="${cat}"
+        <button data-category="${cat.id}"
           class="px-4 py-1.5 rounded-full text-sm font-medium border transition ${
             active
               ? 'bg-brand-500 border-brand-500 text-white'
               : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white'
           }">
-          ${cat}
+          ${cat.name}
         </button>`;
     }).join('');
 
     $$('#filterChips button').forEach(btn => {
       btn.addEventListener('click', () => {
-        activeFilter = btn.dataset.filter;
+        if (state.loading) return;
+        state.activeCategory = btn.dataset.category;
+        state.page = 1;
+        state.movies = [];
         renderFilters();
         renderGrid();
+        loadCategory(true);
       });
     });
   }
 
-  // =========================================================================
-  // RENDER: Card helpers
-  // =========================================================================
-  function cardMarkup(video, extraClass) {
+  // ---------------------------------------------------------------------------
+  // RENDER: card
+  // ---------------------------------------------------------------------------
+  function cardMarkup(movie, extraClass) {
+    const id = movie.id;
+    const title = movie.title || movie.name || 'Untitled';
+    const poster = posterUrl(movie.poster_path);
+    const year = formatYear(movie.release_date);
+    const rating = movie.vote_average ? movie.vote_average.toFixed(1) : '—';
+    const views = formatViews(movie.vote_count);
+    const catName = (CATEGORIES.find(c => c.id === state.activeCategory) || {}).name || 'Film';
+
     return `
       <article class="video-card ${extraClass || ''} group bg-ink-900 rounded-lg overflow-hidden border border-white/5 hover:border-white/20 fade-in"
-               data-video-id="${video.video_id}"
+               data-video-id="${id}"
                tabindex="0"
                role="button"
-               aria-label="Buka ${video.title}">
+               aria-label="Buka ${title}">
         <div class="card-thumb relative aspect-video overflow-hidden bg-ink-800">
-          <img src="${video.cover}" alt="${video.title}" loading="lazy"
+          <img src="${poster}" alt="${title}" loading="lazy"
+               onerror="this.src='https://placehold.co/500x750/1c1c20/3a3a40?text=Nobar'"
                class="w-full h-full object-cover" />
           <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-          <span class="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold uppercase tracking-wide">
-            ${video.duration}
+          <span class="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold">
+            ${year} • ⭐ ${rating}
+          </span>
+          <span class="absolute top-2 right-2 px-2 py-0.5 rounded bg-brand-500/90 text-[10px] font-bold uppercase tracking-wide">
+            TMDB
           </span>
           <div class="card-play absolute inset-0 flex items-center justify-center">
             <div class="w-12 h-12 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-xl">
               <svg viewBox="0 0 24 24" fill="white" class="w-6 h-6 ml-0.5"><path d="M8 5v14l11-7z" /></svg>
             </div>
           </div>
-          ${video.featured ? `<span class="absolute top-2 left-2 px-2 py-0.5 rounded bg-brand-500 text-[10px] font-bold uppercase tracking-wide">Featured</span>` : ''}
         </div>
         <div class="p-3">
-          <h3 class="font-display text-sm font-bold leading-snug line-clamp-2">${video.title}</h3>
-          <p class="mt-1 text-xs text-gray-400 line-clamp-1">${video.creator}</p>
-          <div class="mt-2 flex items-center justify-between text-[11px] text-gray-500">
-            <span>${video.category}</span>
-            <span>${video.views} ditonton</span>
-          </div>
+          <h3 class="font-display text-sm font-bold leading-snug line-clamp-2">${title}</h3>
+          <p class="mt-1 text-xs text-gray-400 line-clamp-1">${catName} • ${views} suara</p>
         </div>
       </article>`;
   }
 
-  // =========================================================================
-  // RENDER: Featured row + Grid + Creators
-  // =========================================================================
+  // ---------------------------------------------------------------------------
+  // RENDER: featured row + grid + creators
+  // ---------------------------------------------------------------------------
   function renderFeatured() {
-    const items = VIDEOS.filter(v => v.featured);
-    featuredRow.innerHTML = items.map(v => cardMarkup(v, 'featured-card')).join('');
+    if (!state.featured.length) {
+      featuredRow.innerHTML = '';
+      return;
+    }
+    featuredRow.innerHTML = state.featured.map(m => cardMarkup(m, 'featured-card')).join('');
   }
 
   function renderGrid() {
-    const list = activeFilter === 'Semua'
-      ? VIDEOS
-      : VIDEOS.filter(v => v.category === activeFilter);
-    videoGrid.innerHTML = list.map(v => cardMarkup(v)).join('');
+    if (state.loading && !state.movies.length) {
+      videoGrid.innerHTML = renderSkeletonGrid(10);
+      return;
+    }
+    if (state.error) {
+      videoGrid.innerHTML = renderError(state.error);
+      return;
+    }
+    if (!state.movies.length) {
+      videoGrid.innerHTML = `<p class="col-span-full text-center text-gray-400 py-12">Tidak ada film untuk kategori ini.</p>`;
+      return;
+    }
+    videoGrid.innerHTML = state.movies.map(m => cardMarkup(m)).join('');
+  }
+
+  function renderSkeletonGrid(n) {
+    const items = Array.from({ length: n }, () => `
+      <div class="rounded-lg overflow-hidden border border-white/5">
+        <div class="skeleton aspect-video"></div>
+        <div class="p-3 space-y-2">
+          <div class="skeleton h-3 rounded w-3/4"></div>
+          <div class="skeleton h-2 rounded w-1/2"></div>
+        </div>
+      </div>`).join('');
+    return items;
+  }
+
+  function renderError(message) {
+    return `
+      <div class="col-span-full text-center py-12 px-4">
+        <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-brand-500/15 text-brand-400 mb-3">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-6 h-6">
+            <circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" />
+          </svg>
+        </div>
+        <h3 class="font-semibold text-white">Gagal memuat film</h3>
+        <p class="text-sm text-gray-400 mt-1 max-w-md mx-auto">${message}</p>
+        <p class="text-xs text-gray-500 mt-3">
+          Pastikan <code class="px-1 py-0.5 rounded bg-white/10">API_KEY</code> di <code class="px-1 py-0.5 rounded bg-white/10">js/app.js</code> sudah diganti dengan TMDB API key Anda.
+        </p>
+        <button id="retryBtn" class="mt-4 px-4 py-2 bg-brand-500 hover:bg-brand-600 rounded text-sm font-semibold">
+          Coba lagi
+        </button>
+      </div>`;
   }
 
   function renderCreators() {
@@ -135,59 +320,161 @@
     `).join('');
   }
 
-  // =========================================================================
-  // MODAL: Open / Close
-  // =========================================================================
-  function openModal(videoId) {
-    const video = VIDEOS.find(v => v.video_id === videoId);
-    if (!video) return;
-    currentVideo = video;
+  // ---------------------------------------------------------------------------
+  // RENDER: load more button
+  // ---------------------------------------------------------------------------
+  function ensureLoadMoreWrap() {
+    if (loadMoreWrap) return loadMoreWrap;
+    loadMoreWrap = document.createElement('div');
+    loadMoreWrap.className = 'flex flex-col items-center gap-3 mt-8';
+    videoGrid.parentNode.insertBefore(loadMoreWrap, videoGrid.nextSibling);
+    return loadMoreWrap;
+  }
 
-    // Isi konten modal
-    $('#modalTitle').textContent = video.title;
-    $('#modalCreator').textContent = video.creator;
-    $('#modalCategory').textContent = video.category;
-    $('#modalDuration').textContent = video.duration;
-    $('#modalYear').textContent = video.year;
-    $('#modalViews').textContent = `${video.views} ditonton`;
-    $('#modalDescription').textContent = video.description;
+  function renderLoadMore() {
+    const wrap = ensureLoadMoreWrap();
+    if (state.error || state.loading) {
+      wrap.innerHTML = '';
+      return;
+    }
+    if (state.page >= state.totalPages) {
+      wrap.innerHTML = `<p class="text-xs text-gray-500">Sudah mencapai akhir daftar.</p>`;
+      return;
+    }
+    wrap.innerHTML = `
+      <button id="loadMoreBtn"
+        class="px-6 py-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-sm font-semibold transition ${state.loadingMore ? 'opacity-60 cursor-wait' : ''}"
+        ${state.loadingMore ? 'disabled' : ''}>
+        ${state.loadingMore
+          ? `<span class="inline-block w-4 h-4 rounded-full border-2 border-white/30 border-t-white mr-2 align-middle animate-spin"></span>Memuat…`
+          : 'Muat Lebih Banyak'}
+      </button>
+      <p class="text-xs text-gray-500">Halaman ${state.page} dari ${state.totalPages}</p>`;
+    const btn = $('#loadMoreBtn', wrap);
+    if (btn) btn.addEventListener('click', () => loadCategory(false, true));
+  }
 
-    // Tags
-    $('#modalTags').innerHTML = video.tags.map(t => `
-      <span class="px-2.5 py-1 rounded bg-white/5 text-xs text-gray-300 border border-white/5">#${t}</span>
-    `).join('');
+  // ---------------------------------------------------------------------------
+  // LOAD: kategori aktif (initial atau load more)
+  // ---------------------------------------------------------------------------
+  async function loadCategory(reset = false, append = false) {
+    if (reset) {
+      state.page = 1;
+      state.movies = [];
+    }
+    const targetPage = append ? state.page + 1 : state.page;
 
-    // Render server picker
-    renderServerPicker();
+    state.loading = !append;
+    state.loadingMore = append;
+    state.error = null;
 
-    // Pilih server default = yang recommended, fallback ke pertama
-    const defaultServer = SERVERS.find(s => s.recommended) || SERVERS[0];
-    selectServer(defaultServer.id);
+    if (!append) renderGrid();
+    renderLoadMore();
 
-    // Buka modal
+    try {
+      const data = await fetchCategory(state.activeCategory, targetPage);
+
+      if (append) {
+        // hindari duplikat
+        const existingIds = new Set(state.movies.map(m => m.id));
+        const fresh = (data.results || []).filter(m => !existingIds.has(m.id));
+        state.movies = state.movies.concat(fresh);
+        state.page = targetPage;
+      } else {
+        state.movies = data.results || [];
+        state.page = data.page || 1;
+        // Ambil top 6 untuk featured row saat kategori trending
+        if (state.activeCategory === 'trending') {
+          state.featured = state.movies.slice(0, 6);
+          renderFeatured();
+        }
+      }
+      state.totalPages = data.total_pages || 1;
+    } catch (err) {
+      console.error(err);
+      state.error = err.message || 'Gagal memuat data dari TMDB API.';
+    } finally {
+      state.loading = false;
+      state.loadingMore = false;
+      renderGrid();
+      renderLoadMore();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // MODAL: open / close
+  // ---------------------------------------------------------------------------
+  async function openModal(movieId) {
+    if (!movieId) return;
+
+    // Buka modal dulu dengan state loading (UX lebih responsif)
     modal.classList.add('open');
     document.body.classList.add('modal-open');
     modal.setAttribute('aria-hidden', 'false');
+    loadingOverlay.style.display = 'flex';
 
-    // Focus trap awal
-    setTimeout(() => modalClose.focus(), 50);
+    // Reset konten modal
+    $('#modalTitle').textContent = 'Memuat…';
+    $('#modalCreator').textContent = '';
+    $('#modalCategory').textContent = '';
+    $('#modalDuration').textContent = '';
+    $('#modalYear').textContent = '';
+    $('#modalViews').textContent = '';
+    $('#modalDescription').textContent = 'Mengambil detail dari TMDB…';
+    $('#modalTags').innerHTML = '';
+    serverPicker.innerHTML = '';
+
+    iframe.src = 'about:blank';
+
+    try {
+      const data = await fetchDetails(movieId);
+      currentVideoInModal = data;
+
+      // Isi konten
+      $('#modalTitle').textContent = data.title || data.name || 'Untitled';
+      $('#modalCreator').textContent = data.credits?.crew?.find(p => p.job === 'Director')?.name || '—';
+      $('#modalCategory').textContent = (data.genres?.[0]?.name) || 'Film';
+      $('#modalDuration').textContent = formatRuntime(data.runtime);
+      $('#modalYear').textContent = formatYear(data.release_date);
+      $('#modalViews').textContent = `${formatViews(data.vote_count)} suara`;
+      $('#modalDescription').textContent = data.overview || 'Tidak ada deskripsi untuk film ini.';
+
+      // Tags
+      const tags = (data.genres || []).map(g => g.name);
+      $('#modalTags').innerHTML = tags.map(t => `
+        <span class="px-2.5 py-1 rounded bg-white/5 text-xs text-gray-300 border border-white/5">#${t}</span>
+      `).join('');
+
+      // Render server picker
+      renderServerPicker();
+
+      // Pilih server default (recommended, fallback ke pertama)
+      const defaultServer = SERVERS.find(s => s.recommended) || SERVERS[0];
+      selectServer(defaultServer.id);
+
+      loadingOverlay.style.display = 'none';
+    } catch (err) {
+      console.error(err);
+      $('#modalTitle').textContent = 'Gagal memuat detail';
+      $('#modalDescription').textContent = `Error: ${err.message}. Pastikan API_KEY sudah benar.`;
+      loadingOverlay.style.display = 'none';
+    }
   }
 
   function closeModal() {
     modal.classList.remove('open');
     document.body.classList.remove('modal-open');
     modal.setAttribute('aria-hidden', 'true');
-
-    // Hentikan pemutaran dengan reset src
     iframe.src = 'about:blank';
-    currentVideo = null;
+    currentVideoInModal = null;
     currentServerId = null;
   }
 
-  // =========================================================================
+  // ---------------------------------------------------------------------------
   // SERVER PICKER
-  // =========================================================================
+  // ---------------------------------------------------------------------------
   function renderServerPicker() {
+    if (!currentVideoInModal) return;
     serverPicker.innerHTML = SERVERS.map(s => {
       const isRecommended = s.recommended ? '<span class="ml-1 text-[10px] opacity-80">• rekomendasi</span>' : '';
       return `
@@ -208,62 +495,61 @@
   }
 
   function selectServer(serverId) {
-    if (!currentVideo) return;
+    if (!currentVideoInModal) return;
     const server = SERVERS.find(s => s.id === serverId);
     if (!server) return;
 
     currentServerId = serverId;
-
-    // Update tombol aktif
     $$('#serverPicker .server-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.serverId === serverId);
     });
 
-    // Update label
     currentServerLabel.textContent = `Memutar dari ${server.name} (${server.quality})`;
 
-    // Tampilkan loading overlay
     loadingOverlay.style.display = 'flex';
 
-    // Bangun URL baru dan swap src iframe
-    const newUrl = buildServerUrl(server, currentVideo);
-    // Beri sedikit jeda agar loading terlihat natural
+    // video_id = TMDB movie ID (integer, mis. 550)
+    const videoId = currentVideoInModal.id;
+    const newUrl = buildServerUrl(server, videoId);
+
     setTimeout(() => {
       iframe.src = newUrl;
-      iframe.onload = () => {
-        loadingOverlay.style.display = 'none';
-      };
-      // Safety: sembunyikan loading setelah max 6 detik (iframe onLoad tidak selalu dipanggil untuk cross-origin)
-      setTimeout(() => {
-        loadingOverlay.style.display = 'none';
-      }, 6000);
+      iframe.onload = () => { loadingOverlay.style.display = 'none'; };
+      // Safety: iframe onLoad tidak selalu dipanggil untuk cross-origin
+      setTimeout(() => { loadingOverlay.style.display = 'none'; }, 6000);
       showToast(`Beralih ke ${server.name}`);
     }, 200);
   }
 
-  // =========================================================================
-  // EVENTS: Card click delegation
-  // =========================================================================
+  // ---------------------------------------------------------------------------
+  // EVENT BINDINGS
+  // ---------------------------------------------------------------------------
   function bindCardClicks() {
     document.body.addEventListener('click', (e) => {
       const card = e.target.closest('.video-card');
       if (!card) return;
-      openModal(card.dataset.videoId);
+      const id = parseInt(card.dataset.videoId, 10);
+      if (!Number.isFinite(id)) return;
+      openModal(id);
     });
 
-    // Keyboard a11y
     document.body.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       const card = e.target.closest('.video-card');
       if (!card) return;
       e.preventDefault();
-      openModal(card.dataset.videoId);
+      const id = parseInt(card.dataset.videoId, 10);
+      if (Number.isFinite(id)) openModal(id);
+    });
+
+    // retry button (event delegation — element dirender ulang tiap error)
+    document.body.addEventListener('click', (e) => {
+      if (e.target?.id === 'retryBtn') {
+        loadCategory(true);
+      }
     });
   }
 
-  // =========================================================================
-  // EVENTS: Header scroll, menu, modal close
-  // =========================================================================
   function bindHeader() {
     let raf = null;
     window.addEventListener('scroll', () => {
@@ -275,32 +561,31 @@
     });
 
     menuBtn?.addEventListener('click', () => {
-      // Untuk demo: toggle filter section scroll
       document.getElementById('kategori').scrollIntoView({ behavior: 'smooth' });
     });
   }
 
   function bindModal() {
     modalClose.addEventListener('click', closeModal);
-    // Click di backdrop (di luar panel) → tutup
     modal.querySelector('.modal-backdrop').addEventListener('click', closeModal);
-    // ESC
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
     });
   }
 
-  // =========================================================================
+  // ---------------------------------------------------------------------------
   // INIT
-  // =========================================================================
+  // ---------------------------------------------------------------------------
   function init() {
     renderFilters();
-    renderFeatured();
-    renderGrid();
     renderCreators();
+    renderGrid();
+    renderLoadMore();
     bindCardClicks();
     bindHeader();
     bindModal();
+    // Load initial trending
+    loadCategory(true);
   }
 
   document.addEventListener('DOMContentLoaded', init);

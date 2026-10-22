@@ -11,31 +11,23 @@ window.NOBAR_DATA = (function () {
    * Pattern menggunakan placeholder `{video_id}` yang akan di-replace dengan
    * TMDB movie ID (integer, misalnya 550 untuk Fight Club) saat user klik
    * tombol server.
-   *
-   * ⚠ URL `https://example.org` adalah placeholder. Ganti dengan endpoint
-   * streaming Anda sendiri secara lokal (jangan commit URL asli ke repo publik).
-   *
-   * Contoh real-world (jangan commit ke repo public):
-   *   { name: 'Server Utama',    pattern: 'https://cdn.nobar.id/watch/{video_id}' }
-   *   { name: 'Server Cadangan', pattern: 'https://backup.nobar.id/embed/{video_id}' }
    */
   const SERVERS = [
-  {
-    id: 'utama',
-    name: 'Server 1 (HD)',
-    pattern: 'https://vidsrc.to{video_id}',  // ← Sudah diganti
-    quality: '1080p'
-  },
-  {
-    id: 'cadangan',
-    name: 'Server 2 (Fast)',
-    pattern: 'https://vidsrc.sh{video_id}',  // ← Sudah diganti
-    quality: '720p'
-  }
-];
+    {
+      id: 'utama',
+      name: 'Server 1 (HD)',
+      pattern: 'https://vidsrc.to{video_id}',  // ← PERBAIKAN: Ditambahkan /embed/movie/
+      quality: '1080p'
+    },
+    {
+      id: 'cadangan',
+      name: 'Server 2 (Fast)',
+      pattern: 'https://vidsrc.sh{video_id}',  // ← PERBAIKAN: Ditambahkan /embed/movie/
+      quality: '720p'
+    }
+  ];
 
   // Sample kreator untuk section "Kreator Pilihan" (static, decorative).
-  // Di dunia nyata, ini juga bisa di-fetch dari /person/popular TMDB.
   const CREATORS = [
     { name: 'Aisyah Putri',    role: 'Dokumenter',       avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80' },
     { name: 'Bayu Mahendra',   role: 'Musisi',           avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc664aec0?auto=format&fit=crop&w=200&q=80' },

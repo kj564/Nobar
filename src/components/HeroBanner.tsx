@@ -19,7 +19,7 @@ type HeroBannerProps = {
 
 export function HeroBanner({ movies }: HeroBannerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [activeDetail, setActiveDetail] = useState<TMDBMovieDetail | null>(null);
+  const [details, setDetails] = useState<Record<number, TMDBMovieDetail>>({});
 
   // Auto-rotate every 8 seconds
   useEffect(() => {
@@ -30,22 +30,32 @@ export function HeroBanner({ movies }: HeroBannerProps) {
     return () => clearInterval(timer);
   }, [movies.length]);
 
-  // Lazy fetch detail for active slide (tagline + genres)
+  // Fetch ALL movie details once on mount (NOT lazy per-slide).
+  // Promise.all — parallel fetch, store in map keyed by movie id.
   useEffect(() => {
     if (movies.length === 0) return;
-    const movie = movies[activeIndex];
-    if (!movie) return;
     let cancelled = false;
-    setActiveDetail(null);
-    fetchMovieDetail(movie.id)
-      .then((detail) => {
-        if (!cancelled) setActiveDetail(detail);
-      })
-      .catch((e) => console.warn("Hero detail fetch failed", e));
+    Promise.all(
+      movies.map((m) =>
+        fetchMovieDetail(m.id)
+          .then((detail) => [m.id, detail] as const)
+          .catch((e) => {
+            console.warn("Hero detail fetch failed for", m.id, e);
+            return [m.id, null] as const;
+          })
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const map: Record<number, TMDBMovieDetail> = {};
+      for (const [id, detail] of results) {
+        if (detail) map[id as number] = detail as TMDBMovieDetail;
+      }
+      setDetails(map);
+    });
     return () => {
       cancelled = true;
     };
-  }, [activeIndex, movies]);
+  }, [movies]);
 
   const goToSlide = useCallback(
     (index: number) => {
@@ -81,8 +91,8 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const isMovie = Boolean(movie.title);
   const mediaTypeLabel = isMovie ? "Film" : "TV Series";
   const href = isMovie ? `/movie/${slug}` : `/series/${slug}`;
-  const tagline = activeDetail?.tagline;
-  const genres = activeDetail?.genres?.slice(0, 3).map((g) => g.name).join(", ");
+  const tagline = details[movie.id]?.tagline;
+  const genres = details[movie.id]?.genres?.slice(0, 3).map((g) => g.name).join(", ");
 
   return (
     <div

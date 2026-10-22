@@ -210,8 +210,11 @@ export default function NobarPage() {
       </header>
 
       {/* Hero Banner — Netflix-style, dynamic from trending movies.
-          Navbar overlaps hero (transparent at top, bg when scrolled). */}
-      <HeroBanner movies={featured} />
+          pt-16 wrapper pushes hero below fixed navbar (z-40) so content
+          doesn't get drowned/covered. */}
+      <div className="pt-16">
+        <HeroBanner movies={featured} />
+      </div>
 
       {/* Featured Movies */}
       <section id="featured" className="py-12">

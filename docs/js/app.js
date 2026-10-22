@@ -1,20 +1,9 @@
-/* ==========================================================================
-   Nobar — Application logic (Vanilla JavaScript, dynamic)
-   Data katalog di-fetch dari TMDB API saat runtime, bukan array lokal.
-   Fitur:
-   1. fetchTrending()  — ambil film Trending Now saat halaman dimuat
-   2. fetchByGenre()   — ambil film berdasarkan kategori (genre TMDB)
-   3. fetchDetails()   — ambil detail + ID film saat kartu diklik → masuk modal
-   4. Multi-server source picker — swap src <iframe> berdasarkan TMDB movie ID
-   5. Endless content — tombol Load More untuk page berikutnya
-   ========================================================================== */
+// Nobar — app.js (Vanilla JS, TMDB API)
 
 (function () {
   'use strict';
 
-  // ---------------------------------------------------------------------------
   // KONFIGURASI
-  // ---------------------------------------------------------------------------
   //
   // ⚠ KEAMANAN: API_KEY di bawah adalah PLACEHOLDER. Ganti dengan TMDB API
   // key Anda sendiri secara lokal (jangan commit ke public repo).
@@ -44,9 +33,7 @@
     { id: 10749,      name: 'Romance',     tmdbGenreId: 10749 },
   ];
 
-  // ---------------------------------------------------------------------------
   // STATE
-  // ---------------------------------------------------------------------------
   const state = {
     activeCategory: 'trending',
     page: 1,
@@ -65,9 +52,7 @@
   let currentServerId = null;
   let toastTimer = null;
 
-  // ---------------------------------------------------------------------------
   // ELEMENT REFERENCES
-  // ---------------------------------------------------------------------------
   const $ = (sel, ctx) => (ctx || document).querySelector(sel);
   const $$ = (sel, ctx) => Array.from((ctx || document).querySelectorAll(sel));
 
@@ -93,9 +78,7 @@
   // Container untuk tombol "Load More" + status pagination
   let loadMoreWrap = null;
 
-  // ---------------------------------------------------------------------------
   // UTIL
-  // ---------------------------------------------------------------------------
   function showToast(msg) {
     if (!toast) return;
     toast.textContent = msg;
@@ -137,9 +120,7 @@
     return String(count);
   }
 
-  // ---------------------------------------------------------------------------
   // API: fetch helpers
-  // ---------------------------------------------------------------------------
   async function tmdbGet(path, params = {}) {
     const url = new URL(`${TMDB_BASE}${path}`);
     url.searchParams.set('api_key', API_KEY);
@@ -200,9 +181,7 @@
     return fetchByGenre(cat.tmdbGenreId, page);
   }
 
-  // ---------------------------------------------------------------------------
   // RENDER: filter chips
-  // ---------------------------------------------------------------------------
   function renderFilters() {
     filterChips.innerHTML = CATEGORIES.map(cat => {
       const active = cat.id === state.activeCategory;
@@ -230,9 +209,7 @@
     });
   }
 
-  // ---------------------------------------------------------------------------
   // RENDER: card
-  // ---------------------------------------------------------------------------
   function cardMarkup(movie, extraClass) {
     const id = movie.id;
     const title = movie.title || movie.name || 'Untitled';
@@ -272,9 +249,7 @@
       </article>`;
   }
 
-  // ---------------------------------------------------------------------------
   // RENDER: featured row + grid + creators
-  // ---------------------------------------------------------------------------
   function renderFeatured() {
     if (!state.featured.length) {
       featuredRow.innerHTML = '';
@@ -341,9 +316,7 @@
     `).join('');
   }
 
-  // ---------------------------------------------------------------------------
   // RENDER: load more button
-  // ---------------------------------------------------------------------------
   function ensureLoadMoreWrap() {
     if (loadMoreWrap) return loadMoreWrap;
     loadMoreWrap = document.createElement('div');
@@ -375,9 +348,7 @@
     if (btn) btn.addEventListener('click', () => loadCategory(false, true));
   }
 
-  // ---------------------------------------------------------------------------
   // LOAD: kategori aktif (initial atau load more)
-  // ---------------------------------------------------------------------------
   async function loadCategory(reset = false, append = false) {
     if (reset) {
       state.page = 1;
@@ -429,12 +400,8 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
   // MODAL: open / close
-  // ---------------------------------------------------------------------------
-  // ---------------------------------------------------------------------------
   // RENDER: Similar Movies + Cast List
-  // ---------------------------------------------------------------------------
 
   /** Render "Karya Terkait" — barisan kartu horizontal dari data.similar.results */
   function renderSimilar(similarData) {
@@ -520,9 +487,7 @@
     modalCast.classList.remove('hidden');
   }
 
-  // ---------------------------------------------------------------------------
   // MODAL: open / close
-  // ---------------------------------------------------------------------------
   async function openModal(movieId) {
     if (!movieId) return;
 
@@ -568,13 +533,12 @@
         <span class="px-2.5 py-1 rounded bg-white/5 text-xs text-gray-300 border border-white/5">#${t}</span>
       `).join('');
 
-      // ===== Render Karya Terkait (Similar Movies) =====
+      // Render Karya Terkait (Similar Movies)
       renderSimilar(data.similar);
 
-      // ===== Render Daftar Tim & Kreator (Cast List) =====
+      // Render Daftar Tim & Kreator (Cast List)
       renderCast(data.credits);
 
-      // Render server picker
       renderServerPicker();
 
       // Pilih server default (recommended, fallback ke pertama)
@@ -599,9 +563,7 @@
     currentServerId = null;
   }
 
-  // ---------------------------------------------------------------------------
   // SERVER PICKER
-  // ---------------------------------------------------------------------------
   function renderServerPicker() {
     if (!currentVideoInModal) return;
     serverPicker.innerHTML = SERVERS.map(s => {
@@ -650,9 +612,7 @@
     }, 200);
   }
 
-  // ---------------------------------------------------------------------------
   // EVENT BINDINGS
-  // ---------------------------------------------------------------------------
   function bindCardClicks() {
     document.body.addEventListener('click', (e) => {
       const card = e.target.closest('.video-card');
@@ -702,9 +662,7 @@
     });
   }
 
-  // ---------------------------------------------------------------------------
   // SEARCH
-  // ---------------------------------------------------------------------------
   // Debounce config
   const SEARCH_DEBOUNCE_MS = 350;
   const SEARCH_MIN_CHARS = 2;
@@ -809,9 +767,7 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
   // INIT
-  // ---------------------------------------------------------------------------
   function init() {
     renderFilters();
     renderCreators();

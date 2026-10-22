@@ -188,6 +188,21 @@ export function posterUrl(path?: string | null, size: "sm" | "lg" | "orig" = "sm
   return base + path;
 }
 
+// Backdrop image URL — used by hero banner for full-width cinematic backgrounds.
+export function backdropUrl(
+  path?: string | null,
+  size: "w780" | "w1280" | "original" = "original"
+): string {
+  if (!path) return "";
+  const base =
+    size === "w1280"
+      ? "https://image.tmdb.org/t/p/w1280"
+      : size === "w780"
+        ? "https://image.tmdb.org/t/p/w780"
+        : TMDB_IMG_ORIG;
+  return base + path;
+}
+
 export function formatRuntime(minutes?: number | null): string {
   if (!minutes) return "—";
   const h = Math.floor(minutes / 60);

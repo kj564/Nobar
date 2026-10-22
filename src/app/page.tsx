@@ -16,14 +16,12 @@ import {
   fetchByGenre,
   fetchTrendingTV,
   searchMovies,
-  slugify,
   type TMDBMovie,
   type TMDBSeries,
   type TMDBPaged,
-  posterUrl,
-  formatYear,
-  formatViews,
 } from "@/lib/tmdb";
+import { MovieCard, SeriesCard } from "@/components/MovieCard";
+import { HeroBanner } from "@/components/HeroBanner";
 
 type Category = (typeof CATEGORIES)[number];
 
@@ -39,8 +37,6 @@ export default function NobarPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statMovies, setStatMovies] = useState<string>("—");
-  const [statSeries, setStatSeries] = useState<string>("—");
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -49,7 +45,6 @@ export default function NobarPage() {
     fetchTrendingTV(1)
       .then((data) => {
         setTvSeries((data.results || []).slice(0, 12));
-        setStatSeries(formatViews(data.total_results || 0));
       })
       .catch((e) => console.warn("TV trending fetch failed", e));
   }, []);
@@ -91,7 +86,6 @@ export default function NobarPage() {
           setMovies(data.results || []);
           if (!searching && cat.id === "trending" && targetPage === 1) {
             setFeatured((data.results || []).slice(0, 6));
-            setStatMovies(formatViews(data.total_results || 0));
           }
         }
         setPage(data.page || targetPage);
@@ -215,65 +209,10 @@ export default function NobarPage() {
         </nav>
       </header>
 
-      {/* Hero */}
-      <section id="hero" className="relative min-h-[78vh] flex items-center overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 bg-gradient-to-tr from-ink-950 via-ink-950/85 to-transparent"></div>
-          <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-transparent to-transparent"></div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://images.unsplash.com/photo-1485846234645-a62644f8476b?auto=format&fit=crop&w=1600&q=80"
-            alt="Cinema"
-            className="w-full h-full object-cover opacity-50"
-            loading="eager"
-          />
-        </div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-16">
-          <div className="max-w-2xl">
-            <span className="inline-flex items-center gap-2 px-3 py-1 text-xs font-semibold tracking-wide uppercase rounded-full bg-brand-500/15 text-brand-400 border border-brand-500/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse"></span>
-              Fest Indie Vol. 7 — Sedang Berlangsung
-            </span>
-            <h1 className="mt-5 font-display text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight">
-              Panggung untuk <span className="text-brand-500">Kreator Video</span> Indie Indonesia.
-            </h1>
-            <p className="mt-5 text-base sm:text-lg text-gray-300 max-w-xl leading-relaxed">
-              Jelajahi karya pendek dari sineas, dokumentaris, dan animator lokal —
-              diputar langsung dari berbagai server cadangan yang stabil dan ringan.
-            </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
-              <a
-                href="#featured"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 rounded font-semibold transition shadow-lg shadow-brand-500/30"
-              >
-                <Play className="w-5 h-5 fill-white" />
-                Tonton Sekarang
-              </a>
-              <a
-                href="#kategori"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 backdrop-blur rounded font-semibold transition border border-white/10"
-              >
-                Jelajahi Kategori
-              </a>
-            </div>
-            {/* Stats — dynamic from live TMDB response */}
-            <dl className="mt-10 grid grid-cols-3 gap-6 max-w-md">
-              <div>
-                <dt className="text-2xl font-display font-bold">{statMovies}</dt>
-                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Film Minggu Ini</dd>
-              </div>
-              <div>
-                <dt className="text-2xl font-display font-bold">{statSeries}</dt>
-                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Series Tersedia</dd>
-              </div>
-              <div>
-                <dt className="text-2xl font-display font-bold">{CATEGORIES.length}</dt>
-                <dd className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Kategori</dd>
-              </div>
-            </dl>
-          </div>
-        </div>
-      </section>
+      {/* Hero Banner — Netflix-style, dynamic from trending movies */}
+      <div className="pt-16">
+        <HeroBanner movies={featured} />
+      </div>
 
       {/* Featured Movies */}
       <section id="featured" className="py-12">
@@ -298,7 +237,6 @@ export default function NobarPage() {
                 <MovieCard
                   key={m.id}
                   movie={m}
-                  href={`/movie/${slugify(m.title || m.name, m.release_date)}`}
                   featured
                 />
               ))}
@@ -336,7 +274,6 @@ export default function NobarPage() {
                 <SeriesCard
                   key={s.id}
                   series={s}
-                  href={`/series/${slugify(s.name || s.title, s.first_air_date)}`}
                 />
               ))}
             </div>
@@ -419,7 +356,6 @@ export default function NobarPage() {
                 <MovieCard
                   key={m.id}
                   movie={m}
-                  href={`/movie/${slugify(m.title || m.name, m.release_date)}`}
                 />
               ))}
             </div>
@@ -487,93 +423,6 @@ export default function NobarPage() {
   );
 }
 
-// ─── Movie Card (navigates to /movie/[slug]) ──────────────────────────────
+// ─── Inline card definitions removed — using shared components from
+// ─── src/components/MovieCard.tsx (MovieCard + SeriesCard) ──────────────
 
-function MovieCard({
-  movie,
-  href,
-  featured = false,
-}: {
-  movie: TMDBMovie;
-  href: string;
-  featured?: boolean;
-}) {
-  const title = movie.title || movie.name || "Untitled";
-  return (
-    <Link
-      href={href}
-      className={`video-card group bg-ink-900 rounded-lg overflow-hidden border border-white/5 hover:border-white/20 fade-in block ${
-        featured ? "flex-shrink-0 w-[280px] snap-start" : ""
-      }`}
-    >
-      <div className="card-thumb relative aspect-video overflow-hidden bg-ink-800">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={posterUrl(movie.poster_path)}
-          alt={title}
-          loading="lazy"
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-        <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold">
-          {formatYear(movie.release_date)} • ⭐ {movie.vote_average ? movie.vote_average.toFixed(1) : "—"}
-        </span>
-        <div className="card-play absolute inset-0 flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-xl">
-            <Play className="w-6 h-6 fill-white ml-0.5" />
-          </div>
-        </div>
-      </div>
-      <div className="p-3">
-        <h3 className="font-display text-sm font-bold leading-snug line-clamp-2">{title}</h3>
-        <p className="mt-1 text-xs text-gray-400 line-clamp-1">
-          {formatViews(movie.vote_count)} suara
-        </p>
-      </div>
-    </Link>
-  );
-}
-
-// ─── Series Card (navigates to /series/[slug]) ───────────────────────────
-
-function SeriesCard({
-  series,
-  href,
-}: {
-  series: TMDBSeries;
-  href: string;
-}) {
-  const title = series.name || series.title || "Untitled";
-  return (
-    <Link
-      href={href}
-      className="video-card group bg-ink-900 rounded-lg overflow-hidden border border-white/5 hover:border-white/20 fade-in block"
-    >
-      <div className="card-thumb relative aspect-video overflow-hidden bg-ink-800">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={posterUrl(series.poster_path)}
-          alt={title}
-          loading="lazy"
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-        <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold inline-flex items-center gap-1">
-          <Tv className="w-2.5 h-2.5" />
-          {formatYear(series.first_air_date)} • ⭐ {series.vote_average ? series.vote_average.toFixed(1) : "—"}
-        </span>
-        <div className="card-play absolute inset-0 flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-xl">
-            <Play className="w-6 h-6 fill-white ml-0.5" />
-          </div>
-        </div>
-      </div>
-      <div className="p-3">
-        <h3 className="font-display text-sm font-bold leading-snug line-clamp-2">{title}</h3>
-        <p className="mt-1 text-xs text-gray-400 line-clamp-1">
-          {formatViews(series.vote_count)} suara
-        </p>
-      </div>
-    </Link>
-  );
-}

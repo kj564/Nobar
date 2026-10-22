@@ -184,29 +184,28 @@ export default function NobarPage() {
         <HeroBanner movies={featured} />
       </div>
 
-      {/* Featured Movies */}
-      <section id="featured" className="py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-end justify-between mb-6">
-            <div>
-              <h2 className="font-display text-2xl sm:text-3xl font-bold">Sedang Trending</h2>
-              <p className="text-sm text-gray-400 mt-1">Pilihan minggu ini dari komunitas Nobar.</p>
-            </div>
+      {/* Featured Movies — Trending Now (horizontal scroll, IDLIX style) */}
+      <section id="featured" className="py-10">
+        <div className="max-w-7xl mx-auto px-6 md:px-12">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <h2 className="font-display text-2xl font-bold">Trending Now</h2>
+            <p className="text-sm text-gray-400 mt-1 sm:mt-0">Top 6 film minggu ini.</p>
           </div>
           {featured.length === 0 ? (
             <div className="flex gap-4 overflow-x-auto pb-4">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex-shrink-0 w-[280px] rounded-lg overflow-hidden border border-white/5">
-                  <div className="skeleton aspect-video"></div>
+                <div key={i} className="flex-none w-40 md:w-48 rounded-lg overflow-hidden border border-white/5">
+                  <div className="skeleton aspect-[2/3]"></div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x scroll-row">
-              {featured.map((m) => (
+            <div className="flex gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
+              {featured.map((m, i) => (
                 <MovieCard
                   key={m.id}
                   movie={m}
+                  rank={i + 1}
                   featured
                 />
               ))}
@@ -215,35 +214,31 @@ export default function NobarPage() {
         </div>
       </section>
 
-      {/* TV Series Trending */}
-      <section id="series" className="py-12 border-t border-white/5">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-end justify-between mb-6">
-            <div>
-              <h2 className="font-display text-2xl sm:text-3xl font-bold flex items-center gap-3">
-                <Tv className="w-6 h-6 text-brand-500" />
-                Series Trending
-              </h2>
-              <p className="text-sm text-gray-400 mt-1">Serial TV populer minggu ini.</p>
-            </div>
+      {/* TV Series Trending (horizontal scroll, IDLIX style) */}
+      <section id="series" className="py-10 border-t border-white/5">
+        <div className="max-w-7xl mx-auto px-6 md:px-12">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <h2 className="font-display text-2xl font-bold flex items-center gap-3">
+              <Tv className="w-6 h-6 text-brand-500" />
+              Trending Series
+            </h2>
+            <p className="text-sm text-gray-400 mt-1 sm:mt-0">Serial TV populer minggu ini.</p>
           </div>
           {tvSeries.length === 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="flex gap-4 overflow-x-auto pb-4">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="rounded-lg overflow-hidden border border-white/5">
-                  <div className="skeleton aspect-video"></div>
-                  <div className="p-3 space-y-2">
-                    <div className="skeleton h-3 rounded w-3/4"></div>
-                  </div>
+                <div key={i} className="flex-none w-40 md:w-48 rounded-lg overflow-hidden border border-white/5">
+                  <div className="skeleton aspect-[2/3]"></div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {tvSeries.map((s) => (
+            <div className="flex gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
+              {tvSeries.map((s, i) => (
                 <SeriesCard
                   key={s.id}
                   series={s}
+                  rank={i + 1}
                 />
               ))}
             </div>
@@ -296,10 +291,9 @@ export default function NobarPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {Array.from({ length: 10 }).map((_, i) => (
                 <div key={i} className="rounded-lg overflow-hidden border border-white/5">
-                  <div className="skeleton aspect-video"></div>
-                  <div className="p-3 space-y-2">
+                  <div className="skeleton aspect-[2/3]"></div>
+                  <div className="p-2">
                     <div className="skeleton h-3 rounded w-3/4"></div>
-                    <div className="skeleton h-2 rounded w-1/2"></div>
                   </div>
                 </div>
               ))}

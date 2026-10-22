@@ -1,0 +1,411 @@
+     1→<!DOCTYPE html>
+     2→<html lang="en">
+     3→<head>
+     4→    <meta charset="UTF-8">
+     5→    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     6→    <title>Streaming Platform UI</title>
+     7→    
+     8→    <!-- Tailwind CSS -->
+     9→    <script src="https://cdn.tailwindcss.com"></script>
+    10→    
+    11→    <!-- Google Fonts (Inter) -->
+    12→    <link rel="preconnect" href="https://fonts.googleapis.com">
+    13→    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    14→    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+    15→    
+    16→    <!-- FontAwesome Icons -->
+    17→    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    18→
+    19→    <style>
+    20→        body {
+    21→            font-family: 'Inter', sans-serif;
+    22→            background-color: #000;
+    23→            color: #fff;
+    24→        }
+    25→        
+    26→        /* Custom scrollbar for the main page */
+    27→        ::-webkit-scrollbar {
+    28→            width: 8px;
+    29→            height: 8px;
+    30→        }
+    31→        ::-webkit-scrollbar-track {
+    32→            background: #000; 
+    33→        }
+    34→        ::-webkit-scrollbar-thumb {
+    35→            background: #333; 
+    36→            border-radius: 4px;
+    37→        }
+    38→        ::-webkit-scrollbar-thumb:hover {
+    39→            background: #555; 
+    40→        }
+    41→
+    42→        /* Utility class to hide scrollbar for horizontal carousels */
+    43→        .hide-scrollbar::-webkit-scrollbar {
+    44→            display: none;
+    45→        }
+    46→        .hide-scrollbar {
+    47→            -ms-overflow-style: none;
+    48→            scrollbar-width: none;
+    49→        }
+    50→        
+    51→        /* Text shadow for massive ranking numbers */
+    52→        .text-shadow-massive {
+    53→            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8), 0px 0px 10px rgba(0,0,0,0.5);
+    54→        }
+    55→    </style>
+    56→</head>
+    57→<body class="min-h-screen bg-black overflow-x-hidden">
+    58→
+    59→    <!-- 1. NAVBAR (Fixed Top) -->
+    60→    <header id="navbar" class="fixed top-0 left-0 right-0 z-50 flex justify-between items-center px-6 md:px-12 py-5 w-full transition-all duration-300 bg-transparent">
+    61→        <!-- Left Side: Logo & Navigation -->
+    62→        <div class="flex items-center space-x-12">
+    63→            <!-- Logo -->
+    64→            <a href="#" class="text-red-600 text-3xl font-black uppercase tracking-tighter">[nama web]</a>
+    65→            
+    66→            <!-- Navigation Links -->
+    67→            <nav class="hidden md:flex items-center space-x-2">
+    68→                <a href="#" class="flex items-center space-x-2 bg-red-900/40 text-red-500 px-4 py-2 rounded-full text-sm font-semibold transition">
+    69→                    <i class="fas fa-home text-xs"></i>
+    70→                    <span>Home</span>
+    71→                </a>
+    72→                <a href="#" class="flex items-center space-x-2 text-white hover:text-gray-300 px-4 py-2 rounded-full text-sm font-medium transition">
+    73→                    <i class="fas fa-film text-xs"></i>
+    74→                    <span>Movies</span>
+    75→                </a>
+    76→                <a href="#" class="flex items-center space-x-2 text-white hover:text-gray-300 px-4 py-2 rounded-full text-sm font-medium transition">
+    77→                    <i class="fas fa-tv text-xs"></i>
+    78→                    <span>TV Series</span>
+    79→                </a>
+    80→            </nav>
+    81→        </div>
+    82→
+    83→        <!-- Right Side: Search -->
+    84→        <div class="flex items-center">
+    85→            <button class="text-white hover:text-gray-300 transition">
+    86→                <i class="fas fa-search text-xl"></i>
+    87→            </button>
+    88→        </div>
+    89→    </header>
+    90→
+    91→    <!-- 2. HERO SECTION (Full Screen - 100vh) -->
+    92→    <section class="relative h-screen min-h-[600px] w-full flex flex-col justify-end bg-cover bg-center" style="background-image: url('https://images.unsplash.com/photo-1605806616949-1e87b487cb2a?q=80&w=1920&auto=format&fit=crop');">
+    93→        
+    94→        <!-- Gradient Overlays -->
+    95→        <div class="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-transparent z-0 pointer-events-none"></div>
+    96→        <div class="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-0 pointer-events-none"></div>
+    97→
+    98→        <!-- Main Hero Content Container -->
+    99→        <main class="relative z-10 w-full md:w-1/2 flex flex-col px-6 md:px-12 pb-24 gap-y-3">
+   100→            
+   101→            <!-- Badge -->
+   102→            <div class="bg-red-600 text-white text-[11px] font-bold px-2 py-1 rounded w-max tracking-wider">
+   103→                TV SERIES
+   104→            </div>
+   105→            
+   106→            <!-- Tagline -->
+   107→            <p class="text-gray-400 italic text-sm md:text-base font-light">
+   108→                Just keep running.
+   109→            </p>
+   110→            
+   111→            <!-- Title Logo -->
+   112→            <img src="https://image.tmdb.org/t/p/w500/2wgUnrYEGtbcpZCl83ta2hS8d6J.png" alt="Cyberpunk Edgerunners" class="w-64 md:w-80 lg:w-96 object-contain my-1">
+   113→            
+   114→            <!-- Metadata Line -->
+   115→            <div class="flex flex-wrap items-center text-xs md:text-sm text-gray-300 gap-y-2 gap-x-2">
+   116→                <div class="flex items-center font-bold">
+   117→                    <i class="fas fa-star text-yellow-500 mr-1 text-[10px]"></i>
+   118→                    <span class="text-yellow-500">8.5</span>
+   119→                </div>
+   120→                <span class="text-gray-600">•</span>
+   121→                <span>2022</span>
+   122→                <span class="text-gray-600">•</span>
+   123→                <span>2 Seasons</span>
+   124→                <span class="text-gray-600">•</span>
+   125→                <span>10 Episodes</span>
+   126→                <span class="text-gray-600 hidden sm:inline">•</span>
+   127→                <span class="text-gray-300 hidden sm:inline">Action, Drama, Animation</span>
+   128→                
+   129→                <span class="ml-1 border border-green-500 text-green-500 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wide bg-green-900/20">
+   130→                    ONGOING
+   131→                </span>
+   132→            </div>
+   133→            
+   134→            <!-- Synopsis -->
+   135→            <p class="text-gray-400 text-sm md:text-base leading-snug max-w-xl mb-2">
+   136→                In a dystopia riddled with corruption and cybernetic implants, a talented but reckless street kid strives to become a mercenary outlaw — an edgerunner.
+   137→            </p>
+   138→            
+   139→            <!-- CTA Button -->
+   140→            <button class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 px-6 rounded-lg flex items-center justify-center gap-3 w-max transition-colors shadow-lg">
+   141→                <i class="fas fa-play text-sm"></i>
+   142→                <span>Watch Now</span>
+   143→            </button>
+   144→        </main>
+   145→
+   146→        <!-- Pagination Slider (Bottom Left) -->
+   147→        <div class="absolute bottom-8 left-6 md:left-12 flex space-x-2 items-center z-10">
+   148→            <div class="h-1 w-8 bg-red-600 rounded-full cursor-pointer"></div>
+   149→            <div class="h-1.5 w-1.5 bg-gray-500 rounded-full cursor-pointer hover:bg-gray-400"></div>
+   150→            <div class="h-1.5 w-1.5 bg-gray-500 rounded-full cursor-pointer hover:bg-gray-400"></div>
+   151→            <div class="h-1.5 w-1.5 bg-gray-500 rounded-full cursor-pointer hover:bg-gray-400"></div>
+   152→            <div class="h-1.5 w-1.5 bg-gray-500 rounded-full cursor-pointer hover:bg-gray-400"></div>
+   153→            <div class="h-1.5 w-1.5 bg-gray-500 rounded-full cursor-pointer hover:bg-gray-400"></div>
+   154→            <div class="h-1.5 w-1.5 bg-gray-500 rounded-full cursor-pointer hover:bg-gray-400"></div>
+   155→            <div class="h-1.5 w-1.5 bg-gray-500 rounded-full cursor-pointer hover:bg-gray-400"></div>
+   156→            <div class="h-1.5 w-1.5 bg-gray-500 rounded-full cursor-pointer hover:bg-gray-400"></div>
+   157→        </div>
+   158→    </section>
+   159→
+   160→    <!-- 3 & 4. TRENDING SECTIONS (Trending Now & Trending in Indonesia) -->
+   161→    <section class="w-full bg-black px-6 md:px-12 py-10 space-y-12">
+   162→        
+   163→        <!-- ================= TRENDING NOW ================= -->
+   164→        <div class="flex flex-col gap-4">
+   165→            <!-- Header & Toggle -->
+   166→            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+   167→                <h2 class="text-white text-2xl font-bold">Trending Now</h2>
+   168→                
+   169→                <!-- Toggle Group -->
+   170→                <div class="flex items-center bg-zinc-900 rounded-full p-1 border border-zinc-800 w-max">
+   171→                    <button class="bg-zinc-700 text-white px-5 py-1.5 rounded-full text-xs font-medium">All</button>
+   172→                    <button class="text-gray-400 hover:text-white px-5 py-1.5 rounded-full text-xs font-medium transition">Movies</button>
+   173→                    <button class="text-gray-400 hover:text-white px-5 py-1.5 rounded-full text-xs font-medium transition">TV Series</button>
+   174→                </div>
+   175→            </div>
+   176→
+   177→            <!-- Cards Row (Horizontal Scroll) -->
+   178→            <div class="flex gap-4 overflow-x-auto hide-scrollbar pb-4 pt-2">
+   179→                
+   180→                <!-- Card 1 -->
+   181→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   182→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   183→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">1</span>
+   184→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S1</span>
+   185→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   186→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   187→                            <i class="fas fa-star text-yellow-500"></i> 10.0
+   188→                        </div>
+   189→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   190→                            <i class="far fa-comment-dots text-gray-400"></i> 66
+   191→                        </div>
+   192→                    </div>
+   193→                    <h3 class="text-sm font-medium text-white truncate">Doctor X: Mafia in White</h3>
+   194→                </div>
+   195→
+   196→                <!-- Card 2 -->
+   197→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   198→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   199→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">2</span>
+   200→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S1</span>
+   201→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   202→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   203→                            <i class="fas fa-star text-yellow-500"></i> 9.3
+   204→                        </div>
+   205→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   206→                            <i class="far fa-comment-dots text-gray-400"></i> 81
+   207→                        </div>
+   208→                    </div>
+   209→                    <h3 class="text-sm font-medium text-white truncate">VisionQuest (2026)</h3>
+   210→                </div>
+   211→
+   212→                <!-- Card 3 -->
+   213→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   214→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   215→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">3</span>
+   216→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S7</span>
+   217→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   218→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   219→                            <i class="fas fa-star text-yellow-500"></i> 8.4
+   220→                        </div>
+   221→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   222→                            <i class="far fa-comment-dots text-gray-400"></i> 72
+   223→                        </div>
+   224→                    </div>
+   225→                    <h3 class="text-sm font-medium text-white truncate">The Mentalist (2008)</h3>
+   226→                </div>
+   227→
+   228→                <!-- Card 4 -->
+   229→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   230→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   231→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">4</span>
+   232→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S1</span>
+   233→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   234→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   235→                            <i class="fas fa-star text-yellow-500"></i> 8.2
+   236→                        </div>
+   237→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   238→                            <i class="far fa-comment-dots text-gray-400"></i> 25
+   239→                        </div>
+   240→                    </div>
+   241→                    <h3 class="text-sm font-medium text-white truncate">Take Charge of My Heart</h3>
+   242→                </div>
+   243→
+   244→                <!-- Card 5 -->
+   245→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   246→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   247→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">5</span>
+   248→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S2</span>
+   249→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   250→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   251→                            <i class="fas fa-star text-yellow-500"></i> 8.5
+   252→                        </div>
+   253→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   254→                            <i class="far fa-comment-dots text-gray-400"></i> 47
+   255→                        </div>
+   256→                    </div>
+   257→                    <h3 class="text-sm font-medium text-white truncate">Black Clover (2017)</h3>
+   258→                </div>
+   259→
+   260→                <!-- Card 6 -->
+   261→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   262→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   263→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">6</span>
+   264→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S2</span>
+   265→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   266→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   267→                            <i class="fas fa-star text-yellow-500"></i> 8.5
+   268→                        </div>
+   269→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   270→                            <i class="far fa-comment-dots text-gray-400"></i> 21
+   271→                        </div>
+   272→                    </div>
+   273→                    <h3 class="text-sm font-medium text-white truncate">Cyberpunk: Edgerunners</h3>
+   274→                </div>
+   275→            </div>
+   276→        </div>
+   277→
+   278→        <!-- ================= TRENDING IN INDONESIA ================= -->
+   279→        <div class="flex flex-col gap-4">
+   280→            <!-- Header & Toggle -->
+   281→            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+   282→                <h2 class="text-white text-2xl font-bold">Trending in Indonesia</h2>
+   283→                
+   284→                <!-- Toggle Group -->
+   285→                <div class="flex items-center bg-zinc-900 rounded-full p-1 border border-zinc-800 w-max">
+   286→                    <button class="bg-zinc-700 text-white px-5 py-1.5 rounded-full text-xs font-medium">All</button>
+   287→                    <button class="text-gray-400 hover:text-white px-5 py-1.5 rounded-full text-xs font-medium transition">Movies</button>
+   288→                    <button class="text-gray-400 hover:text-white px-5 py-1.5 rounded-full text-xs font-medium transition">TV Series</button>
+   289→                </div>
+   290→            </div>
+   291→
+   292→            <!-- Cards Row (Horizontal Scroll) -->
+   293→            <div class="flex gap-4 overflow-x-auto hide-scrollbar pb-4 pt-2">
+   294→                
+   295→                <!-- Card 1 -->
+   296→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   297→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   298→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">1</span>
+   299→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S1</span>
+   300→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   301→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   302→                            <i class="fas fa-star text-yellow-500"></i> 9.0
+   303→                        </div>
+   304→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   305→                            <i class="far fa-comment-dots text-gray-400"></i> 120
+   306→                        </div>
+   307→                    </div>
+   308→                    <h3 class="text-sm font-medium text-white truncate">Gadis Kretek</h3>
+   309→                </div>
+   310→
+   311→                <!-- Card 2 -->
+   312→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   313→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   314→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">2</span>
+   315→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S2</span>
+   316→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   317→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   318→                            <i class="fas fa-star text-yellow-500"></i> 8.8
+   319→                        </div>
+   320→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   321→                            <i class="far fa-comment-dots text-gray-400"></i> 95
+   322→                        </div>
+   323→                    </div>
+   324→                    <h3 class="text-sm font-medium text-white truncate">Serigala Terakhir</h3>
+   325→                </div>
+   326→
+   327→                <!-- Card 3 -->
+   328→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   329→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   330→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">3</span>
+   331→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S1</span>
+   332→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   333→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   334→                            <i class="fas fa-star text-yellow-500"></i> 8.5
+   335→                        </div>
+   336→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   337→                            <i class="far fa-comment-dots text-gray-400"></i> 60
+   338→                        </div>
+   339→                    </div>
+   340→                    <h3 class="text-sm font-medium text-white truncate">Pertaruhan</h3>
+   341→                </div>
+   342→                
+   343→                <!-- Card 4 -->
+   344→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   345→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   346→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">4</span>
+   347→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S1</span>
+   348→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   349→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   350→                            <i class="fas fa-star text-yellow-500"></i> 8.7
+   351→                        </div>
+   352→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   353→                            <i class="far fa-comment-dots text-gray-400"></i> 45
+   354→                        </div>
+   355→                    </div>
+   356→                    <h3 class="text-sm font-medium text-white truncate">Hubungi Agen Gue!</h3>
+   357→                </div>
+   358→                
+   359→                <!-- Card 5 -->
+   360→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   361→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   362→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">5</span>
+   363→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S1</span>
+   364→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   365→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   366→                            <i class="fas fa-star text-yellow-500"></i> 8.3
+   367→                        </div>
+   368→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   369→                            <i class="far fa-comment-dots text-gray-400"></i> 32
+   370→                        </div>
+   371→                    </div>
+   372→                    <h3 class="text-sm font-medium text-white truncate">Nightmares and Daydreams</h3>
+   373→                </div>
+   374→
+   375→                <!-- Card 6 -->
+   376→                <div class="flex-none w-40 md:w-48 group cursor-pointer flex flex-col gap-2">
+   377→                    <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center" style="background-image: url('https://image.tmdb.org/t/p/w780/acYXu4KaDj1NIkMgObnhe4C4a0T.jpg');">
+   378→                        <span class="absolute -top-2 -left-1 text-[5rem] font-black text-white text-shadow-massive z-10 leading-none">6</span>
+   379→                        <span class="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">S3</span>
+   380→                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
+   381→                        <div class="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   382→                            <i class="fas fa-star text-yellow-500"></i> 8.9
+   383→                        </div>
+   384→                        <div class="absolute bottom-2 right-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+   385→                            <i class="far fa-comment-dots text-gray-400"></i> 110
+   386→                        </div>
+   387→                    </div>
+   388→                    <h3 class="text-sm font-medium text-white truncate">Mendua</h3>
+   389→                </div>
+   390→            </div>
+   391→        </div>
+   392→        
+   393→    </section>
+   394→
+   395→    <!-- 5. INTERACTIVITY: Navbar Background on Scroll -->
+   396→    <script>
+   397→        const navbar = document.getElementById('navbar');
+   398→        window.addEventListener('scroll', () => {
+   399→            // Apply solid black and blur when scrolled down
+   400→            if (window.scrollY > 20) {
+   401→                navbar.classList.add('bg-black/95', 'backdrop-blur-md', 'shadow-lg');
+   402→                navbar.classList.remove('bg-transparent');
+   403→            } else {
+   404→                // Revert to transparent at the top
+   405→                navbar.classList.add('bg-transparent');
+   406→                navbar.classList.remove('bg-black/95', 'backdrop-blur-md', 'shadow-lg');
+   407→            }
+   408→        });
+   409→    </script>
+   410→</body>
+   411→</html>

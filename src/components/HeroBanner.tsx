@@ -162,26 +162,27 @@ export function HeroBanner({ movies }: HeroBannerProps) {
           {mediaTypeLabel}
         </div>
 
+        {/* Tagline — conditional render (hidden if empty).
+            Position: ABOVE title (sesuai template IDLIX).
+            line-clamp-1 truncates with "..." if too long. */}
+        {tagline && tagline.trim() !== "" && (
+          <p className="text-gray-400 italic text-xs sm:text-sm font-medium tracking-wide mb-2 block line-clamp-1">
+            {tagline}
+          </p>
+        )}
+
         {/* Title — logo image (TMDB /movie/{id}/images) if available, else text */}
         {logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={logoUrl(logo, "w500")}
             alt={title}
-            className="w-80 md:w-96 lg:max-w-md object-contain mb-2 drop-shadow-2xl"
+            className="w-64 md:w-80 lg:w-96 object-contain my-1 drop-shadow-2xl"
           />
         ) : (
           <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight mb-2 text-balance">
             {title}
           </h1>
-        )}
-
-        {/* Tagline — conditional render (hidden if empty), below title.
-            line-clamp-1 truncates with "..." if too long. */}
-        {tagline && tagline.trim() !== "" && (
-          <p className="text-gray-400 italic text-xs sm:text-sm font-medium tracking-wide mb-2 block line-clamp-1">
-            {tagline}
-          </p>
         )}
 
         {/* Metadata row */}

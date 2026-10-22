@@ -16,21 +16,62 @@ import {
 import { MoviePlayer } from "@/components/MoviePlayer";
 import { Navbar } from "@/components/Navbar";
 
-// Pre-render detail pages for top 20 trending movies at build time.
-// (Static export limitation: only these slugs will have working URLs.
-// Clicks on movies outside this set will return 404 on GitHub Pages.)
+// Pre-render detail pages for ALL movies accessible in the app.
+// Fetches trending pages 1-5 (~100 movies) + similar movies from each
+// trending page 1 (~200, deduplicated). Eliminates 404 for clicks from
+// homepage cards, similar sections, search results, and category filter.
 export const dynamicParams = false;
 
-export async function generateStaticParams() {
+async function collectAllMovieSlugs(): Promise<{ slug: string }[]> {
+  const slugSet = new Set<string>();
+  const slugs: { slug: string }[] = [];
+
+  const addMovie = (m: { title?: string; name?: string; release_date?: string }) => {
+    const s = slugify(m.title || m.name, m.release_date);
+    if (s && !slugSet.has(s)) {
+      slugSet.add(s);
+      slugs.push({ slug: s });
+    }
+  };
+
   try {
-    const trending = await fetchTrending(1);
-    return trending.results.slice(0, 20).map((m) => ({
-      slug: slugify(m.title || m.name, m.release_date),
-    }));
+    // Fetch trending pages 1-5 in parallel (~100 movies)
+    const pages = await Promise.all([
+      fetchTrending(1),
+      fetchTrending(2),
+      fetchTrending(3),
+      fetchTrending(4),
+      fetchTrending(5),
+    ]);
+    for (const page of pages) {
+      for (const m of page.results) addMovie(m);
+    }
+
+    // Fetch similar movies for top 20 trending (covers "Karya Terkait" links)
+    const topTrending = pages[0].results.slice(0, 20);
+    const details = await Promise.all(
+      topTrending.map((m) =>
+        fetchMovieDetail(m.id)
+          .then((d) => d)
+          .catch(() => null)
+      )
+    );
+    for (const d of details) {
+      if (d?.similar?.results) {
+        for (const m of d.similar.results) addMovie(m);
+      }
+    }
   } catch (err) {
-    console.error("generateStaticParams (movie) failed:", err);
-    return [];
+    console.error("collectAllMovieSlugs failed:", err);
   }
+
+  return slugs;
+}
+
+export async function generateStaticParams() {
+  const slugs = await collectAllMovieSlugs();
+  console.log(`[generateStaticParams:movie] Pre-rendering ${slugs.length} movie detail pages`);
+  return slugs;
 }
 
 type PageProps = {
@@ -40,9 +81,43 @@ type PageProps = {
 export default async function MovieDetailPage({ params }: PageProps) {
   const { slug } = await params;
 
-  // Resolve slug → TMDB ID by re-fetching trending (cached, so cheap).
-  const trending = await fetchTrending(1);
-  const movie = findMovieBySlug(trending.results, slug);
+  // Resolve slug → TMDB ID by searching trending pages 1-5 + similar movies
+  // from trending page 1. TMDB responses are cached in src/lib/tmdb.ts
+  // (5min TTL), so subsequent page renders reuse the same data.
+  let movie: { id: number; title?: string; name?: string; release_date?: string } | undefined;
+
+  try {
+    const pages = await Promise.all([
+      fetchTrending(1),
+      fetchTrending(2),
+      fetchTrending(3),
+      fetchTrending(4),
+      fetchTrending(5),
+    ]);
+
+    // Search trending movies first
+    for (const page of pages) {
+      movie = findMovieBySlug(page.results, slug);
+      if (movie) break;
+    }
+
+    // If not in trending, search in similar movies of top 20 trending
+    if (!movie) {
+      const topTrending = pages[0].results.slice(0, 20);
+      const details = await Promise.all(
+        topTrending.map((m) => fetchMovieDetail(m.id).catch(() => null))
+      );
+      for (const d of details) {
+        if (d?.similar?.results) {
+          movie = findMovieBySlug(d.similar.results, slug);
+          if (movie) break;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Movie slug resolution failed:", err);
+  }
+
   if (!movie) return notFound();
 
   // Fetch full detail (with credits + similar).

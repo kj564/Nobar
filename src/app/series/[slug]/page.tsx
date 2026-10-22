@@ -15,19 +15,56 @@ import {
 import { MoviePlayer } from "@/components/MoviePlayer";
 import { Navbar } from "@/components/Navbar";
 
-// Pre-render detail pages for top 20 trending TV series at build time.
+// Pre-render detail pages for ALL TV series accessible in the app.
+// Fetches trending TV pages 1-5 (~100 series) + similar series from
+// trending page 1 (~200, deduplicated). Eliminates 404 for clicks.
 export const dynamicParams = false;
 
-export async function generateStaticParams() {
+async function collectAllSeriesSlugs(): Promise<{ slug: string }[]> {
+  const slugSet = new Set<string>();
+  const slugs: { slug: string }[] = [];
+
+  const addSeries = (s: { name?: string; title?: string; first_air_date?: string }) => {
+    const slug = slugify(s.name || s.title, s.first_air_date);
+    if (slug && !slugSet.has(slug)) {
+      slugSet.add(slug);
+      slugs.push({ slug });
+    }
+  };
+
   try {
-    const trending = await fetchTrendingTV(1);
-    return trending.results.slice(0, 20).map((s) => ({
-      slug: slugify(s.name || s.title, s.first_air_date),
-    }));
+    const pages = await Promise.all([
+      fetchTrendingTV(1),
+      fetchTrendingTV(2),
+      fetchTrendingTV(3),
+      fetchTrendingTV(4),
+      fetchTrendingTV(5),
+    ]);
+    for (const page of pages) {
+      for (const s of page.results) addSeries(s);
+    }
+
+    // Fetch similar series for top 20 trending
+    const topTrending = pages[0].results.slice(0, 20);
+    const details = await Promise.all(
+      topTrending.map((s) => fetchTVDetail(s.id).catch(() => null))
+    );
+    for (const d of details) {
+      if (d?.similar?.results) {
+        for (const s of d.similar.results) addSeries(s);
+      }
+    }
   } catch (err) {
-    console.error("generateStaticParams (series) failed:", err);
-    return [];
+    console.error("collectAllSeriesSlugs failed:", err);
   }
+
+  return slugs;
+}
+
+export async function generateStaticParams() {
+  const slugs = await collectAllSeriesSlugs();
+  console.log(`[generateStaticParams:series] Pre-rendering ${slugs.length} series detail pages`);
+  return slugs;
 }
 
 type PageProps = {
@@ -37,9 +74,39 @@ type PageProps = {
 export default async function SeriesDetailPage({ params }: PageProps) {
   const { slug } = await params;
 
-  // Resolve slug → TMDB ID by re-fetching trending TV (cached).
-  const trending = await fetchTrendingTV(1);
-  const series = findSeriesBySlug(trending.results, slug);
+  // Resolve slug → TMDB ID by searching trending TV pages 1-5 + similar.
+  let series: { id: number; name?: string; title?: string; first_air_date?: string } | undefined;
+
+  try {
+    const pages = await Promise.all([
+      fetchTrendingTV(1),
+      fetchTrendingTV(2),
+      fetchTrendingTV(3),
+      fetchTrendingTV(4),
+      fetchTrendingTV(5),
+    ]);
+
+    for (const page of pages) {
+      series = findSeriesBySlug(page.results, slug);
+      if (series) break;
+    }
+
+    if (!series) {
+      const topTrending = pages[0].results.slice(0, 20);
+      const details = await Promise.all(
+        topTrending.map((s) => fetchTVDetail(s.id).catch(() => null))
+      );
+      for (const d of details) {
+        if (d?.similar?.results) {
+          series = findSeriesBySlug(d.similar.results, slug);
+          if (series) break;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Series slug resolution failed:", err);
+  }
+
   if (!series) return notFound();
 
   // Fetch full detail (with credits + similar).

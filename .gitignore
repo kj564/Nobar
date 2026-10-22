@@ -1,9 +1,10 @@
 # Nobar — .gitignore
-# After audit cleanup the project is Go + vanilla JS only. Next.js, Prisma
-# and Bun-specific entries have been removed.
+# Next.js + TypeScript + Tailwind CSS 4
 
 # dependencies
 node_modules
+/.pnp
+.pnp.*
 
 # testing
 /coverage
@@ -11,27 +12,39 @@ node_modules
 /tests/playwright/playwright-report
 /tests/playwright/test-results
 
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
 # misc
 .DS_Store
 *.pem
 
 # debug
 npm-debug.log*
-*.log
-dev.log
-server.log
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
 # env files
 .env*
 
-# build artefacts
-backend/nobar-server
-backend/nobar-backend
-/backend/bin
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
 
 # sandbox
 local-*
 .claude
 .z-ai-config
-test
-prompt
+*.log
+dev.log
+server.log
+upload/
+skills/

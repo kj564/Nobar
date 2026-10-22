@@ -74,11 +74,26 @@
 
         <!-- Right Actions -->
         <div class="flex items-center gap-3">
-          <button class="hidden sm:flex items-center gap-2 text-sm text-gray-300 hover:text-white transition" aria-label="Cari">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
+          <!-- Search input -->
+          <div class="relative flex-1 min-w-[140px] max-w-[200px] sm:max-w-xs">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none">
               <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
             </svg>
-          </button>
+            <input type="text"
+                   id="searchInput"
+                   placeholder="Cari film, judul…"
+                   autocomplete="off"
+                   aria-label="Cari film"
+                   class="w-full pl-9 pr-9 py-1.5 rounded-full bg-ink-800 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 focus:bg-ink-700 transition" />
+            <button id="searchClear" type="button"
+                    class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1"
+                    aria-label="Hapus pencarian">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
           <button class="hidden sm:inline-flex px-4 py-1.5 text-sm font-semibold bg-white text-ink-950 rounded hover:bg-gray-200 transition">
             Masuk
           </button>
@@ -169,6 +184,22 @@
       <div id="filterChips" class="flex flex-wrap gap-2 mb-8">
         <!-- diisi oleh JS -->
       </div>
+
+      <!-- Search indicator banner (hidden by default, shown by JS saat search aktif) -->
+      <div id="searchIndicator" class="hidden mb-4 items-center justify-between gap-3 bg-brand-500/10 border border-brand-500/20 rounded-lg px-4 py-2.5">
+        <p class="text-sm text-gray-300 flex items-center gap-2 min-w-0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               class="w-4 h-4 text-brand-400 flex-shrink-0">
+            <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+          </svg>
+          <span class="truncate">Hasil pencarian untuk: <span id="searchQueryLabel" class="text-white font-semibold"></span></span>
+        </p>
+        <button id="exitSearchBtn" type="button"
+                class="text-xs text-gray-400 hover:text-white px-2.5 py-1 rounded hover:bg-white/5 transition flex-shrink-0">
+          Hapus
+        </button>
+      </div>
+
       <div id="videoGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         <!-- diisi oleh JS -->
       </div>

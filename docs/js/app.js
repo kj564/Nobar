@@ -56,6 +56,9 @@
     loading: false,
     loadingMore: false,
     error: null,
+    // Search mode
+    isSearching: false,
+    searchQuery: '',
   };
 
   let currentVideoInModal = null;
@@ -159,6 +162,19 @@
       page,
       sort_by: 'popularity.desc',
       'vote_count.gte': 50,
+    });
+  }
+
+  /**
+   * Fetch movies by title query via /search.
+   * Endpoint: /search/movie?query=QUERY&page=N&include_adult=false
+   * Returns same shape as /discover: { page, results, total_pages, total_results }
+   */
+  async function searchMovies(query, page = 1) {
+    return tmdbGet('/search/movie', {
+      query,
+      page,
+      include_adult: false,
     });
   }
 
@@ -372,7 +388,13 @@
     renderLoadMore();
 
     try {
-      const data = await fetchCategory(state.activeCategory, targetPage);
+      // Mode-aware fetch: search vs kategori
+      let data;
+      if (state.isSearching) {
+        data = await searchMovies(state.searchQuery, targetPage);
+      } else {
+        data = await fetchCategory(state.activeCategory, targetPage);
+      }
 
       if (append) {
         // hindari duplikat
@@ -383,8 +405,9 @@
       } else {
         state.movies = data.results || [];
         state.page = data.page || 1;
-        // Ambil top 6 untuk featured row saat kategori trending
-        if (state.activeCategory === 'trending') {
+        // Update featured row HANYA saat bukan search mode
+        // (saat search, featured row biarkan tetap trending sebelumnya)
+        if (!state.isSearching && state.activeCategory === 'trending') {
           state.featured = state.movies.slice(0, 6);
           renderFeatured();
         }
@@ -574,6 +597,113 @@
   }
 
   // ---------------------------------------------------------------------------
+  // SEARCH
+  // ---------------------------------------------------------------------------
+  // Debounce config
+  const SEARCH_DEBOUNCE_MS = 350;
+  const SEARCH_MIN_CHARS = 2;
+  let debounceTimer = null;
+
+  // Element references untuk search
+  const searchInput      = document.getElementById('searchInput');
+  const searchClear      = document.getElementById('searchClear');
+  const searchIndicator  = document.getElementById('searchIndicator');
+  const searchQueryLabel = document.getElementById('searchQueryLabel');
+  const exitSearchBtn    = document.getElementById('exitSearchBtn');
+
+  function showSearchIndicator(query) {
+    if (!searchIndicator) return;
+    searchQueryLabel.textContent = `"${query}"`;
+    searchIndicator.classList.remove('hidden');
+    searchIndicator.classList.add('flex');
+    // Dim filter chips supaya user tahu search override kategori
+    if (filterChips) filterChips.classList.add('opacity-40', 'pointer-events-none');
+  }
+
+  function hideSearchIndicator() {
+    if (!searchIndicator) return;
+    searchIndicator.classList.add('hidden');
+    searchIndicator.classList.remove('flex');
+    if (filterChips) filterChips.classList.remove('opacity-40', 'pointer-events-none');
+  }
+
+  function enterSearch(query) {
+    state.isSearching = true;
+    state.searchQuery = query;
+    state.page = 1;
+    state.movies = [];
+    showSearchIndicator(query);
+    if (searchClear) searchClear.classList.remove('hidden');
+    renderGrid();
+    loadCategory(true);
+  }
+
+  function exitSearch() {
+    if (!state.isSearching && !state.searchQuery) return;
+    state.isSearching = false;
+    state.searchQuery = '';
+    state.page = 1;
+    state.movies = [];
+    if (searchInput) searchInput.value = '';
+    if (searchClear) searchClear.classList.add('hidden');
+    hideSearchIndicator();
+    renderGrid();
+    loadCategory(true);
+  }
+
+  function handleSearchInput(value) {
+    const trimmed = (value || '').trim();
+    // Toggle tombol clear
+    if (searchClear) searchClear.classList.toggle('hidden', trimmed.length === 0);
+
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      if (trimmed.length === 0) {
+        exitSearch();
+      } else if (trimmed.length >= SEARCH_MIN_CHARS) {
+        enterSearch(trimmed);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function bindSearch() {
+    if (!searchInput) return;
+    // Input event (debounced)
+    searchInput.addEventListener('input', (e) => {
+      handleSearchInput(e.target.value);
+    });
+    // Enter = immediate search (skip debounce)
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(debounceTimer);
+        const trimmed = (searchInput.value || '').trim();
+        if (trimmed.length === 0) {
+          exitSearch();
+        } else if (trimmed.length >= SEARCH_MIN_CHARS) {
+          enterSearch(trimmed);
+        }
+        searchInput.blur();
+      } else if (e.key === 'Escape' && state.isSearching) {
+        exitSearch();
+      }
+    });
+    // Tombol X di kanan input
+    if (searchClear) {
+      searchClear.addEventListener('click', () => {
+        searchInput.value = '';
+        searchClear.classList.add('hidden');
+        exitSearch();
+        searchInput.focus();
+      });
+    }
+    // Tombol 'Hapus' di banner indicator
+    if (exitSearchBtn) {
+      exitSearchBtn.addEventListener('click', exitSearch);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // INIT
   // ---------------------------------------------------------------------------
   function init() {
@@ -584,6 +714,7 @@
     bindCardClicks();
     bindHeader();
     bindModal();
+    bindSearch();
     // Load initial trending
     loadCategory(true);
   }

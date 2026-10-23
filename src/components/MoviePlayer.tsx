@@ -37,7 +37,12 @@ export function MoviePlayer({ videoId, title, servers, kind }: MoviePlayerProps)
 
   return (
     <div className="space-y-4">
-      {/* Player */}
+      {/* Player
+          Note: sandbox attribute was removed because it breaks player
+          (multiembed/embed.su need allow-popups/allow-modals to function).
+          Ad blocking relies on the clean server sources (multiembed/embed.su
+          have minimal popunders vs vidsrc which is ad-heavy). For full
+          ad blocking, users should install uBlock Origin browser extension. */}
       <div className="relative bg-black aspect-video overflow-hidden rounded-lg">
         <iframe
           title={`${title} — Player`}
@@ -49,13 +54,6 @@ export function MoviePlayer({ videoId, title, servers, kind }: MoviePlayerProps)
           }
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
           allowFullScreen
-          // sandbox: blocks popunders, popups, top-level navigation, alert
-          // dialogs (fake virus warnings), window.open() — closest we can
-          // get to uBlock for cross-origin embeds. Player still works
-          // because allow-scripts + allow-same-origin are included.
-          // NOT included: allow-popups, allow-top-navigation, allow-modals
-          // (these enable ads/redirects/malicious alerts)
-          sandbox="allow-scripts allow-same-origin allow-presentation"
           referrerPolicy="no-referrer"
         />
       </div>

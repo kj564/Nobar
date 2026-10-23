@@ -118,23 +118,28 @@ export function WatchPartyButton() {
   }, []);
 
   // ── Inject harmonized theme into VideoTogether's shadow DOM ──
+  // Aligned with Nobar's design language: dark glass + sage accent +
+  // motion tokens + rounded-full pills (matching navbar + hero buttons).
   const injectVtTheme = () => {
     const STYLE_ID = "nobar-vt-theme";
     const css = `
       :host, #VideoTogetherWrapper { font-family: "Inter", system-ui, sans-serif !important; }
 
+      /* Floating panel — dark glass, sage border, idlixku-style rounded */
       #videoTogetherFlyPannel {
-        background: rgba(37, 39, 42, 0.94) !important;
-        backdrop-filter: blur(14px) !important;
-        border: 1px solid rgba(134, 167, 137, 0.25) !important;
-        border-radius: 14px !important;
-        box-shadow: 0 12px 44px -12px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.03) !important;
+        background: rgba(30, 32, 34, 0.96) !important;
+        backdrop-filter: blur(18px) saturate(1.35) !important;
+        border: 1px solid rgba(134, 167, 137, 0.2) !important;
+        border-radius: 16px !important;
+        box-shadow: 0 16px 48px -12px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03) !important;
         color: #F8F9FA !important;
         overflow: hidden !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
       }
 
+      /* Header — subtle sage gradient (matches Nobar hero accent) */
       .vt-modal-header, #videoTogetherHeader {
-        background: linear-gradient(135deg, rgba(134,167,137,0.16), rgba(37,39,42,0)) !important;
+        background: linear-gradient(135deg, rgba(134,167,137,0.12), rgba(30,32,34,0)) !important;
         border-bottom: 1px solid rgba(255,255,255,0.06) !important;
         padding: 12px 14px !important;
       }
@@ -161,24 +166,25 @@ export function WatchPartyButton() {
       #videoTogetherRoomNameInput::placeholder, #textMessageInput::placeholder { color: rgba(248,249,250,0.32) !important; }
 
       .vt-btn, button.vt-btn {
-        border-radius: 8px !important;
+        border-radius: 999px !important;
         font-weight: 600 !important;
-        transition: background-color .2s ease, transform .15s ease, border-color .2s ease !important;
+        min-height: 36px !important;
+        transition: background-color .2s cubic-bezier(0.4,0,0.2,1), transform .15s cubic-bezier(0.4,0,0.2,1), border-color .2s ease !important;
         border: 1px solid transparent !important;
       }
       .vt-btn:hover { transform: translateY(-1px) !important; }
 
       .vt-btn-primary { background: #86A789 !important; border-color: #86A789 !important; color: #1E2022 !important; }
-      .vt-btn-primary:hover { background: #9BBC9E !important; border-color: #9BBC9E !important; }
+      .vt-btn-primary:hover { background: #9BBC9E !important; border-color: #9BBC9E !important; box-shadow: 0 4px 12px -2px rgba(134,167,137,0.4) !important; }
 
-      .vt-btn-secondary { background: rgba(255,255,255,0.06) !important; border-color: rgba(255,255,255,0.1) !important; color: #F8F9FA !important; }
-      .vt-btn-secondary:hover { background: rgba(255,255,255,0.12) !important; border-color: rgba(255,255,255,0.2) !important; }
+      .vt-btn-secondary { background: rgba(255,255,255,0.08) !important; border-color: rgba(255,255,255,0.1) !important; color: #F8F9FA !important; }
+      .vt-btn-secondary:hover { background: rgba(255,255,255,0.14) !important; border-color: rgba(255,255,255,0.2) !important; }
 
       .vt-btn-dangerous { background: rgba(194,94,94,0.16) !important; border-color: rgba(194,94,94,0.4) !important; color: #D67474 !important; }
       .vt-btn-dangerous:hover { background: rgba(194,94,94,0.28) !important; }
 
       .vt-modal-close, .vt-modal-close-x, .vt-modal-close-icon, .vt-modal-setting, .vt-modal-donate {
-        background: transparent !important; border-color: transparent !important; color: rgba(248,249,250,0.5) !important;
+        background: transparent !important; border-color: transparent !important; color: rgba(248,249,250,0.5) !important; border-radius: 999px !important;
       }
       .vt-modal-close:hover, .vt-modal-close-x:hover, .vt-modal-setting:hover, .vt-modal-donate:hover {
         background: rgba(255,255,255,0.08) !important; color: #F8F9FA !important;
@@ -239,12 +245,7 @@ export function WatchPartyButton() {
         ? "group relative inline-flex items-center gap-2 bg-accent-500/10 hover:bg-accent-500/15 backdrop-blur text-accent-400/80 hover:text-accent-400 font-semibold h-11 px-5 rounded-full transition-all border border-accent-500/25 hover:border-accent-500/40 disabled:opacity-50 disabled:cursor-wait overflow-hidden"
         : "group relative inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur text-white font-semibold h-11 px-5 rounded-full transition-all border border-white/10 hover:border-white/20 disabled:opacity-50 disabled:cursor-wait overflow-hidden";
 
-  const buttonLabel =
-    videoState === "native"
-      ? "Nobar Bareng"
-      : videoState === "embed"
-        ? "Nobar Bareng"
-        : "Nobar Bareng";
+  const buttonLabel = "NOBAR";
 
   const statusDot =
     videoState === "native" ? (
@@ -262,14 +263,14 @@ export function WatchPartyButton() {
         disabled={!loaded}
         aria-label={
           videoState === "embed"
-            ? "Watch Party — butuh ekstensi VideoTogether untuk embed"
-            : "Start Watch Party"
+            ? "NOBAR — butuh ekstensi VideoTogether untuk embed"
+            : "Mulai NOBAR"
         }
         title={
           videoState === "embed"
-            ? "Watch Party butuh ekstensi VideoTogether — film ini pakai embed player"
+            ? "NOBAR butuh ekstensi VideoTogether — film ini pakai embed player"
             : videoState === "native"
-              ? "Watch Party siap — player native terdeteksi"
+              ? "NOBAR siap — player native terdeteksi"
               : "Mendeteksi player…"
         }
         className={buttonClass}
@@ -289,7 +290,7 @@ export function WatchPartyButton() {
           onClick={() => setShowHelp(false)}
           role="dialog"
           aria-modal="true"
-          aria-label="Watch Party guide"
+          aria-label="NOBAR guide"
         >
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
           <div className="relative bg-ink-900 border border-white/10 rounded-2xl p-0 max-w-md w-full overflow-hidden shadow-2xl shadow-brand-500/10">
@@ -324,12 +325,12 @@ export function WatchPartyButton() {
                 </div>
                 <div>
                   <h3 className="font-display text-lg font-extrabold text-white leading-tight">
-                    Nobar Bareng
+                    NOBAR
                   </h3>
                   <p className="text-xs text-gray-400">
                     {videoState === "embed"
-                      ? "Watch party — butuh ekstensi untuk embed player"
-                      : "Watch party — sync film bareng teman"}
+                      ? "Nonton bareng — butuh ekstensi untuk embed"
+                      : "Nonton bareng — sync film bareng teman"}
                   </p>
                 </div>
               </div>
@@ -382,7 +383,7 @@ export function WatchPartyButton() {
                 </div>
 
                 <p className="leading-relaxed">
-                  Tapi <strong className="text-white">Watch Party tetap bisa</strong> —
+                  Tapi <strong className="text-white">NOBAR tetap bisa</strong> —
                   gunakan <strong className="text-brand-400">ekstensi VideoTogether</strong>.
                   Ekstensi di-inject ke semua frame (termasuk iframe lintas-domain) lewat
                   <span className="font-mono text-gray-400"> all_frames:true</span>,

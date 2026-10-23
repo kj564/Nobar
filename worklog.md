@@ -129,3 +129,52 @@ Stage Summary:
   style injection (solusi untuk shadow DOM encapsulation)
 - Help modal: polished, on-brand, dengan copy-invite + external link + close
 - Semua verified via agent-browser + VLM
+
+---
+Task ID: nobar-watchparty-no-video-fix
+Agent: main
+Task: Fix "Error: No video in this page" di Watch Party (VideoTogether)
+
+Work Log:
+- Diagnosa root cause: VideoTogether website version (vt.en-us.website.js) HANYA bisa
+  sync <video> element di top-level document. NativePlayer render <video> hanya saat
+  mzfi.me return direct MP4 (~50-100 movies). Untuk mayoritas film, NativePlayer
+  fallback ke embed <iframe> (videm.xyz / vidlink.pro) — video ada DI DALAM iframe
+  cross-origin yang tidak bisa diakses VideoTogether → muncul error "No video in this page".
+- Implementasi deteksi video di WatchPartyButton:
+  • State: "checking" | "native" | "embed"
+  • MutationObserver observe document.body (childList + subtree + attributes[src])
+  • hasNativeVideo(): cek <video> dengan src valid (bukan about:blank)
+  • hasEmbedIframe(): cek iframe[title*="Player"] atau src videm/vidlink/2embed
+  • Safety timer 12s: kalau masih "checking", settle ke "embed"
+- Adaptasi UI berdasarkan state:
+  • native: sage glass (brand-500/15) + dot sage solid + tooltip "Watch Party siap"
+  • embed: terracotta tint (accent-500/10) + dot terracotta + tooltip "Watch Party terbatas"
+    + aria-label "Watch Party — limited (embed player)"
+  • checking: neutral gray + dot pulse
+- Help modal split jadi 3 variant:
+  • NATIVE: 4 langkah numbered (sage badges), info sync otomatis, copy invite + pelajari + tutup
+  • EMBED: warning box terracotta dengan penjelasan teknis (iframe cross-origin),
+    3 solusi (pilih film Trending Now / nonton manual / pasang ekstensi VT),
+    copy link + pelajari + tutup (semua neutral, bukan sage, karena tidak ada action utama)
+  • CHECKING: loading state dengan pulse dot
+- Verifikasi via agent-browser:
+  • Clayface (embed-only): button "Watch Party — limited (embed player)" → modal EMBED
+    dengan warning + 3 solusi ✓
+  • Inject <video> simulasi native: button berubah jadi "Start Watch Party" (sage) →
+    modal NATIVE dengan 4 langkah numbered ✓
+  • Reload: detection re-evaluate, settle ke "embed" dengan benar ✓
+- VLM (glm-5v-turbo) konfirmasi:
+  • Embed modal: "effectively explains the iframe limitation... actionable solutions...
+    sage green for constructive advice, terracotta strictly for the warning...
+    helpful and encouraging tone"
+  • Bandingkan native vs embed: "identical structural design... color cue is correct:
+    sage green = ready, terracotta = limited"
+
+Stage Summary:
+- "No video in this page" error sekarang di-handle: user dapat penjelasan jelas KENAPA
+  Watch Party tidak bisa (embed/iframe cross-origin) + 3 solusi konkret
+- WatchPartyButton jadi stateful: deteksi real-time via MutationObserver, UI beradaptasi
+- 3 modal variant (native/embed/checking) semuanya harmonis dengan dark+sage+terracotta
+- Limitasi fundamental tetap: Watch Party hanya sync film dengan direct mzfi stream
+  (~50-100 movies). Untuk film embed, user diarahkan ke Trending Now atau ekstensi VT.

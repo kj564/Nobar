@@ -143,7 +143,7 @@ export default async function SeriesDetailPage({ params }: PageProps) {
         </Link>
       </Navbar>
 
-      {/* ─── Backdrop Hero Section (idlixku-polished) ─── */}
+      {/* ─── Backdrop Hero Section (idlixku pattern) ─── */}
       <section className="relative w-full h-[65svh] min-h-[420px] max-h-[600px] overflow-hidden">
         {backdrop ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -156,91 +156,107 @@ export default async function SeriesDetailPage({ params }: PageProps) {
         ) : (
           <div className="absolute inset-0 bg-ink-900" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/60 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-r from-ink-950 via-ink-950/40 to-transparent" />
+        {/* idlixku detail gradient — heavier 5-stop */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.15) 35%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.9) 85%, #1E2022 100%)",
+          }}
+        />
 
-        <div className="absolute bottom-0 left-0 right-0 px-6 md:px-12 lg:px-16 pb-10 pt-20">
-          <div className="max-w-2xl space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="bg-brand-500 text-white text-[11px] font-bold px-3 py-1 rounded-md uppercase tracking-wider inline-flex items-center gap-1.5 shadow-lg shadow-brand-500/20">
-                <Tv className="w-3 h-3" />
-                TV Series
-              </span>
-              {status && (
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border ${
-                  status === "Returning Series"
-                    ? "border-green-500 text-green-500 bg-green-500/10"
-                    : status === "Ended" || status === "Canceled"
-                      ? "border-accent-500 text-accent-500 bg-accent-500/10"
-                      : "border-gray-500 text-gray-500 bg-gray-500/10"
-                }`}>
-                  {status === "Returning Series" ? "Ongoing" : status}
-                </span>
-              )}
-            </div>
+        {/* Centered poster thumbnail (idlixku pattern) */}
+        <div className="absolute inset-0 flex items-center justify-center pt-8">
+          {detail.poster_path && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={posterUrl(detail.poster_path)}
+              alt={title}
+              className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-white/10 shadow-2xl"
+            />
+          )}
+        </div>
 
-            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight text-balance drop-shadow-2xl">
+        {/* Content overlay — bottom left */}
+        <div className="absolute bottom-0 left-0 right-0 px-4 sm:px-6 lg:px-12 pb-12 sm:pb-14 lg:pb-16">
+          <div className="max-w-lg lg:max-w-2xl">
+            {/* Title */}
+            <h1 className="font-display text-3xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight text-balance drop-shadow-2xl mb-4">
               {title}
             </h1>
 
-            {detail.tagline && (
-              <p className="text-gray-400 italic text-sm sm:text-base font-light">
-                {detail.tagline}
-              </p>
+            {/* Genre pills row */}
+            {genres.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                {genres.slice(0, 3).map((g) => (
+                  <span
+                    key={g.id}
+                    className="text-xs font-semibold px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/10 text-gray-200"
+                  >
+                    {g.name}
+                  </span>
+                ))}
+                {status && (
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+                    status === "Returning Series"
+                      ? "border-green-500 text-green-500 bg-green-500/10"
+                      : status === "Ended" || status === "Canceled"
+                        ? "border-accent-500 text-accent-500 bg-accent-500/10"
+                        : "border-gray-500 text-gray-500 bg-gray-500/10"
+                  }`}>
+                    {status === "Returning Series" ? "Ongoing" : status}
+                  </span>
+                )}
+              </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs sm:text-sm text-gray-300">
+            {/* Action buttons — idlixku pills */}
+            <div className="flex flex-wrap items-center gap-3 mb-5">
+              <a
+                href="#player"
+                className="hero-cta-primary text-white font-semibold h-11 px-7 rounded-full flex items-center gap-2 transition-all shadow-lg shadow-brand-500/30 group"
+              >
+                <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
+                <span>Watch Now</span>
+              </a>
+              <WatchPartyButton />
+              <button className="bg-white/10 backdrop-blur hover:bg-white/20 text-white font-medium h-11 w-11 rounded-full flex items-center justify-center transition border border-white/10" aria-label="Watchlist">
+                <Bookmark className="w-4 h-4" />
+              </button>
+              <button className="bg-white/10 backdrop-blur hover:bg-white/20 text-white font-medium h-11 w-11 rounded-full flex items-center justify-center transition border border-white/10" aria-label="Like">
+                <Heart className="w-4 h-4" />
+              </button>
+              <button className="bg-white/10 backdrop-blur hover:bg-white/20 text-white font-medium h-11 w-11 rounded-full flex items-center justify-center transition border border-white/10" aria-label="Share">
+                <Share2 className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Metadata row */}
+            <div className="flex items-center flex-wrap gap-3 mb-2 text-sm text-gray-300">
               {detail.vote_average && (
                 <span className="inline-flex items-center gap-1 font-bold">
                   <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" />
                   <span className="text-yellow-500">{detail.vote_average.toFixed(1)}</span>
                 </span>
               )}
-              <span className="text-gray-600">•</span>
               <span>{formatYear(detail.first_air_date)}</span>
-              {seasons && (
-                <>
-                  <span className="text-gray-600">•</span>
-                  <span>{seasons} Season{seasons > 1 ? "s" : ""}</span>
-                </>
-              )}
-              {episodes && (
-                <>
-                  <span className="text-gray-600">•</span>
-                  <span>{episodes} Episode</span>
-                </>
-              )}
-              {genres.length > 0 && (
-                <>
-                  <span className="text-gray-600 hidden sm:inline">•</span>
-                  <span className="text-gray-400 hidden sm:inline">
-                    {genres.slice(0, 3).map((g) => g.name).join(", ")}
-                  </span>
-                </>
-              )}
+              {seasons && <span>{seasons} Season{seasons > 1 ? "s" : ""}</span>}
+              {episodes && <span>{episodes} Episode</span>}
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 pt-2">
-              <a
-                href="#player"
-                className="hero-cta-primary text-white font-semibold py-2.5 px-7 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-brand-500/30 group"
-              >
-                <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
-                <span>Watch Now</span>
-              </a>
-              {/* Watch Party — same position as IDLIX */}
-              <WatchPartyButton />
-              <button className="bg-white/10 backdrop-blur hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg flex items-center gap-2 transition border border-white/10">
-                <Bookmark className="w-4 h-4" />
-                <span className="hidden sm:inline">Watchlist</span>
-              </button>
-              <button className="bg-white/10 backdrop-blur hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg flex items-center gap-2 transition border border-white/10">
-                <Heart className="w-4 h-4" />
-              </button>
-              <button className="bg-white/10 backdrop-blur hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg flex items-center gap-2 transition border border-white/10">
-                <Share2 className="w-4 h-4" />
-              </button>
-            </div>
+            {/* Tagline */}
+            {detail.tagline && (
+              <p className="text-gray-400 italic text-sm mb-3 mt-2">
+                {detail.tagline}
+              </p>
+            )}
+
+            {/* Synopsis (truncated in hero) */}
+            {detail.overview && (
+              <p className="text-gray-300 text-sm leading-relaxed max-w-3xl line-clamp-3">
+                {detail.overview}
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -254,27 +270,14 @@ export default async function SeriesDetailPage({ params }: PageProps) {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-lg font-bold text-white">Synopsis</h2>
+            <h2 className="text-lg font-bold text-white font-display">Synopsis</h2>
             <p className="text-sm text-gray-300 leading-relaxed">
               {detail.overview || "Tidak ada deskripsi untuk series ini."}
             </p>
-            {genres.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-2">
-                {genres.map((g) => (
-                  <Link
-                    key={g.id}
-                    href={`/series/?genre=${g.id}`}
-                    className="px-3 py-1 rounded-full bg-white/5 text-xs text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20 transition"
-                  >
-                    {g.name}
-                  </Link>
-                ))}
-              </div>
-            )}
           </div>
 
           <div className="space-y-4">
-            <h2 className="text-lg font-bold text-white">Info</h2>
+            <h2 className="text-lg font-bold text-white font-display">Info</h2>
             <div className="space-y-3 text-sm">
               {creator && (
                 <div className="flex justify-between gap-4">

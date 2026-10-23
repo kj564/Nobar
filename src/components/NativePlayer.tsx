@@ -115,6 +115,28 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     // React's `muted` prop doesn't reliably set the property, so do it here.
     v.muted = true;
     setMuted(true);
+
+    // ── VideoTogether iOS Safari fix ──
+    // On iOS Safari, VT's WebKitMutationObserver may not catch our dynamically
+    // rendered <video> element (React adds it 2-4s after page load, after API
+    // response). VT needs to hook into the video to sync play/pause/seek.
+    // Manually notify VT about our video element after it mounts.
+    const notifyVideoTogether = () => {
+      const ext = (window as any).videoTogetherExtension;
+      if (ext && typeof ext.AddVideoListener === "function") {
+        try {
+          ext.AddVideoListener(v);
+          console.log("[NOBAR] VT AddVideoListener called for video element");
+        } catch (e) {
+          console.error("[NOBAR] VT AddVideoListener failed:", e);
+        }
+      }
+    };
+    // Try immediately + retry after 1s (VT might not be loaded yet)
+    notifyVideoTogether();
+    const vtRetry = setTimeout(notifyVideoTogether, 1000);
+    const vtRetry2 = setTimeout(notifyVideoTogether, 3000);
+
     const handlers = {
       timeupdate: () => setCurrentTime(v.currentTime),
       durationchange: () => setDuration(v.duration || 0),
@@ -126,7 +148,43 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       volumechange: () => { setMuted(v.muted); setVolume(v.volume); },
     };
     Object.entries(handlers).forEach(([e, fn]) => v.addEventListener(e, fn));
-    return () => Object.entries(handlers).forEach(([e, fn]) => v.removeEventListener(e, fn));
+
+    // Also set webkit-playsinline for older iOS Safari (pre-10)
+    v.setAttribute("webkit-playsinline", "true");
+
+    return () => {
+      clearTimeout(vtRetry);
+      clearTimeout(vtRetry2);
+      Object.entries(handlers).forEach(([e, fn]) => v.removeEventListener(e, fn));
+    };
+  }, [activeSource]);
+
+  // ── iOS Safari autoplay fix ──
+  // On iOS Safari, autoplay (even muted) can be blocked in Low Power Mode
+  // or strict privacy settings. When play() rejects, show a tap-to-play
+  // overlay. The user tap provides the required user gesture for playback.
+  // This also triggers VT's VideoClicked handler → VT activates the video
+  // → sync works.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+
+    const tryAutoplay = async () => {
+      try {
+        await v.play();
+        // Play succeeded — dispatch play event to trigger VT VideoClicked
+        v.dispatchEvent(new Event("play", { bubbles: true }));
+      } catch (e) {
+        // Autoplay blocked — set state to show tap-to-play overlay
+        console.log("[NOBAR] Autoplay blocked, showing tap-to-play overlay");
+        setPlaying(false);
+      }
+    };
+
+    // Try autoplay after a short delay (let video metadata load first)
+    const autoplayTimer = setTimeout(tryAutoplay, 500);
+
+    return () => clearTimeout(autoplayTimer);
   }, [activeSource]);
 
   // Keyboard shortcuts
@@ -229,6 +287,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
           playsInline
           autoPlay
           muted
+          preload="auto"
         >
           {subtitles.map((sub, i) => (
             <track

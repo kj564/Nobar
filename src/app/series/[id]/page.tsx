@@ -143,8 +143,8 @@ export default async function SeriesDetailPage({ params }: PageProps) {
         </Link>
       </Navbar>
 
-      {/* ─── Backdrop Hero Section (idlixku pattern) ─── */}
-      <section className="relative w-full h-[65svh] min-h-[420px] max-h-[600px] overflow-hidden">
+      {/* ─── Backdrop Section (idlixku pattern) ─── */}
+      <section className="relative w-full h-[65svh] min-h-[420px] overflow-hidden">
         {backdrop ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -156,7 +156,7 @@ export default async function SeriesDetailPage({ params }: PageProps) {
         ) : (
           <div className="absolute inset-0 bg-ink-900" />
         )}
-        {/* idlixku detail gradient — heavier 5-stop */}
+        {/* idlixku detail gradient — 5-stop heavier */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
@@ -164,22 +164,12 @@ export default async function SeriesDetailPage({ params }: PageProps) {
               "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.15) 35%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.9) 85%, #1E2022 100%)",
           }}
         />
+      </section>
 
-        {/* Centered poster thumbnail (idlixku pattern) */}
-        <div className="absolute inset-0 flex items-center justify-center pt-8">
-          {detail.poster_path && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={posterUrl(detail.poster_path)}
-              alt={title}
-              className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-white/10 shadow-2xl"
-            />
-          )}
-        </div>
-
-        {/* Content overlay — bottom left */}
-        <div className="absolute bottom-0 left-0 right-0 px-4 sm:px-6 lg:px-12 pb-12 sm:pb-14 lg:pb-16">
-          <div className="max-w-lg lg:max-w-2xl">
+      {/* ─── Detail Content (idlixku pull-up overlap) ─── */}
+      <div className="relative z-10 -mt-32 md:-mt-40 lg:-mt-60">
+        <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-12">
+          <div className="max-w-2xl">
             {/* Title */}
             <h1 className="font-display text-3xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight text-balance drop-shadow-2xl mb-4">
               {title}
@@ -246,20 +236,18 @@ export default async function SeriesDetailPage({ params }: PageProps) {
 
             {/* Tagline */}
             {detail.tagline && (
-              <p className="text-gray-400 italic text-sm mb-3 mt-2">
-                {detail.tagline}
-              </p>
+              <p className="text-gray-400 italic text-sm mb-3 mt-2">{detail.tagline}</p>
             )}
 
-            {/* Synopsis (truncated in hero) */}
+            {/* Synopsis (truncated) */}
             {detail.overview && (
-              <p className="text-gray-300 text-sm leading-relaxed max-w-3xl line-clamp-3">
+              <p className="text-gray-300 text-sm leading-relaxed max-w-3xl line-clamp-3 mb-6">
                 {detail.overview}
               </p>
             )}
           </div>
         </div>
-      </section>
+      </div>
 
       {/* ─── Body Content (clean spacing, no overlap) ─── */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 pt-10 pb-8 space-y-10">

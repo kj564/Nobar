@@ -144,8 +144,8 @@ export default async function MovieDetailPage({ params }: PageProps) {
         </Link>
       </Navbar>
 
-      {/* ─── Backdrop Hero Section (idlixku pattern) ─── */}
-      <section className="relative w-full h-[65svh] min-h-[420px] max-h-[600px] overflow-hidden">
+      {/* ─── Backdrop Section (idlixku pattern) ─── */}
+      <section className="relative w-full h-[65svh] min-h-[420px] overflow-hidden">
         {backdrop ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -157,7 +157,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
         ) : (
           <div className="absolute inset-0 bg-ink-900" />
         )}
-        {/* idlixku detail gradient — heavier than homepage (5-stop) */}
+        {/* idlixku detail gradient — 5-stop heavier than homepage */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
@@ -165,28 +165,18 @@ export default async function MovieDetailPage({ params }: PageProps) {
               "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.15) 35%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.9) 85%, #1E2022 100%)",
           }}
         />
+      </section>
 
-        {/* Centered poster thumbnail (idlixku pattern — 80/96px circle) */}
-        <div className="absolute inset-0 flex items-center justify-center pt-8">
-          {detail.poster_path && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={posterUrl(detail.poster_path)}
-              alt={title}
-              className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-white/10 shadow-2xl"
-            />
-          )}
-        </div>
-
-        {/* Content overlay — bottom left */}
-        <div className="absolute bottom-0 left-0 right-0 px-4 sm:px-6 lg:px-12 pb-12 sm:pb-14 lg:pb-16">
-          <div className="max-w-lg lg:max-w-2xl">
+      {/* ─── Detail Content (idlixku pull-up overlap) ─── */}
+      <div className="relative z-10 -mt-32 md:-mt-40 lg:-mt-60">
+        <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-12">
+          <div className="max-w-2xl">
             {/* Title (large) */}
             <h1 className="font-display text-3xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight text-balance drop-shadow-2xl mb-4">
               {title}
             </h1>
 
-            {/* Genre pills row (idlixku pattern — before buttons) */}
+            {/* Genre pills row */}
             {genres.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 mb-4">
                 {genres.slice(0, 3).map((g) => (
@@ -200,7 +190,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
               </div>
             )}
 
-            {/* Action buttons row — idlixku pills (rounded-full, 44px height) */}
+            {/* Action buttons — idlixku pills */}
             <div className="flex flex-wrap items-center gap-3 mb-5">
               <a
                 href="#player"
@@ -220,7 +210,6 @@ export default async function MovieDetailPage({ params }: PageProps) {
                   <Film className="w-4 h-4" />
                 </a>
               )}
-              {/* Watch Party */}
               <WatchPartyButton />
               <button className="bg-white/10 backdrop-blur hover:bg-white/20 text-white font-medium h-11 w-11 rounded-full flex items-center justify-center transition border border-white/10" aria-label="Watchlist">
                 <Bookmark className="w-4 h-4" />
@@ -233,7 +222,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
               </button>
             </div>
 
-            {/* Metadata row 2 (year/runtime/rating) */}
+            {/* Metadata row */}
             <div className="flex items-center flex-wrap gap-3 mb-2 text-sm text-gray-300">
               {detail.vote_average && (
                 <span className="inline-flex items-center gap-1 font-bold">
@@ -244,27 +233,23 @@ export default async function MovieDetailPage({ params }: PageProps) {
               <span>{formatYear(detail.release_date)}</span>
               <span>{formatRuntime(detail.runtime)}</span>
               <span>{formatViews(detail.vote_count)} suara</span>
-              {detail.status && (
-                <span className="text-brand-400">{detail.status}</span>
-              )}
+              {detail.status && <span className="text-brand-400">{detail.status}</span>}
             </div>
 
-            {/* Tagline (idlixku: below metadata) */}
+            {/* Tagline */}
             {detail.tagline && (
-              <p className="text-gray-400 italic text-sm mb-3 mt-2">
-                {detail.tagline}
-              </p>
+              <p className="text-gray-400 italic text-sm mb-3 mt-2">{detail.tagline}</p>
             )}
 
-            {/* Synopsis (idlixku: in hero area, truncated) */}
+            {/* Synopsis (truncated in hero) */}
             {detail.overview && (
-              <p className="text-gray-300 text-sm leading-relaxed max-w-3xl line-clamp-3">
+              <p className="text-gray-300 text-sm leading-relaxed max-w-3xl line-clamp-3 mb-6">
                 {detail.overview}
               </p>
             )}
           </div>
         </div>
-      </section>
+      </div>
 
       {/* ─── Body Content (clean spacing, no overlap) ─── */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 pt-10 pb-8 space-y-10">

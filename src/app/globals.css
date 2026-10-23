@@ -1,15 +1,29 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ink-950: #0a0a0b;
-  --color-ink-900: #111113;
-  --color-ink-850: #161618;
-  --color-ink-800: #1c1c20;
-  --color-ink-700: #26262b;
-  --color-ink-600: #3a3a40;
-  --color-brand-500: #e50914;
-  --color-brand-400: #ff1c27;
-  --color-brand-600: #c4080f;
+  /* ── Color Palette ──
+     Deep Charcoal #1E2022 — main bg (dark mode)
+     Off-White    #F8F9FA — main text
+     Sage Green   #86A789 — primary CTA, links, active states
+     Terracotta   #C25E5E — alerts, badges, accents
+  ────────────────────── */
+  --color-ink-950: #1E2022;  /* Deep Charcoal — main background */
+  --color-ink-900: #25272A;  /* slightly lighter charcoal */
+  --color-ink-850: #2A2D30;
+  --color-ink-800: #313437;
+  --color-ink-700: #3A3D41;
+  --color-ink-600: #4A4E52;
+
+  --color-brand-500: #86A789;  /* Sage Green — primary CTA, active */
+  --color-brand-400: #9BBC9E;  /* lighter sage */
+  --color-brand-600: #6B8B6E;  /* darker sage */
+
+  --color-accent-500: #C25E5E; /* Terracotta — alerts, badges */
+  --color-accent-400: #D67474;
+  --color-accent-600: #A84A4A;
+
+  --color-off-white: #F8F9FA;
+
   --font-sans: "Inter", system-ui, sans-serif;
   --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
 }
@@ -24,15 +38,15 @@ html {
 
 body {
   background-color: var(--color-ink-950);
-  color: white;
+  color: var(--color-off-white);
   font-feature-settings: "ss01", "cv01";
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom scrollbar — slim */
+/* Custom scrollbar — slim, sage-tinted */
 .scroll-row {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: rgba(134, 167, 137, 0.3) transparent;
 }
 .scroll-row::-webkit-scrollbar {
   height: 6px;
@@ -41,16 +55,16 @@ body {
   background: transparent;
 }
 .scroll-row::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(134, 167, 137, 0.3);
   border-radius: 999px;
 }
 .scroll-row::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(134, 167, 137, 0.5);
 }
 
 /* Header scroll state */
 #header.scrolled {
-  background: rgba(10, 10, 11, 0.92);
+  background: rgba(30, 32, 34, 0.92);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -100,7 +114,7 @@ body {
   opacity: 1;
 }
 
-/* Server button */
+/* Server button — sage green active */
 .server-btn {
   position: relative;
   transition: all 0.2s ease;
@@ -108,14 +122,14 @@ body {
 .server-btn.active {
   background: var(--color-brand-500);
   border-color: var(--color-brand-500);
-  color: white;
+  color: var(--color-ink-950);
 }
 .server-btn.active::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: 0 0 0 2px rgba(229, 9, 20, 0.3);
+  box-shadow: 0 0 0 2px rgba(134, 167, 137, 0.3);
   pointer-events: none;
 }
 
@@ -127,7 +141,7 @@ body {
 
 /* Skeleton shimmer */
 .skeleton {
-  background: linear-gradient(90deg, #1c1c20 25%, #26262b 50%, #1c1c20 75%);
+  background: linear-gradient(90deg, #313437 25%, #3A3D41 50%, #313437 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }

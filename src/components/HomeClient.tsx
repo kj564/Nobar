@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   Play,
   X,
-  Search as SearchIcon,
   Tv,
 } from "lucide-react";
 import {
@@ -159,7 +158,7 @@ export function HomeClient({ categories }: HomeClientProps) {
   return (
     <div className="min-h-screen flex flex-col bg-ink-950 text-white">
       {/* Header — IDLIX pill style (shared component) */}
-      <Navbar trendingMovies={featured} />
+      <Navbar />
 
       {/* Hero Banner — full screen, navbar overlaps transparent */}
       <HeroBanner movies={featured} />

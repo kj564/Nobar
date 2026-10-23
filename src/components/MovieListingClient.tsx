@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Search as SearchIcon, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   fetchTrending,
   fetchByGenre,

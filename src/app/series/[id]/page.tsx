@@ -245,8 +245,8 @@ export default async function SeriesDetailPage({ params }: PageProps) {
         </div>
       </section>
 
-      {/* ─── Body Content (idlixku Netflix pull-up overlap) ─── */}
-      <main className="detail-pull-up flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 py-8 space-y-10">
+      {/* ─── Body Content (clean spacing, no overlap) ─── */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 pt-10 pb-8 space-y-10">
         <div id="player" className="space-y-4 scroll-mt-20">
           <h2 className="text-lg font-bold text-white">Player</h2>
           <SeriesNativePlayer tmdbId={detail.id} title={title} seasons={detail.seasons} />

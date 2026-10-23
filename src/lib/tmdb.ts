@@ -304,19 +304,19 @@ export async function fetchMovieImages(id: number): Promise<TMDBImages> {
 
 export const SERVERS = [
   {
-    id: "lk21",
-    name: "Server 1 (LK21)",
-    pattern: "https://videonode.de/iframe3/p2p/{video_id}?v=1",
+    id: "videasy",
+    name: "Server 1 (VidEasy)",
+    pattern: "https://player.videasy.to/movie/{video_id}",
     quality: "1080p",
     load: 20,
     recommended: true,
   },
   {
-    id: "videasy",
-    name: "Server 2 (VidEasy)",
-    pattern: "https://player.videasy.net/movie/{video_id}",
-    quality: "1080p",
-    load: 22,
+    id: "2embed",
+    name: "Server 2 (2Embed)",
+    pattern: "https://www.2embed.cc/embed/{video_id}",
+    quality: "720p",
+    load: 30,
     recommended: false,
   },
   {
@@ -324,7 +324,7 @@ export const SERVERS = [
     name: "Server 3 (VidSrc)",
     pattern: "https://vidsrc.to/embed/movie/{video_id}",
     quality: "720p",
-    load: 40,
+    load: 50,
     recommended: false,
   },
 ] as const;
@@ -341,19 +341,19 @@ export type Server = {
 // Server patterns for TV series — support {season} and {episode} placeholders.
 export const SERVERS_TV = [
   {
-    id: "lk21-tv",
-    name: "Server 1 (LK21)",
-    pattern: "https://videonode.de/iframe3/p2p/{video_id}?v=1",
+    id: "videasy-tv",
+    name: "Server 1 (VidEasy)",
+    pattern: "https://player.videasy.to/tv/{video_id}/{season}/{episode}",
     quality: "1080p",
     load: 20,
     recommended: true,
   },
   {
-    id: "videasy-tv",
-    name: "Server 2 (VidEasy)",
-    pattern: "https://player.videasy.net/tv/{video_id}/{season}/{episode}",
-    quality: "1080p",
-    load: 22,
+    id: "2embed-tv",
+    name: "Server 2 (2Embed)",
+    pattern: "https://www.2embed.cc/embedtv/{video_id}&s={season}&e={episode}",
+    quality: "720p",
+    load: 30,
     recommended: false,
   },
   {
@@ -361,7 +361,7 @@ export const SERVERS_TV = [
     name: "Server 3 (VidSrc)",
     pattern: "https://vidsrc.to/embed/tv/{video_id}/{season}/{episode}",
     quality: "720p",
-    load: 40,
+    load: 50,
     recommended: false,
   },
 ] as const;

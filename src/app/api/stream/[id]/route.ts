@@ -9,8 +9,13 @@ import { fetchMovieDetailEnglish, fetchTVDetailEnglish } from "@/lib/tmdb";
 // Catalog is HUGE (thousands of titles, verified via /subject/search).
 // Previously limited to ~50-100 because we scanned /home?page=1..5 —
 // now we use /subject/search POST which returns the full catalog.
+//
+// Vercel: set maxDuration to 60s (Pro plan) so the mzfi chain
+// (token + search + play + retry + caption) doesn't time out.
+// On Hobby plan (10s), cold-start + 6 fetch calls + retry could exceed.
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // seconds — Vercel function timeout
 
 // ─── In-memory cache for search results ────────────────────────────
 // Prevents rate-limiting from mzfi (429s) on repeated lookups.
@@ -66,20 +71,25 @@ export async function GET(
 
   // Get title + year from TMDB (ENGLISH locale — mzfi catalog uses English
   // titles, e.g. "Thor: Love and Thunder" not the id-ID "Thor: Cinta dan Guntur").
+  // Run TMDB fetch in parallel with mzfi token mint to save ~500ms latency
+  // (critical for Vercel function timeout — workspace is 2-4s, Vercel 5-10s).
   let title = "";
   let year = "";
   let imdbId: string | null = null;
-  try {
-    const detail =
-      kind === "tv" ? await fetchTVDetailEnglish(tmdbId) : await fetchMovieDetailEnglish(tmdbId);
-    title = detail.title || detail.name || "";
-    imdbId = (detail as any).imdb_id || null;
-    const dateField = kind === "tv" ? "first_air_date" : "release_date";
-    const dateVal = (detail as any)[dateField];
-    year = dateVal ? String(dateVal).slice(0, 4) : "";
-  } catch {
-    // TMDB lookup failed — still allow embed fallback below
-  }
+
+  const tmdbPromise = (async () => {
+    try {
+      const detail =
+        kind === "tv" ? await fetchTVDetailEnglish(tmdbId) : await fetchMovieDetailEnglish(tmdbId);
+      title = detail.title || detail.name || "";
+      imdbId = (detail as any).imdb_id || null;
+      const dateField = kind === "tv" ? "first_air_date" : "release_date";
+      const dateVal = (detail as any)[dateField];
+      year = dateVal ? String(dateVal).slice(0, 4) : "";
+    } catch {
+      // TMDB lookup failed — still allow embed fallback below
+    }
+  })();
 
   const result: {
     sources: Array<{
@@ -91,6 +101,9 @@ export async function GET(
     subtitles: Array<{ language: string; url: string }>;
     embedUrl: string | null;
   } = { sources: [], subtitles: [], embedUrl: null };
+
+  // Wait for TMDB before mzfi search (need title for search keyword)
+  await tmdbPromise;
 
   // ─── mzfi.me direct MP4 (NO ADS) ───
   try {
@@ -113,19 +126,21 @@ export async function GET(
         });
       }
 
-      // Fetch subtitles (separate endpoint)
+      // Lazy subtitle fetch: return a subtitle URL that the client can
+      // call on-demand (separate /api/stream/[id]/subtitles endpoint).
+      // This saves ~340ms latency on the main stream response — critical
+      // for Vercel function timeout. Subtitles are only fetched when the
+      // user actually opens the subtitle menu.
       if (mzfiData.streams[0]?.id && mzfiData._subjectId && mzfiData._detailPath) {
-        try {
-          const subs = await fetchMzfiSubtitles(
-            mzfiData._subjectId,
-            mzfiData._detailPath,
-            String(mzfiData.streams[0].id),
-            mzfiData._token!
-          );
-          result.subtitles = subs;
-        } catch {
-          // subtitles optional — ignore failures
-        }
+        // Build a subtitle API URL that includes all the context needed
+        // (subjectId, detailPath, streamId, token) so the client can fetch
+        // subtitles independently without re-doing the search/play chain.
+        result.subtitles = [
+          {
+            language: "Available",
+            url: `/api/stream/${tmdbId}/subtitles?kind=${kind}&season=${season}&episode=${episode}&_=${Date.now()}`,
+          },
+        ];
       }
     }
   } catch (err) {

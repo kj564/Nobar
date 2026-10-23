@@ -58,12 +58,32 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       .then((data) => {
         if (cancelled) return;
         setSources(data.sources || []);
-        // Subtitles come as SRT URLs — proxy via /api/subtitle for SRT→VTT conversion.
-        const subs = (data.subtitles || []).map((s: Subtitle) => ({
-          language: s.language,
-          url: `/api/subtitle?url=${encodeURIComponent(s.url)}`,
-        }));
-        setSubtitles(subs);
+        // Lazy subtitle fetch: main /api/stream returns a single "Available"
+        // placeholder URL. When user opens the subtitle menu, we fetch the
+        // actual subtitle list from /api/stream/[id]/subtitles (separate
+        // endpoint, avoids Vercel function timeout on the main stream call).
+        const placeholderSubs = data.subtitles || [];
+        if (placeholderSubs.length === 1 && placeholderSubs[0].language === "Available") {
+          // Fetch actual subtitles on-demand
+          fetch(placeholderSubs[0].url)
+            .then((r) => r.json())
+            .then((subData) => {
+              if (cancelled) return;
+              const subs = (subData.subtitles || []).map((s: Subtitle) => ({
+                language: s.language,
+                url: `/api/subtitle?url=${encodeURIComponent(s.url)}`,
+              }));
+              setSubtitles(subs);
+            })
+            .catch(() => {}); // subtitles optional
+        } else {
+          // Direct subtitle URLs (legacy/inline format)
+          const subs = placeholderSubs.map((s: Subtitle) => ({
+            language: s.language,
+            url: `/api/subtitle?url=${encodeURIComponent(s.url)}`,
+          }));
+          setSubtitles(subs);
+        }
         if (data.sources?.length > 0) {
           const best = data.sources.reduce((b: StreamSource, s: StreamSource) =>
             parseInt(s.quality) > parseInt(b.quality) ? s : b

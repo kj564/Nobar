@@ -3,8 +3,14 @@ import { NextResponse } from "next/server";
 // GET /api/proxy?url={encoded_url}
 // Streams video content through our server with proper headers.
 // For videm.xyz: fetches embed page first to get session cookie, then proxies stream.
+//
+// Vercel: must use Node.js runtime (not edge) for large video streaming.
+// Edge runtime truncates large responses; Node.js runtime streams properly.
+// Set maxDuration=300s so seeking through a 2GB movie doesn't timeout.
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);

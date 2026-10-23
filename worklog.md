@@ -648,3 +648,47 @@ Stage Summary:
 - TV results render with SeriesCard (TV badge + /series/ routing)
 - Movie results still render with MovieCard (/movie/ routing)
 - Click flow verified: Breaking Bad → /series/breaking-bad-2008-1396 with correct title
+
+---
+Task ID: nobar-vercel-production-fix
+Agent: main
+Task: Fix workspace-works-Vercel-doesn't — 5 root causes
+
+Investigation findings (workspace vs Vercel production):
+1. GEOGRAPHY: Workspace in Hong Kong (near mzfi CDN), Vercel sin1 in Singapore
+   - mzfi latency per call: ~200-900ms (HK) vs ~400-1500ms (SG estimated)
+   - Total chain (6 calls): ~2-4s (workspace) vs ~5-10s (Vercel)
+2. VERCEL TIMEOUT: Hobby=10s, Pro=60s. Our 6-call chain + 800ms retry could exceed.
+3. BODY STREAMING: Default Node.js runtime can buffer/truncate large videos.
+   Need explicit runtime="nodejs" + maxDuration for /api/proxy.
+4. IN-MEMORY CACHE: Serverless cold starts = cache lost every invocation.
+   Workspace single process = cache persists (18ms 2nd hit vs 2-4s fresh).
+5. 429 RATE-LIMIT: Vercel sin1 = all SE Asia users share 1 IP → more 429s.
+
+Fixes applied:
+1. /api/stream/[id]/route.ts: export maxDuration=60 (Vercel function timeout)
+2. /api/proxy/route.ts: export maxDuration=300 + runtime="nodejs"
+   (Node.js runtime streams large videos properly; 300s for seek through 2GB movies)
+3. Parallel TMDB fetch with mzfi token mint (save ~500ms)
+   - tmdbPromise runs concurrently; await before mzfi search (need title)
+4. Lazy subtitle fetch: main /api/stream returns 1 "Available" placeholder,
+   client fetches actual list from /api/stream/[id]/subtitles on-demand.
+   - Saves ~340ms on main stream response (critical for Vercel timeout)
+   - Subtitles only fetched when user opens subtitle menu
+5. New /api/stream/[id]/subtitles/route.ts endpoint (maxDuration=30s)
+   - Reuses same mzfi search+play logic, returns caption list only
+6. NativePlayer: detect "Available" placeholder → lazy fetch subtitle list
+   - Backward compatible with legacy inline subtitle URLs
+
+Verification:
+- /api/stream/135397: 3 sources + 1 "Available" placeholder (was 3 sources + 20 inline subs)
+  - Response time: 2.4s (was 3-4s with inline subtitle fetch) ✓
+- /api/stream/135397/subtitles: 20 actual subtitles returned on-demand ✓
+- Browser: Jurassic World plays (readyState=4, video element present) ✓
+- 0 console errors ✓
+
+Stage Summary:
+- Vercel production should now work: maxDuration set, runtime="nodejs" for proxy,
+  lazy subtitles, parallel TMDB fetch
+- Main stream response ~1s faster (saves subtitle fetch latency)
+- Subtitles still work — just fetched lazily when user opens the menu

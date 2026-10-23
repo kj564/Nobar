@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Play, X } from "lucide-react";
+import { Play, ChevronDown } from "lucide-react";
 import { type Server, buildServerUrl } from "@/lib/tmdb";
 
 type MoviePlayerProps = {
@@ -24,9 +24,12 @@ export function MoviePlayer({ videoId, title, servers, kind }: MoviePlayerProps)
     toastTimer.current = setTimeout(() => setToast(null), 2400);
   };
 
-  const selectServer = (server: Server) => {
-    setActiveServer(server);
-    showToast(`Beralih ke ${server.name}`);
+  const selectServer = (serverId: string) => {
+    const server = servers.find((s) => s.id === serverId);
+    if (server) {
+      setActiveServer(server);
+      showToast(`Beralih ke ${server.name}`);
+    }
   };
 
   useEffect(() => {
@@ -37,12 +40,7 @@ export function MoviePlayer({ videoId, title, servers, kind }: MoviePlayerProps)
 
   return (
     <div className="space-y-4">
-      {/* Player
-          Note: sandbox attribute was removed because it breaks player
-          (multiembed/embed.su need allow-popups/allow-modals to function).
-          Ad blocking relies on the clean server sources (multiembed/embed.su
-          have minimal popunders vs vidsrc which is ad-heavy). For full
-          ad blocking, users should install uBlock Origin browser extension. */}
+      {/* Player */}
       <div className="relative bg-black aspect-video overflow-hidden rounded-lg">
         <iframe
           title={`${title} — Player`}
@@ -58,39 +56,32 @@ export function MoviePlayer({ videoId, title, servers, kind }: MoviePlayerProps)
         />
       </div>
 
-      {/* Server picker */}
+      {/* Server picker — dropdown select (clean) */}
       {servers.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-300">Pilih Server</h3>
-            <span className="text-xs text-gray-500">
-              {activeServer ? `Memutar dari ${activeServer.name} (${activeServer.quality})` : ""}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {servers.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => selectServer(s)}
-                className={`server-btn inline-flex flex-col items-start gap-0.5 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-sm text-gray-200 ${
-                  activeServer?.id === s.id ? "active" : ""
-                }`}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <label htmlFor="server-select" className="text-sm font-semibold text-gray-300">
+              Server:
+            </label>
+            <div className="relative">
+              <select
+                id="server-select"
+                value={activeServer?.id || ""}
+                onChange={(e) => selectServer(e.target.value)}
+                className="appearance-none bg-ink-800 border border-white/10 text-white text-sm font-medium pl-4 pr-10 py-2.5 rounded-lg focus:outline-none focus:border-brand-500/50 hover:border-white/20 transition cursor-pointer"
               >
-                <span className="flex items-center gap-2 font-semibold">
-                  {s.name}
-                  {s.recommended && (
-                    <span className="ml-1 text-[10px] opacity-80">• rekomendasi</span>
-                  )}
-                </span>
-                <span className="text-[11px] text-gray-400">
-                  {s.quality} • load {s.load}%
-                </span>
-              </button>
-            ))}
+                {servers.map((s) => (
+                  <option key={s.id} value={s.id} className="bg-ink-800 text-white">
+                    {s.name} — {s.quality} {s.recommended ? "(recommended)" : ""}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
           </div>
-          <p className="mt-2 text-xs text-gray-500">
-            Jika pemutaran macet, coba pindah server cadangan untuk sumber alternatif.
-          </p>
+          <span className="text-xs text-gray-500">
+            {activeServer ? `Memutar: ${activeServer.quality}` : ""}
+          </span>
         </div>
       )}
 
@@ -103,3 +94,4 @@ export function MoviePlayer({ videoId, title, servers, kind }: MoviePlayerProps)
     </div>
   );
 }
+

@@ -7,29 +7,28 @@ import {
   Play,
   Copy,
   Check,
-  ExternalLink,
   AlertCircle,
-  Film,
   LogOut,
   MessageCircle,
   Send,
   Hash,
   Lock,
-  Tv,
 } from "lucide-react";
 
 // NOBAR — Nonton Bareng
-// Custom UI for VideoTogether watch party.
+// Custom UI panel for VideoTogether watch party.
 //
-// Architecture:
-// - VideoTogether (VT) script runs in background (loaded but panel HIDDEN)
-// - VT panel (shadow DOM #VideoTogetherWrapper) is display:none always
-// - This component renders NOBAR's own UI panel (slide-up from bottom-right)
-// - NOBAR UI controls VT by manipulating shadow DOM elements directly:
-//   • Set #videoTogetherRoomNameInput value + dispatch input event
-//   • Click #videoTogetherCreateButton or #videoTogetherJoinButton
-//   • Read #memberCount + #videoTogetherStatusText for state sync
-// - State synced via MutationObserver on VT shadow DOM
+// Uses VT's PUBLIC API (not shadow DOM manipulation):
+//   window.videoTogetherExtension.CreateRoom(name, password)
+//   window.videoTogetherExtension.JoinRoom(name, password)
+//   window.videoTogetherExtension.exitRoom()
+//   window.videoTogetherExtension.roomName        (string, readable)
+//   window.videoTogetherExtension.role            (RoleEnum: Null/Master/Member)
+//   window.videoTogetherExtension.ctxMemberCount  (number)
+//   window.videoTogetherExtension.sendTextMessage(id, msg)  (chat)
+//
+// VT's native floating panel is HIDDEN via CSS injection into shadow DOM.
+// All user interaction happens through NOBAR's own UI.
 
 type VideoState = "checking" | "native" | "embed";
 type PartyState = "idle" | "host" | "member";
@@ -92,7 +91,7 @@ export function WatchPartyButton() {
 
     const hasEmbedIframe = () => {
       const iframes = document.querySelectorAll(
-        'iframe[title*="Player"], iframe[src*="/api/embed"], iframe[src*="videm"], iframe[src*="vidlink"], iframe[src*="2embed"]'
+        'iframe[title*="Player"], iframe[src*="videm"], iframe[src*="vidlink"], iframe[src*="2embed"]'
       );
       return iframes.length > 0;
     };
@@ -102,9 +101,7 @@ export function WatchPartyButton() {
       if (hasNativeVideo()) {
         next = "native";
       } else if (hasEmbedIframe()) {
-        // Same-origin /api/embed iframes ARE syncable by VT (no extension needed)!
-        // VT can inject into same-origin iframes.
-        next = "native"; // treat same-origin embed as native-compatible
+        next = "embed";
       } else {
         next = "checking";
       }
@@ -125,7 +122,7 @@ export function WatchPartyButton() {
 
     const settleTimer = window.setTimeout(() => {
       if (videoStateRef.current === "checking") {
-        videoStateRef.current = "native"; // optimistic — /api/embed makes it work
+        videoStateRef.current = "native"; // optimistic
         setVideoState("native");
       }
     }, 12000);
@@ -146,7 +143,6 @@ export function WatchPartyButton() {
         if (panel) {
           panel.style.display = "none";
         }
-        // Also inject CSS to keep it hidden even when VT tries to show it
         if (!sr.getElementById("nobar-vt-hide")) {
           const style = document.createElement("style");
           style.id = "nobar-vt-hide";
@@ -156,48 +152,53 @@ export function WatchPartyButton() {
       }
     };
     hide();
-    // VT may re-show panel on state change — keep hiding
     const interval = setInterval(hide, 1000);
     return () => clearInterval(interval);
   };
 
-  // ── Sync NOBAR UI with VT state (member count, status, role, room name) ──
+  // ── Sync NOBAR UI with VT state via PUBLIC API ──
+  // Reads: extension.roomName, extension.role, extension.ctxMemberCount
   const startStateSync = () => {
     const sync = () => {
-      const wrapper = document.getElementById("VideoTogetherWrapper");
-      const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
-      if (!sr) return;
+      const ext = (window as any).videoTogetherExtension;
+      if (!ext) return;
 
-      // Read member count
-      const memberEl = sr.getElementById("memberCount");
-      if (memberEl) {
-        const count = parseInt(memberEl.textContent?.replace(/\D/g, "") || "0", 10);
-        if (!isNaN(count)) setMemberCount(count);
+      // Read room name
+      const vtRoomName = ext.roomName || "";
+      if (vtRoomName && vtRoomName !== roomId) {
+        setRoomId(vtRoomName);
       }
 
-      // Read status text
-      const statusEl = sr.getElementById("videoTogetherStatusText");
-      if (statusEl) {
-        setStatusText(statusEl.textContent || "");
-      }
-
-      // Read role (Host/Member) — detect party state from VT
-      const roleEl = sr.getElementById("videoTogetherRoleText");
-      if (roleEl) {
-        const role = (roleEl.textContent || "").toLowerCase();
-        if (role.includes("host") || role.includes("master")) {
-          if (partyState !== "host") setPartyState("host");
-        } else if (role.includes("member") || role.includes("join")) {
-          if (partyState !== "member") setPartyState("member");
+      // Read role → party state
+      const RoleEnum = ext.RoleEnum;
+      if (RoleEnum) {
+        const role = ext.role;
+        if (role === RoleEnum.Master && partyState !== "host") {
+          setPartyState("host");
+        } else if (role === RoleEnum.Member && partyState !== "member") {
+          setPartyState("member");
+        } else if (role === RoleEnum.Null && partyState !== "idle") {
+          setPartyState("idle");
+          if (!vtRoomName) setRoomId("");
         }
       }
 
-      // Read room name from input (VT stores active room name in the input)
-      const roomNameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
-      if (roomNameInput && roomNameInput.value && roomNameInput.value !== "Room") {
-        const name = roomNameInput.value.trim();
-        if (name && name !== roomId) {
-          setRoomId(name);
+      // Read member count
+      const count = ext.ctxMemberCount || 0;
+      if (count !== memberCount) {
+        setMemberCount(count);
+      }
+
+      // Read status text from VT shadow DOM (no clean API, read element)
+      const wrapper = document.getElementById("VideoTogetherWrapper");
+      const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
+      if (sr) {
+        const statusEl = sr.getElementById("videoTogetherStatusText");
+        if (statusEl) {
+          const status = statusEl.textContent || "";
+          if (status !== statusText) {
+            setStatusText(status);
+          }
         }
       }
     };
@@ -207,112 +208,56 @@ export function WatchPartyButton() {
     return () => clearInterval(interval);
   };
 
-  // ── Create room via VT shadow DOM ──
-  // VT reads this.inputRoomName.value on create button click.
-  // We must set the value RIGHT BEFORE clicking create (VT resets it
-  // to "Room" on panel init via InLobby). Setting value + dispatching
-  // input event + then clicking create in same tick works.
+  // ── Create room via VT PUBLIC API ──
   const createRoom = useCallback(async () => {
+    const ext = (window as any).videoTogetherExtension;
+    if (!ext) {
+      console.error("[NOBAR] VT extension not loaded");
+      return;
+    }
+
+    const name = roomId || generateRoomId();
+    setRoomId(name);
+    console.log("[NOBAR] Creating room:", name);
+
     try {
-      const wrapper = document.getElementById("VideoTogetherWrapper");
-      const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
-      if (!sr) {
-        console.error("[NOBAR] No VT shadow root");
-        return;
-      }
-
-      const name = roomId || generateRoomId();
-      setRoomId(name);
-      console.log("[NOBAR] Creating room:", name);
-
-      const nameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
-      if (!nameInput) {
-        console.error("[NOBAR] No room name input in VT shadow DOM");
-        return;
-      }
-
-      // Set value using native setter (React-controlled inputs need this)
-      nameInput.value = name;
-      nameInput.dispatchEvent(new Event("input", { bubbles: true }));
-      nameInput.dispatchEvent(new Event("change", { bubbles: true }));
-
-      if (roomPassword) {
-        const pwdInput = sr.getElementById("videoTogetherRoomPdIpt") as HTMLInputElement;
-        if (pwdInput) {
-          pwdInput.value = roomPassword;
-          pwdInput.dispatchEvent(new Event("input", { bubbles: true }));
-        }
-      }
-
-      // Click create button — re-set value right before click (VT may reset)
-      await new Promise((r) => setTimeout(r, 50));
-      nameInput.value = name;
-      const createBtn = sr.getElementById("videoTogetherCreateButton") as HTMLButtonElement;
-      if (createBtn) {
-        createBtn.click();
-        setPartyState("host");
-        console.log("[NOBAR] Create button clicked");
-      }
+      await ext.CreateRoom(name, roomPassword);
+      setPartyState("host");
+      console.log("[NOBAR] Room created");
     } catch (err) {
-      console.error("[NOBAR] createRoom error:", err);
+      console.error("[NOBAR] CreateRoom error:", err);
     }
   }, [roomId, roomPassword]);
 
-  // ── Join room via VT shadow DOM ──
+  // ── Join room via VT PUBLIC API ──
   const joinRoom = useCallback(async () => {
     if (!joinRoomInput.trim()) return;
-    const wrapper = document.getElementById("VideoTogetherWrapper");
-    const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
-    if (!sr) return;
+    const ext = (window as any).videoTogetherExtension;
+    if (!ext) {
+      console.error("[NOBAR] VT extension not loaded");
+      return;
+    }
 
     const name = joinRoomInput.trim();
     setRoomId(name);
+    console.log("[NOBAR] Joining room:", name);
 
-    const nameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
-    if (nameInput) {
-      const nativeInputSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value"
-      )?.set;
-      nativeInputSetter?.call(nameInput, name);
-      nameInput.dispatchEvent(new Event("input", { bubbles: true }));
-      nameInput.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-
-    if (joinPasswordInput) {
-      const pwdInput = sr.getElementById("videoTogetherRoomPdIpt") as HTMLInputElement;
-      if (pwdInput) {
-        const nativeSetter = Object.getOwnPropertyDescriptor(
-          HTMLInputElement.prototype,
-          "value"
-        )?.set;
-        nativeSetter?.call(pwdInput, joinPasswordInput);
-        pwdInput.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-    }
-
-    await new Promise((r) => setTimeout(r, 50));
-    const joinBtn = sr.getElementById("videoTogetherJoinButton") as HTMLButtonElement;
-    if (joinBtn) {
-      if (nameInput) nameInput.value = name;
-      joinBtn.click();
+    try {
+      await ext.JoinRoom(name, joinPasswordInput);
       setPartyState("member");
+      console.log("[NOBAR] Room joined");
+    } catch (err) {
+      console.error("[NOBAR] JoinRoom error:", err);
     }
   }, [joinRoomInput, joinPasswordInput]);
 
-  // ── Leave room via VT shadow DOM ──
-  // VT has #videoTogetherExitButton (vt-btn-dangerous) that calls
-  // window.videoTogetherExtension.exitRoom() on click.
+  // ── Leave room via VT PUBLIC API ──
   const leaveRoom = useCallback(() => {
-    const wrapper = document.getElementById("VideoTogetherWrapper");
-    const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
-    if (!sr) return;
+    const ext = (window as any).videoTogetherExtension;
+    if (!ext) return;
 
-    const exitBtn = sr.getElementById("videoTogetherExitButton") as HTMLButtonElement;
-    if (exitBtn) {
-      exitBtn.click();
-    }
-
+    console.log("[NOBAR] Leaving room");
+    ext.exitRoom();
     setPartyState("idle");
     setRoomId("");
     setJoinRoomInput("");
@@ -322,28 +267,57 @@ export function WatchPartyButton() {
     setShowChat(false);
   }, []);
 
-  // ── Send chat ──
+  // ── Send chat via VT PUBLIC API ──
   const sendChat = useCallback(() => {
     if (!chatInput.trim()) return;
-    const wrapper = document.getElementById("VideoTogetherWrapper");
-    const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
-    if (!sr) return;
+    const ext = (window as any).videoTogetherExtension;
+    if (!ext) return;
 
-    const chatInputEl = sr.getElementById("textMessageInput") as HTMLInputElement;
-    if (chatInputEl) {
-      chatInputEl.value = chatInput.trim();
-      chatInputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    // VT sendTextMessage(id, msg) — id is room/user identifier
+    try {
+      ext.sendTextMessage(ext.roomName, chatInput.trim());
+      setMessages((prev) => [
+        ...prev,
+        { text: chatInput.trim(), isMe: true, ts: Date.now() },
+      ]);
+      setChatInput("");
+    } catch (err) {
+      console.error("[NOBAR] sendChat error:", err);
     }
-
-    const sendBtn = sr.getElementById("textMessageSend") as HTMLButtonElement;
-    if (sendBtn) sendBtn.click();
-
-    setMessages((prev) => [
-      ...prev,
-      { text: chatInput.trim(), isMe: true, ts: Date.now() },
-    ]);
-    setChatInput("");
   }, [chatInput]);
+
+  // ── Listen for incoming chat messages ──
+  useEffect(() => {
+    if (!loaded) return;
+
+    const checkIncomingMessages = () => {
+      const wrapper = document.getElementById("VideoTogetherWrapper");
+      const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
+      if (!sr) return;
+
+      // VT stores incoming messages in #textMessageChat
+      const chatEl = sr.getElementById("textMessageChat");
+      if (!chatEl) return;
+
+      const msgEls = chatEl.querySelectorAll("div");
+      const currentMsgCount = messages.length;
+      if (msgEls.length > currentMsgCount) {
+        // New messages arrived — extract them
+        for (let i = currentMsgCount; i < msgEls.length; i++) {
+          const text = msgEls[i].textContent?.trim() || "";
+          if (text) {
+            setMessages((prev) => [
+              ...prev,
+              { text, isMe: false, ts: Date.now() },
+            ]);
+          }
+        }
+      }
+    };
+
+    const interval = setInterval(checkIncomingMessages, 1000);
+    return () => clearInterval(interval);
+  }, [loaded, messages.length]);
 
   // ── Copy room link ──
   const copyInvite = () => {
@@ -381,7 +355,7 @@ export function WatchPartyButton() {
 
   return (
     <>
-      {/* ── Trigger button (in hero action row) ── */}
+      {/* ── Trigger button ── */}
       <button
         onClick={handleClick}
         disabled={!loaded}
@@ -403,13 +377,10 @@ export function WatchPartyButton() {
       {/* ── Custom NOBAR panel (slide-up, bottom-right) ── */}
       {panelOpen && (
         <div className="fixed inset-0 z-[100] flex items-end justify-end p-4 pointer-events-none">
-          {/* Backdrop (click to close) — only catches clicks, no visual overlay */}
           <div
             className="absolute inset-0 pointer-events-auto"
             onClick={() => setPanelOpen(false)}
           />
-
-          {/* Panel */}
           <div className="relative pointer-events-auto w-full max-w-sm bg-ink-900/98 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-gradient-to-r from-brand-500/10 to-transparent">
@@ -435,7 +406,7 @@ export function WatchPartyButton() {
 
             {/* Body */}
             <div className="px-5 py-4 space-y-4 max-h-[60vh] overflow-y-auto scroll-row">
-              {/* Status badge */}
+              {/* Status badge (when in room) */}
               {partyState !== "idle" && (
                 <div className="flex items-center justify-between bg-brand-500/10 border border-brand-500/20 rounded-xl px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -456,7 +427,7 @@ export function WatchPartyButton() {
                 </div>
               )}
 
-              {/* Room ID display (if in room) */}
+              {/* Room ID display (when in room) */}
               {roomId && partyState !== "idle" && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10">
                   <Hash className="w-3.5 h-3.5 text-gray-500" />
@@ -512,14 +483,12 @@ export function WatchPartyButton() {
                     Buat Room
                   </button>
 
-                  {/* Divider */}
                   <div className="flex items-center gap-3 py-1">
                     <div className="flex-1 h-px bg-white/10" />
                     <span className="text-[10px] text-gray-500 uppercase tracking-wider">atau</span>
                     <div className="flex-1 h-px bg-white/10" />
                   </div>
 
-                  {/* Join room */}
                   <div>
                     <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                       <Users className="w-3 h-3" /> Join Room
@@ -552,7 +521,6 @@ export function WatchPartyButton() {
               {/* Active room — chat + controls */}
               {partyState !== "idle" && (
                 <div className="space-y-3">
-                  {/* Chat toggle */}
                   <button
                     onClick={() => setShowChat(!showChat)}
                     className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition"
@@ -564,7 +532,6 @@ export function WatchPartyButton() {
                     <span className="text-xs text-gray-400">{messages.length} pesan</span>
                   </button>
 
-                  {/* Chat panel */}
                   {showChat && (
                     <div className="border border-white/10 rounded-lg overflow-hidden">
                       <div className="h-40 overflow-y-auto p-2 space-y-1.5 scroll-row bg-ink-950/50">
@@ -576,9 +543,7 @@ export function WatchPartyButton() {
                           messages.map((msg, i) => (
                             <div
                               key={i}
-                              className={`text-xs ${
-                                msg.isMe ? "text-right" : "text-left"
-                              }`}
+                              className={`text-xs ${msg.isMe ? "text-right" : "text-left"}`}
                             >
                               <span
                                 className={`inline-block px-2 py-1 rounded-lg max-w-[80%] ${
@@ -614,7 +579,6 @@ export function WatchPartyButton() {
                     </div>
                   )}
 
-                  {/* Leave button */}
                   <button
                     onClick={leaveRoom}
                     className="w-full bg-accent-500/10 hover:bg-accent-500/20 border border-accent-500/25 hover:border-accent-500/40 text-accent-400 font-semibold py-2.5 rounded-full flex items-center justify-center gap-2 transition"

@@ -72,12 +72,7 @@ body {
   background: rgba(134, 167, 137, 0.5);
 }
 
-/* ── Header scroll state ── */
-#header.scrolled {
-  background: rgba(30, 32, 34, 0.92);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
+/* ── Header scroll state (handled inline in Navbar component) ── */
 
 /* ── Video card (idlixku polish: scale 1.05, z-index 20, blur-in play) ── */
 .video-card {
@@ -291,16 +286,7 @@ body {
    Pulling main content (player) up caused it to cover hero buttons.
    Now: clean spacing — hero ends, then main starts with comfortable gap. */
 
-/* ── Pill nav link (idlixku-style rounded full) ── */
-.nav-pill {
-  border-radius: 999px;
-  transition: background-color var(--motion-dur-base) var(--motion-ease-standard),
-              color var(--motion-dur-base) var(--motion-ease-standard);
-}
-.nav-pill.active {
-  background: rgba(134, 167, 137, 0.15);
-  color: var(--color-brand-400);
-}
+/* ── Nav link (idlixku-style: text + active underline) ── */
 
 /* ── Subtitle styling for HTML5 <video> <track> elements ── */
 video::cue {

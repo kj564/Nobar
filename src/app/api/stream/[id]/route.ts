@@ -149,14 +149,25 @@ export async function GET(
 
   // Set embed fallback URL (only used if mzfi fails)
   // Route through /api/embed/* (same-origin proxy with <base> tag).
-  // This makes VT sync work WITHOUT browser extension:
-  //   iframe src = /api/embed/123 → same-origin as page
-  //   VT injects into same-origin iframe → finds <video> → syncs
+  // Returns a list of providers so the user can switch if one fails.
+  // VT can sync same-origin iframes without browser extension.
   if (result.sources.length === 0) {
-    result.embedUrl =
-      kind === "tv"
-        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}`
-        : `/api/embed/${tmdbId}?kind=movie`;
+    const isTv = kind === "tv";
+    const providers = [
+      { id: "videm", name: "VidEm", url: isTv
+        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}&provider=videm`
+        : `/api/embed/${tmdbId}?kind=movie&provider=videm` },
+      { id: "vidlink", name: "VidLink", url: isTv
+        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}&provider=vidlink`
+        : `/api/embed/${tmdbId}?kind=movie&provider=vidlink` },
+      { id: "2embed", name: "2Embed", url: isTv
+        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}&provider=2embed`
+        : `/api/embed/${tmdbId}?kind=movie&provider=2embed` },
+    ];
+    // Default to first provider
+    result.embedUrl = providers[0].url;
+    // Include full list for provider switching in UI
+    (result as any).embedProviders = providers;
   }
 
   return NextResponse.json(result, {

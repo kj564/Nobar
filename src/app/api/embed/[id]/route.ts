@@ -41,31 +41,42 @@ export async function GET(
   const kind = (url.searchParams.get("kind") || "movie") as "movie" | "tv";
   const season = url.searchParams.get("season") || "1";
   const episode = url.searchParams.get("episode") || "1";
+  const provider = url.searchParams.get("provider") || "videm";
 
   let imdbId: string | null = null;
-  let useVidlink = false;
   try {
     const detail =
       kind === "tv" ? await fetchTVDetailEnglish(tmdbId) : await fetchMovieDetailEnglish(tmdbId);
     imdbId = (detail as any).imdb_id || null;
-  } catch {
-    useVidlink = true;
-  }
+  } catch {}
 
+  // Build upstream URL based on provider selection
+  // Provider patterns (from user research):
+  //   videm:    videm.xyz/embed/movie/{imdbId} or /tv/{imdbId}/{s}/{e}
+  //   vidlink:  vidlink.pro/movie/{tmdbId} or /tv/{tmdbId}/{s}/{e}
+  //   2embed:   2embed.cc/embed/movie/{tmdbId} or /tv/{tmdbId}&s={s}&e={e}
   let upstreamUrl: string;
   let upstreamOrigin: string;
-  if (imdbId && !useVidlink) {
-    upstreamUrl =
-      kind === "tv"
-        ? `https://videm.xyz/embed/tv/${imdbId}/${season}/${episode}`
-        : `https://videm.xyz/embed/movie/${imdbId}`;
-    upstreamOrigin = "https://videm.xyz";
-  } else {
+
+  if (provider === "vidlink" || !imdbId) {
     upstreamUrl =
       kind === "tv"
         ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
         : `https://vidlink.pro/movie/${tmdbId}`;
     upstreamOrigin = "https://vidlink.pro";
+  } else if (provider === "2embed") {
+    upstreamUrl =
+      kind === "tv"
+        ? `https://www.2embed.cc/embed/tv/${tmdbId}&s=${season}&e=${episode}`
+        : `https://www.2embed.cc/embed/movie/${tmdbId}`;
+    upstreamOrigin = "https://www.2embed.cc";
+  } else {
+    // videm (default)
+    upstreamUrl =
+      kind === "tv"
+        ? `https://videm.xyz/embed/tv/${imdbId}/${season}/${episode}`
+        : `https://videm.xyz/embed/movie/${imdbId}`;
+    upstreamOrigin = "https://videm.xyz";
   }
 
   let html: string;

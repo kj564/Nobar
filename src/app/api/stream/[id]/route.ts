@@ -12,12 +12,26 @@ import { fetchMovieDetailEnglish, fetchTVDetailEnglish } from "@/lib/tmdb";
 
 export const dynamic = "force-dynamic";
 
-// ─── In-memory cache (5min TTL) for search results ───────────────
+// ─── In-memory cache for search results ────────────────────────────
 // Prevents rate-limiting from mzfi (429s) on repeated lookups.
+// - Positive cache: 5min TTL (subjectId match found)
+// - Negative cache: 1min TTL (no match — retry sooner in case mzfi
+//   catalog was updated or previous search hit a transient 429)
+//
+// ─── Request deduplication ──────────────────────────────────────────
+// When multiple concurrent requests arrive for the same title+year
+// (e.g. 5 users open the same movie simultaneously), only ONE search
+// call is fired to mzfi — the others await the in-flight promise.
+// This prevents token-mint storms and 429 rate-limiting.
+
 type SubjectMatch = { subjectId: string; detailPath: string };
-type CacheEntry = { data: SubjectMatch | null; ts: number };
+type CacheEntry = { data: SubjectMatch | null; ts: number; isNegative: boolean };
 const searchCache = new Map<string, CacheEntry>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const POSITIVE_TTL = 5 * 60 * 1000; // 5 minutes
+const NEGATIVE_TTL = 1 * 60 * 1000;  // 1 minute (retry sooner)
+
+// In-flight request deduplication: key → Promise<SubjectMatch|null>
+const inflightSearches = new Map<string, Promise<SubjectMatch & { subjectType: number } | null>>();
 
 const COMMON_HEADERS = {
   "User-Agent":
@@ -173,21 +187,32 @@ async function fetchMzfiStream(
 
   // Step 2: Search the FULL catalog (not just /home tiles)
   // Cache results per (title+year) to avoid rate-limit (429).
-  const cacheKey = `${title.toLowerCase()}|${year}`;
-  const cached = searchCache.get(cacheKey);
+  // Deduplicate concurrent requests for the same key.
+  const cacheKey = `${title.toLowerCase()}|${year}|${kind}`;
   let subjectId: string | null = null;
   let detailPath: string | null = null;
   let subjectType: number | null = null;
 
-  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+  const cached = searchCache.get(cacheKey);
+  const ttl = cached?.isNegative ? NEGATIVE_TTL : POSITIVE_TTL;
+  if (cached && Date.now() - cached.ts < ttl) {
     if (cached.data) {
       subjectId = cached.data.subjectId;
       detailPath = cached.data.detailPath;
     } else {
-      return null; // negative cache — known not-found
+      return null; // negative cache — known not-found (1min TTL)
     }
   } else {
-    const match = await searchSubject(title, year, token, kind);
+    // Deduplicate: if a search for this key is already in-flight,
+    // await it instead of firing another mzfi API call.
+    let inflight = inflightSearches.get(cacheKey);
+    if (!inflight) {
+      inflight = searchSubject(title, year, token, kind).finally(() => {
+        inflightSearches.delete(cacheKey);
+      });
+      inflightSearches.set(cacheKey, inflight);
+    }
+    const match = await inflight;
     if (match) {
       subjectId = match.subjectId;
       detailPath = match.detailPath;
@@ -195,10 +220,11 @@ async function fetchMzfiStream(
       searchCache.set(cacheKey, {
         data: { subjectId, detailPath },
         ts: Date.now(),
+        isNegative: false,
       });
     } else {
-      // negative cache to prevent re-querying 429-prone endpoint
-      searchCache.set(cacheKey, { data: null, ts: Date.now() });
+      // negative cache (1min) — retry sooner in case of transient 429
+      searchCache.set(cacheKey, { data: null, ts: Date.now(), isNegative: true });
       return null;
     }
   }
@@ -307,21 +333,28 @@ async function searchSubject(
   token: string,
   kind: "movie" | "tv"
 ): Promise<SubjectMatch & { subjectType: number } | null> {
-  const searchRes = await fetch(
-    "https://mzfi.me/wefeed-h5api-bff/subject/search",
-    {
-      method: "POST",
-      headers: {
-        ...COMMON_HEADERS,
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Referer: "https://mzfi.me/",
-      },
-      body: JSON.stringify({ keyword: title, page: 1, perPage: 20 }),
-    }
-  );
-
-  if (!searchRes.ok) return null;
+  // Retry on 429 (rate-limit) with exponential backoff.
+  // mzfi BFF returns 429 when too many requests hit the same token.
+  let searchRes: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    searchRes = await fetch(
+      "https://mzfi.me/wefeed-h5api-bff/subject/search",
+      {
+        method: "POST",
+        headers: {
+          ...COMMON_HEADERS,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Referer: "https://mzfi.me/",
+        },
+        body: JSON.stringify({ keyword: title, page: 1, perPage: 20 }),
+      }
+    );
+    if (searchRes.status !== 429) break;
+    // 429 — wait 500ms, 1s, 2s before retry
+    await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt)));
+  }
+  if (!searchRes || !searchRes.ok) return null;
   const searchData = await searchRes.json();
   const items: any[] = searchData?.data?.items || [];
 

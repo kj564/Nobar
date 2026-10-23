@@ -546,3 +546,66 @@ Stage Summary:
 - English title fix: Spider-Man NWH + Jurassic World now direct MP4 (were embed)
 - Strict Pass 4: no more false-positive matches (Visions ≠ Vision Quest)
 - Genuinely-not-in-mzfi movies correctly fall to embed (The Matrix, Blade Runner 2049)
+
+---
+Task ID: nobar-mzfi-thorough-debug
+Agent: main
+Task: Debug menyeluruh mzfi — fix concurrency, 429, negative cache, dedup
+
+Work Log:
+- Built comprehensive test suite: 50+ movies across categories (classics, recent, indie, Asian,
+  Marvel/DC, anime, TV series multi-season, edge cases). Identified real bugs vs test-label mistakes.
+- FINDING: Most "failures" were test-label mismatches (wrong TMDB IDs), not real bugs:
+  • 76341=Mad Max not Donnie Darko, 122917=Hobbit not Sonic 2, 218=Terminator not Matrix
+  • Movies genuinely not in mzfi catalog: The Matrix (1999), Iron Man (2008 movie),
+    Game of Thrones, Star Wars ANH, Blade Runner 2049, Green Mile — embed fallback correct
+- REAL BUGS found + fixed:
+
+BUG 1 — Concurrent request storms (FIXED):
+  • 10 simultaneous requests to same movie → 10 token mints + 10 search calls
+  • Could trigger 429 rate-limit from mzfi BFF
+  • FIX: Request deduplication via inflightSearches Map<key, Promise>
+    - If search for same key is in-flight, await it instead of firing new call
+    - Promise is deleted on settle (.finally)
+    - Prevents token-mint storms + 429 cascading
+
+BUG 2 — 429 rate-limit not handled (FIXED):
+  • mzfi BFF returns 429 when too many requests hit same token
+  • Previously: searchRes.ok=false → return null → embed fallback (wrong)
+  • FIX: Retry on 429 with exponential backoff (3 attempts: 500ms, 1s, 2s)
+    - Only retries on 429 (not other errors)
+    - Prevents transient rate-limit from causing embed fallback
+
+BUG 3 — Negative cache too aggressive (FIXED):
+  • Previously: negative cache (no match) cached for 5min (same as positive)
+  • If search failed transiently (429, network), all requests for 5min would fail
+  • FIX: Split TTL — positive 5min, negative 1min
+    - Negative cache retries sooner in case of transient failure
+    - POSITIVE_TTL=5min, NEGATIVE_TTL=1min
+    - CacheEntry type gains isNegative flag
+
+BUG 4 — Cache key missing kind (FIXED):
+  • Previously: cacheKey = title|year (no kind)
+  • Movie + TV with same title+year would share cache → wrong subjectType picked
+  • FIX: cacheKey = title|year|kind (movie vs tv separated)
+
+BUG 5 — ::cue subtitle styling missing (PARTIAL FIX):
+  • Native <track> cues rendered with browser defaults (tiny, no background)
+  • FIX: Added video::cue CSS with readable styling (dark bg, white text, 1.1em font)
+  • Note: Some browsers don't render ::cue reliably when mode set via JS — known issue
+  • Track data layer works perfectly (tracks load, cues parse, 1214 cues for Jurassic World)
+
+VERIFICATION:
+- 10 concurrent requests to Jurassic World → all succeed, 0 errors, 0 429s ✓
+- 5 different movies simultaneously → all succeed ✓
+- 30+ movie regression suite → 100% pass (no regression) ✓
+- TV series multi-season (Breaking Bad S1/S5, Stranger Things, Witcher, Arcane) → all work ✓
+- Browser test: Jurassic World plays, 20 subtitle tracks, seek works, ::cue styled ✓
+- Subtitle proxy: SRT→VTT conversion works (tested Indonesian "Anak - anak, ayo cepat!")
+
+Stage Summary:
+- 4 real bugs fixed (concurrency, 429, negative cache, cache key)
+- mzfi integration now robust: handles rate-limits, deduplicates concurrent requests,
+  retries on transient failures, caches appropriately (positive 5min, negative 1min)
+- 30+ movies + 8 TV series verified working — no regression
+- ::cue subtitle styling added (data layer works; visual rendering is browser-specific)

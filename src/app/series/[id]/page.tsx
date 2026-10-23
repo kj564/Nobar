@@ -22,6 +22,7 @@ import {
   type Server,
 } from "@/lib/tmdb";
 import { MoviePlayer } from "@/components/MoviePlayer";
+import { NativePlayer } from "@/components/NativePlayer";
 import { SeriesNativePlayer } from "@/components/SeriesNativePlayer";
 import { Navbar } from "@/components/Navbar";
 
@@ -174,14 +175,7 @@ export default async function SeriesDetailPage({ params }: PageProps) {
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 py-8 space-y-10">
         <div id="player" className="space-y-4 scroll-mt-20">
           <h2 className="text-lg font-bold text-white">Player</h2>
-          <MoviePlayer
-            videoId={detail.id}
-            title={title}
-            servers={SERVERS_TV as unknown as Server[]}
-            kind="series"
-            seasons={detail.seasons}
-            imdbId={detail.imdb_id}
-          />
+          <SeriesNativePlayer tmdbId={detail.id} title={title} seasons={detail.seasons} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

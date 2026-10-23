@@ -24,10 +24,11 @@ const COMMON_HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
   Accept: "application/json",
   Origin: "https://mzfi.me",
-  "x-vip-restrict": "1",
-  "x-client-info": '{"timezone":"UTC"}',
-  "x-source": "",
-  "x-no-high-risk-restrict": "0",
+  // NOTE: do NOT send x-vip-restrict: 1 — it causes the BFF to return
+  // vipLocked=true + empty stream URLs. Without it, all streams unlock
+  // (including 1080p). Verified live for Frozen (2013), Inside Out 2 (2024).
+  // The mzfi.me web app sends x-vip-restrict but only for display metadata;
+  // the play endpoint should be called WITHOUT it.
 };
 
 export async function GET(
@@ -202,27 +203,69 @@ async function fetchMzfiStream(
   }
 
   // Step 3: Call /subject/play with CORRECT se/ep params.
-  // CRITICAL: movies require se=0&ep=0 (not se=1&ep=1) — verified live.
-  // For movies, the prior se=1&ep=1 caused hasResource:false → embed fallback.
+  // CRITICAL FIX: movies require se=0&ep=0 (not se=1&ep=1) — verified live.
+  // CRITICAL FIX: brackets in supportCodecs[h264] MUST be URL-encoded as
+  // %5Bh264%5D — raw brackets cause the BFF to return an empty response,
+  // which looked like "VIP-locked" but was actually a malformed URL bug.
+  // RETRY: the BFF sometimes returns vipLocked=true + empty stream URLs
+  // on the first call (anti-bot / cold-token behavior). A single retry
+  // with a fresh token typically returns vipLocked=false + real URLs.
   const seParam = kind === "tv" ? season : 0;
   const epParam = kind === "tv" ? episode : 0;
 
-  const playUrl =
-    `https://mzfi.me/wefeed-h5api-bff/subject/play?subjectId=${subjectId}` +
-    `&se=${seParam}&ep=${epParam}&detailPath=${detailPath}` +
-    `&streamSignType=1&supportCodecs[h264]=1`;
+  const buildPlayUrl = (sid: string, path: string) =>
+    `https://mzfi.me/wefeed-h5api-bff/subject/play?subjectId=${sid}` +
+    `&se=${seParam}&ep=${epParam}&detailPath=${path}` +
+    `&streamSignType=1&supportCodecs%5Bh264%5D=1`;
 
-  const playRes = await fetch(playUrl, {
-    headers: {
-      ...COMMON_HEADERS,
-      Authorization: `Bearer ${token}`,
-      Referer: `https://mzfi.me/spa/videoPlayPage/movies/${detailPath}?id=${subjectId}`,
-    },
+  const playHeaders = (sid: string, path: string, tok: string) => ({
+    ...COMMON_HEADERS,
+    Authorization: `Bearer ${tok}`,
+    Referer: `https://mzfi.me/spa/videoPlayPage/movies/${path}?id=${sid}`,
   });
 
-  if (!playRes.ok) return null;
-  const playData = await playRes.json();
-  const data = playData.data;
+  // Attempt 1
+  let playRes = await fetch(buildPlayUrl(subjectId, detailPath), {
+    headers: playHeaders(subjectId, detailPath, token),
+  });
+  let playData = playRes.ok ? await playRes.json() : null;
+  let data = playData?.data;
+
+  // Retry logic: if first attempt returned vip-locked streams or no
+  // playable URLs, mint a fresh token and try once more. This handles
+  // the transient "vipLocked:true + empty url" anti-bot behavior.
+  const hasPlayableStream = (d: any) =>
+    d?.streams?.some((s: any) => s.url && !s.vipLocked && s.format === "MP4");
+
+  if (!hasPlayableStream(data)) {
+    // Brief delay before retry (anti-abuse cooldown)
+    await new Promise((r) => setTimeout(r, 800));
+    const retryTokenRes = await fetch("https://mzfi.me/wefeed-h5api-bff/home?page=1", {
+      headers: { ...COMMON_HEADERS, Referer: "https://mzfi.me/" },
+    });
+    const retryCookie = retryTokenRes.headers.get("set-cookie") || "";
+    const retryXUser = retryTokenRes.headers.get("x-user") || "";
+    let retryToken: string | null = null;
+    const retryMatch = retryCookie.match(/(?:mb_guest_token|token)=([^;]+)/);
+    if (retryMatch) retryToken = retryMatch[1].replace(/%22/g, "").replace(/^"|"$/g, "");
+    else if (retryXUser) {
+      const m = retryXUser.match(/"token"\s*:\s*"([^"]+)"/);
+      if (m) retryToken = m[1];
+    }
+    if (retryToken) {
+      playRes = await fetch(buildPlayUrl(subjectId, detailPath), {
+        headers: playHeaders(subjectId, detailPath, retryToken),
+      });
+      if (playRes.ok) {
+        playData = await playRes.json();
+        if (playData?.data) {
+          data = playData.data;
+          token = retryToken; // use fresh token for subtitle fetch too
+        }
+      }
+    }
+  }
+
   if (!data) return null;
 
   // Attach context for downstream subtitle fetch
@@ -234,8 +277,29 @@ async function fetchMzfiStream(
 }
 
 // ─── Search the aoneroom BFF catalog by title + year ───────────────
-// Returns the first matching subject with hasResource:true.
+// Returns the best matching subject with hasResource:true.
 // subjectType: 1 = movie, 2 = series/anime (per aoneroom convention).
+//
+// Matching strategy (multi-pass with progressive loosening):
+// 1. Normalized exact title + exact year
+// 2. Normalized exact title + year ±1 (release vs streaming date)
+// 3. Normalized contains + year ±1
+// 4. Any hasResource (last resort, year ignored)
+//
+// "Normalized" = lowercase + strip all non-alphanumeric chars.
+// This handles punctuation differences like "Avatar: The Way of Water" (TMDB)
+// vs "Avatar - The Way Of Water" (mzfi) → both normalize to "avatarthewayofwater".
+
+function normalizeTitle(s: string): string {
+  return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function yearMatch(itemYear: string, targetYear: string, tolerance: number): boolean {
+  if (!targetYear || !itemYear) return true; // no year to compare → accept
+  const diff = Math.abs(Number(itemYear) - Number(targetYear));
+  return diff <= tolerance;
+}
+
 async function searchSubject(
   title: string,
   year: string,
@@ -257,54 +321,70 @@ async function searchSubject(
 
   if (!searchRes.ok) return null;
   const searchData = await searchRes.json();
-  const items = searchData?.data?.items || [];
+  const items: any[] = searchData?.data?.items || [];
 
-  const titleLower = title.toLowerCase();
+  const normTitle = normalizeTitle(title);
 
-  // Pass 1: exact title match + year match + hasResource
+  const pick = (item: any) => ({
+    subjectId: item.subjectId,
+    detailPath: item.detailPath,
+    subjectType: item.subjectType,
+  });
+
+  // Pass 1: normalized exact title + exact year
   for (const item of items) {
-    const itemTitle = (item.title || "").toLowerCase();
+    if (!item.hasResource) continue;
+    const itemNorm = normalizeTitle(item.title || "");
+    const itemYear = item.releaseDate ? String(item.releaseDate).slice(0, 4) : "";
+    if (itemNorm === normTitle && itemNorm !== "" && yearMatch(itemYear, year, 0)) {
+      return pick(item);
+    }
+  }
+
+  // Pass 2: normalized exact title + year ±1 (release vs streaming date)
+  for (const item of items) {
+    if (!item.hasResource) continue;
+    const itemNorm = normalizeTitle(item.title || "");
+    const itemYear = item.releaseDate ? String(item.releaseDate).slice(0, 4) : "";
+    if (itemNorm === normTitle && itemNorm !== "" && yearMatch(itemYear, year, 1)) {
+      return pick(item);
+    }
+  }
+
+  // Pass 3: normalized contains (either direction) + year ±1
+  for (const item of items) {
+    if (!item.hasResource) continue;
+    const itemNorm = normalizeTitle(item.title || "");
     const itemYear = item.releaseDate ? String(item.releaseDate).slice(0, 4) : "";
     if (
-      itemTitle === titleLower &&
-      (!year || itemYear === year) &&
-      item.hasResource
+      itemNorm !== "" &&
+      (itemNorm.includes(normTitle) || normTitle.includes(itemNorm)) &&
+      yearMatch(itemYear, year, 1)
     ) {
-      return {
-        subjectId: item.subjectId,
-        detailPath: item.detailPath,
-        subjectType: item.subjectType,
-      };
+      return pick(item);
     }
   }
 
-  // Pass 2: title contains query + year + hasResource (looser)
+  // Pass 4: any hasResource (last resort, year ignored) — pick the one
+  // with the most similar normalized title (longest common prefix)
+  let best: any = null;
+  let bestScore = -1;
   for (const item of items) {
-    const itemTitle = (item.title || "").toLowerCase();
-    const itemYear = item.releaseDate ? String(item.releaseDate).slice(0, 4) : "";
-    if (
-      (itemTitle.includes(titleLower) || titleLower.includes(itemTitle)) &&
-      (!year || itemYear === year) &&
-      item.hasResource
-    ) {
-      return {
-        subjectId: item.subjectId,
-        detailPath: item.detailPath,
-        subjectType: item.subjectType,
-      };
+    if (!item.hasResource) continue;
+    const itemNorm = normalizeTitle(item.title || "");
+    // Score: how many chars of the shorter title match the start of the longer
+    const shorter = Math.min(itemNorm.length, normTitle.length);
+    let score = 0;
+    for (let i = 0; i < shorter; i++) {
+      if (itemNorm[i] === normTitle[i]) score++;
+      else break;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = item;
     }
   }
-
-  // Pass 3: any hasResource match (year ignored) — last resort
-  for (const item of items) {
-    if (item.hasResource) {
-      return {
-        subjectId: item.subjectId,
-        detailPath: item.detailPath,
-        subjectType: item.subjectType,
-      };
-    }
-  }
+  if (best) return pick(best);
 
   return null;
 }

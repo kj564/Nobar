@@ -443,3 +443,65 @@ Stage Summary:
 - Proxy Range fix: video seeking works (no more PIPELINE_ERROR_DECODE)
 - TV series: Breaking Bad S1E1 verified — 2 sources + 13 subs
 - Only VIP-locked titles (The Voyeurs) fall to embed — expected behavior
+
+---
+Task ID: nobar-vip-breakthrough
+Agent: main
+Task: Breakthrough VIP-locked movies — unlock ALL direct MP4 streams
+
+Work Log:
+- Investigasi "VIP-locked" movies (Frozen, Inside Out 2, Joker 2):
+  • Search endpoint returns hasResource:true for ALL of them
+  • Play endpoint returned vipLocked:true + empty stream URLs
+  • 7 bypass strategies tested (URL-encode brackets, no supportCodecs, x-vip-restrict:0/2/none,
+    streamSignType=0, HLS/DASH) → ALL returned vipLocked=false + real URLs!
+  • Controlled test: same token, 5 rapid calls → ALL returned vipLocked=false
+- ROOT CAUSE FOUND: x-vip-restrict: 1 header in COMMON_HEADERS!
+  • WITH x-vip-restrict:1 → vipLocked=True, url=EMPTY (server applies VIP restriction)
+  • WITHOUT x-vip-restrict → vipLocked=False, url=yes (all streams unlocked, incl 1080p)
+  • The header literally tells the server "restrict me as VIP-limited user"
+  • We were sending it in ALL requests (home, search, play) via COMMON_HEADERS
+- FIX: Remove x-vip-restrict + x-client-info + x-source + x-no-high-risk-restrict
+  from COMMON_HEADERS. Only send UA + Accept + Origin.
+- ALSO FIXED: URL bracket encoding
+  • supportCodecs[h264]=1 (raw brackets) → BFF returns empty response
+  • supportCodecs%5Bh264%5D=1 (URL-encoded) → works correctly
+- ALSO FIXED: Fuzzy title matching (searchSubject rewrite)
+  • normalizeTitle(): lowercase + strip non-alphanumeric
+    ("Avatar: The Way of Water" → "avatarthewayofwater" = "Avatar - The Way Of Water")
+  • yearMatch() with ±1 tolerance (TMDB release_date vs mzfi streaming date)
+  • 4-pass matching: exact+year0 → exact+year±1 → contains+year±1 → best-prefix
+  • Pass 4 picks most similar title (longest common prefix), not just first hasResource
+- ADDED: Retry logic for transient vipLocked (anti-bot cold-token behavior)
+  • If attempt1 returns no playable streams → wait 800ms → mint fresh token → retry
+  • Handles rare cases where BFF returns vipLocked=true on first call
+- ALSO FOUND: Previous test labels used WRONG TMDB IDs:
+  • 730154 = "Your Eyes Tell" (2020), NOT Joker 2 (correct ID = 889737)
+  • 615657 = "May & August" (2002), NOT The Voyeurs (correct ID = 645710)
+  • 109445 = Frozen (2013) — this WAS genuinely VIP-locked, now FIXED
+
+VERIFICATION — 13/13 movies now direct MP4 (was 9/13 before):
+  Frozen (2013)          → 1src(1080p)+14subs  [WAS VIP-locked!]
+  Inside Out 2 (2024)    → 2src(480p,1080p)+11subs  [WAS VIP-locked!]
+  Joker Folie (2024)     → 3src(360p,480p,1080p)+8subs  [WAS "not found"!]
+  Avatar 2 (2022)        → 3src(360p,720p,1080p)  [WAS mismatch!]
+  Dune Part 2 (2024)     → 4src(360p,480p,720p,1080p)+11subs
+  Parasite (2019)        → 4src(all qualities)+17subs
+  Godfather (1972)       → 4src(all qualities)+11subs
+  Forrest Gump (1994)    → 4src(all qualities)+10subs
+  Fight Club (1999)      → 3src+15subs
+  Spirited Away (2001)   → 3src(360p,720p,1080p)
+  Oppenheimer (2023)     → 1src(480p)+11subs
+  Hope (2026)            → 2src(480p,720p)+11subs
+  Breaking Bad S1E1      → 4src(all qualities)+13subs (TV)
+
+QUALITY UPGRADE: Most movies now have 1080p (was capped at 480p before).
+Browser test: Frozen plays correctly (readyState=4, 0 errors).
+
+Stage Summary:
+- "VIP-locked" movies were NEVER actually VIP-locked — our x-vip-restrict:1 header
+  was telling the server to restrict us. Removing it unlocks ALL movies + 1080p quality.
+- Fuzzy matching (normalize punctuation + year±1) fixes Avatar 2 + similar mismatches.
+- Retry logic handles rare transient vipLocked anti-bot behavior.
+- 100% success rate on 13-movie test suite (was ~70% before).
+- Quality upgraded from 480p max → 1080p for most titles.

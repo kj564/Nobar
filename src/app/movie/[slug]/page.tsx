@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Play, ArrowLeft, Star } from "lucide-react";
 import {
-  fetchTrending,
+  fetchAllMoviesForPrerender,
   fetchMovieDetail,
   findMovieBySlug,
   slugify,
@@ -17,59 +17,15 @@ import { MoviePlayer } from "@/components/MoviePlayer";
 import { Navbar } from "@/components/Navbar";
 
 // Pre-render detail pages for ALL movies accessible in the app.
-// Fetches trending pages 1-5 (~100 movies) + similar movies from each
-// trending page 1 (~200, deduplicated). Eliminates 404 for clicks from
-// homepage cards, similar sections, search results, and category filter.
+// Sources: trending 1-10 + discover per genre + similar from trending.
+// This function is shared with generateStaticParams and the slug resolver.
 export const dynamicParams = false;
 
-async function collectAllMovieSlugs(): Promise<{ slug: string }[]> {
-  const slugSet = new Set<string>();
-  const slugs: { slug: string }[] = [];
-
-  const addMovie = (m: { title?: string; name?: string; release_date?: string }) => {
-    const s = slugify(m.title || m.name, m.release_date);
-    if (s && !slugSet.has(s)) {
-      slugSet.add(s);
-      slugs.push({ slug: s });
-    }
-  };
-
-  try {
-    // Fetch trending pages 1-5 in parallel (~100 movies)
-    const pages = await Promise.all([
-      fetchTrending(1),
-      fetchTrending(2),
-      fetchTrending(3),
-      fetchTrending(4),
-      fetchTrending(5),
-    ]);
-    for (const page of pages) {
-      for (const m of page.results) addMovie(m);
-    }
-
-    // Fetch similar movies for top 20 trending (covers "Karya Terkait" links)
-    const topTrending = pages[0].results.slice(0, 20);
-    const details = await Promise.all(
-      topTrending.map((m) =>
-        fetchMovieDetail(m.id)
-          .then((d) => d)
-          .catch(() => null)
-      )
-    );
-    for (const d of details) {
-      if (d?.similar?.results) {
-        for (const m of d.similar.results) addMovie(m);
-      }
-    }
-  } catch (err) {
-    console.error("collectAllMovieSlugs failed:", err);
-  }
-
-  return slugs;
-}
-
 export async function generateStaticParams() {
-  const slugs = await collectAllMovieSlugs();
+  const movies = await fetchAllMoviesForPrerender();
+  const slugs = movies.map((m) => ({
+    slug: slugify(m.title || m.name, m.release_date),
+  }));
   console.log(`[generateStaticParams:movie] Pre-rendering ${slugs.length} movie detail pages`);
   return slugs;
 }
@@ -81,39 +37,13 @@ type PageProps = {
 export default async function MovieDetailPage({ params }: PageProps) {
   const { slug } = await params;
 
-  // Resolve slug → TMDB ID by searching trending pages 1-5 + similar movies
-  // from trending page 1. TMDB responses are cached in src/lib/tmdb.ts
-  // (5min TTL), so subsequent page renders reuse the same data.
-  let movie: { id: number; title?: string; name?: string; release_date?: string } | undefined;
-
+  // Resolve slug → TMDB ID by searching the full pre-render set.
+  // fetchAllMoviesForPrerender is cached (5min TTL) so this is cheap
+  // on subsequent calls during the same build.
+  let movie;
   try {
-    const pages = await Promise.all([
-      fetchTrending(1),
-      fetchTrending(2),
-      fetchTrending(3),
-      fetchTrending(4),
-      fetchTrending(5),
-    ]);
-
-    // Search trending movies first
-    for (const page of pages) {
-      movie = findMovieBySlug(page.results, slug);
-      if (movie) break;
-    }
-
-    // If not in trending, search in similar movies of top 20 trending
-    if (!movie) {
-      const topTrending = pages[0].results.slice(0, 20);
-      const details = await Promise.all(
-        topTrending.map((m) => fetchMovieDetail(m.id).catch(() => null))
-      );
-      for (const d of details) {
-        if (d?.similar?.results) {
-          movie = findMovieBySlug(d.similar.results, slug);
-          if (movie) break;
-        }
-      }
-    }
+    const allMovies = await fetchAllMoviesForPrerender();
+    movie = findMovieBySlug(allMovies, slug);
   } catch (err) {
     console.error("Movie slug resolution failed:", err);
   }

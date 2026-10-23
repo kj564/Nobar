@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import {
   Play,
@@ -13,6 +13,7 @@ import {
   fetchByGenre,
   fetchTrendingTV,
   searchMovies,
+  slugify,
   type TMDBMovie,
   type TMDBSeries,
   type TMDBPaged,
@@ -24,9 +25,13 @@ import { Navbar } from "@/components/Navbar";
 
 type HomeClientProps = {
   categories: Category[];
+  prerenderedSlugs: string[];
 };
 
-export function HomeClient({ categories }: HomeClientProps) {
+export function HomeClient({ categories, prerenderedSlugs }: HomeClientProps) {
+  // Convert array to Set for O(1) lookup when filtering search results.
+  // Array is passed from server (Set not serializable as server→client prop).
+  const slugSet = useMemo(() => new Set(prerenderedSlugs), [prerenderedSlugs]);
   const [activeCategory, setActiveCategory] = useState<Category>(categories[0]);
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [featured, setFeatured] = useState<TMDBMovie[]>([]);
@@ -73,6 +78,15 @@ export function HomeClient({ categories }: HomeClientProps) {
         let data: TMDBPaged<TMDBMovie>;
         if (searching && query) {
           data = await searchMovies(query, targetPage);
+          // CRITICAL: Filter search results to only show movies that have
+          // pre-rendered detail pages. Without this, clicking a search result
+          // that wasn't pre-rendered → 404 on GitHub Pages (static export).
+          data = {
+            ...data,
+            results: data.results.filter((m) =>
+              slugSet.has(slugify(m.title || m.name, m.release_date))
+            ),
+          };
         } else if (cat.tmdbGenreId === null) {
           data = await fetchTrending(targetPage);
         } else {
@@ -98,7 +112,7 @@ export function HomeClient({ categories }: HomeClientProps) {
         setLoadingMore(false);
       }
     },
-    [isSearching, searchQuery]
+    [isSearching, searchQuery, slugSet]
   );
 
   // Initial load (no search).

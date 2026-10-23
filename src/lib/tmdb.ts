@@ -144,6 +144,122 @@ export async function fetchCategories(): Promise<Category[]> {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Pre-render set — the COMPLETE list of movies/series that will have
+// detail pages generated at build time. Used by:
+//   1. generateStaticParams() — to pre-render the pages
+//   2. Server components — to pass slug sets to client for search filtering
+//
+// Without this, search results can return arbitrary TMDB movies whose
+// detail pages don't exist → 404 on click.
+//
+// Sources (all fetched in parallel, deduplicated by id):
+//   • Trending pages 1-10 (~200 movies)
+//   • Discover popular per genre (~19 genres × 20 = ~380)
+//   • Similar movies from all trending page 1 (~200)
+//   Total: ~500-700 unique movies pre-rendered
+// ──────────────────────────────────────────────────────────────────────────
+
+export async function fetchAllMoviesForPrerender(): Promise<TMDBMovie[]> {
+  const movieMap = new Map<number, TMDBMovie>();
+
+  const addMovies = (movies: TMDBMovie[]) => {
+    for (const m of movies) {
+      if (!movieMap.has(m.id)) movieMap.set(m.id, m);
+    }
+  };
+
+  try {
+    // 1. Trending pages 1-10 (parallel)
+    const trendingPages = await Promise.all(
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => fetchTrending(p).catch(() => null))
+    );
+    for (const page of trendingPages) {
+      if (page) addMovies(page.results);
+    }
+
+    // 2. Discover popular per genre (parallel)
+    const genres = await fetchMovieGenres();
+    const genrePages = await Promise.all(
+      genres.map((g) => fetchByGenre(g.id, 1).catch(() => null))
+    );
+    for (const page of genrePages) {
+      if (page) addMovies(page.results);
+    }
+
+    // 3. Similar movies from all trending page 1 (parallel)
+    const trending1 = trendingPages[0];
+    if (trending1) {
+      const details = await Promise.all(
+        trending1.results.map((m) => fetchMovieDetail(m.id).catch(() => null))
+      );
+      for (const d of details) {
+        if (d?.similar?.results) addMovies(d.similar.results);
+      }
+    }
+  } catch (err) {
+    console.error("fetchAllMoviesForPrerender failed:", err);
+  }
+
+  return Array.from(movieMap.values());
+}
+
+// Same for TV series — trending 1-10 + discover per genre + similar.
+export async function fetchAllSeriesForPrerender(): Promise<TMDBSeries[]> {
+  const seriesMap = new Map<number, TMDBSeries>();
+
+  const addSeries = (series: TMDBSeries[]) => {
+    for (const s of series) {
+      if (!seriesMap.has(s.id)) seriesMap.set(s.id, s);
+    }
+  };
+
+  try {
+    // 1. Trending TV pages 1-10 (parallel)
+    const trendingPages = await Promise.all(
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => fetchTrendingTV(p).catch(() => null))
+    );
+    for (const page of trendingPages) {
+      if (page) addSeries(page.results);
+    }
+
+    // 2. Similar series from all trending page 1 (parallel)
+    const trending1 = trendingPages[0];
+    if (trending1) {
+      const details = await Promise.all(
+        trending1.results.map((s) => fetchTVDetail(s.id).catch(() => null))
+      );
+      for (const d of details) {
+        if (d?.similar?.results) addSeries(d.similar.results);
+      }
+    }
+  } catch (err) {
+    console.error("fetchAllSeriesForPrerender failed:", err);
+  }
+
+  return Array.from(seriesMap.values());
+}
+
+// Build a Set of slugs for client-side search filtering.
+// Passed from server component → client component as prop.
+export function buildSlugSet(movies: TMDBMovie[]): Set<string> {
+  const set = new Set<string>();
+  for (const m of movies) {
+    const slug = slugify(m.title || m.name, m.release_date);
+    if (slug) set.add(slug);
+  }
+  return set;
+}
+
+export function buildSeriesSlugSet(series: TMDBSeries[]): Set<string> {
+  const set = new Set<string>();
+  for (const s of series) {
+    const slug = slugify(s.name || s.title, s.first_air_date);
+    if (slug) set.add(slug);
+  }
+  return set;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Movie images (logos, posters, backdrops) — used by hero banner for
 // cinematic title logo display instead of plain text.
 // ──────────────────────────────────────────────────────────────────────────

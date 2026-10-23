@@ -1,13 +1,18 @@
-// Server component — fetches categories dynamically at build time from TMDB
-// /genre/movie/list, then passes to client component for interactive UI.
-// No hardcoded categories anywhere.
+// Server component — fetches categories + pre-rendered slug list dynamically
+// from TMDB at build time, then passes to client component for interactive UI.
+// The slug list is used by client to filter search results so users never
+// click a movie that will 404.
 
-import { fetchCategories } from "@/lib/tmdb";
+import { fetchCategories, fetchAllMoviesForPrerender, buildSlugSet } from "@/lib/tmdb";
 import { HomeClient } from "@/components/HomeClient";
 
-// Fetch at build time (static export). TMDB response is cached in lib/tmdb.ts
-// (5min TTL), so multiple calls during build reuse the same data.
 export default async function NobarPage() {
-  const categories = await fetchCategories();
-  return <HomeClient categories={categories} />;
+  const [categories, allMovies] = await Promise.all([
+    fetchCategories(),
+    fetchAllMoviesForPrerender(),
+  ]);
+  // Convert Set to array for serialization (Set is not serializable as
+  // server→client prop in Next.js). Client converts back to Set.
+  const prerenderedSlugs = Array.from(buildSlugSet(allMovies));
+  return <HomeClient categories={categories} prerenderedSlugs={prerenderedSlugs} />;
 }

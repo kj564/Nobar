@@ -3,9 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { X } from "lucide-react";
 import {
-  fetchTrending,
-  fetchByGenre,
-  searchMovies,
   type TMDBMovie,
   type TMDBPaged,
   type Category,
@@ -50,12 +47,18 @@ export function MovieListingClient({ categories }: MovieListingClientProps) {
       try {
         let data: TMDBPaged<TMDBMovie>;
         if (searching && query) {
-          data = await searchMovies(query, targetPage);
+          const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&page=${targetPage}`);
+          if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+          data = (await res.json()) as TMDBPaged<TMDBMovie>;
           // No filter needed — dynamic routes handle ANY TMDB movie ID.
         } else if (cat.tmdbGenreId === null) {
-          data = await fetchTrending(targetPage);
+          const res = await fetch(`/api/trending?page=${targetPage}`);
+          if (!res.ok) throw new Error(`Trending failed: ${res.status}`);
+          data = (await res.json()) as TMDBPaged<TMDBMovie>;
         } else {
-          data = await fetchByGenre(cat.tmdbGenreId, targetPage);
+          const res = await fetch(`/api/discover?genre=${cat.tmdbGenreId}&page=${targetPage}`);
+          if (!res.ok) throw new Error(`Discover failed: ${res.status}`);
+          data = (await res.json()) as TMDBPaged<TMDBMovie>;
         }
         if (append) {
           setMovies((prev) => {

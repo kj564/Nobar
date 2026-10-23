@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import type { Metadata } from "next";
 import {
   Play,
   ArrowLeft,
@@ -18,11 +19,7 @@ import {
   formatViews,
   buildSeriesSlug,
   extractIdFromSlug,
-  SERVERS_TV,
-  type Server,
 } from "@/lib/tmdb";
-import { MoviePlayer } from "@/components/MoviePlayer";
-import { NativePlayer } from "@/components/NativePlayer";
 import { SeriesNativePlayer } from "@/components/SeriesNativePlayer";
 import { WatchPartyButton } from "@/components/WatchPartyButton";
 import { Navbar } from "@/components/Navbar";
@@ -30,6 +27,53 @@ import { Navbar } from "@/components/Navbar";
 type PageProps = {
   params: Promise<{ id: string }>;
 };
+
+// ─── SEO: dynamic metadata ────────────────────────────────────────────────
+// Generates <title>, description, OpenGraph, Twitter card, and canonical URL
+// from the TMDB TV detail. Reuses the same helpers as the page body
+// (extractIdFromSlug → fetchTVDetail → buildSeriesSlug).
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id: slug } = await params;
+  const seriesId = extractIdFromSlug(slug);
+  if (!seriesId) return { title: "Series Tidak Ditemukan — Nobar" };
+
+  let detail: Awaited<ReturnType<typeof fetchTVDetail>> | null = null;
+  try {
+    detail = await fetchTVDetail(seriesId);
+  } catch {
+    return { title: "Series Tidak Ditemukan — Nobar" };
+  }
+
+  const title = detail.name || detail.title || "Untitled";
+  const overview = (detail.overview || "").slice(0, 160);
+  const canonicalSlug = buildSeriesSlug(detail);
+  const ogImage = backdropUrl(detail.backdrop_path, "original");
+  const fullTitle = `${title} (Series) — Nobar`;
+
+  return {
+    title: fullTitle,
+    description: overview || `Tonton ${title} di Nobar.`,
+    alternates: { canonical: `/series/${canonicalSlug}` },
+    openGraph: {
+      title: fullTitle,
+      description: overview,
+      type: "video.tv_show",
+      images: ogImage ? [{ url: ogImage }] : undefined,
+      siteName: "Nobar",
+      locale: "id_ID",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: fullTitle,
+      description: overview,
+      images: ogImage ? [ogImage] : undefined,
+    },
+  };
+}
 
 export default async function SeriesDetailPage({ params }: PageProps) {
   const { id: slug } = await params;
@@ -61,8 +105,34 @@ export default async function SeriesDetailPage({ params }: PageProps) {
   const episodes = detail.number_of_episodes;
   const status = detail.status;
 
+  // ─── SEO: JSON-LD structured data (schema.org/TVSeries) ──────────────────
+  // Renders as <script type="application/ld+json"> for rich results
+  // (rating stars, genre, season/episode counts in Google search).
+  const jsonLd: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "TVSeries",
+    name: title,
+    description: detail.overview || "",
+    image: backdrop,
+    datePublished: detail.first_air_date || undefined,
+    genre: genres.map((g) => g.name),
+    numberOfSeasons: seasons,
+    numberOfEpisodes: episodes,
+  };
+  if (detail.vote_average && detail.vote_average > 0) {
+    jsonLd.aggregateRating = {
+      "@type": "AggregateRating",
+      ratingValue: detail.vote_average,
+      ratingCount: detail.vote_count ?? 0,
+    };
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-ink-950 text-white">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Navbar>
         <Link
           href="/series/"

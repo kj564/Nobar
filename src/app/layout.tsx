@@ -14,16 +14,35 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://nobar-stream.vercel.app"),
   title: "Nobar — Streaming Film Indie",
   description:
     "Platform streaming film indie Indonesia. Katalog dari TMDB, multi-server, gratis. Dibuat untuk pembelajaran web development.",
   keywords: ["film", "streaming", "indie", "indonesia", "nobar"],
   authors: [{ name: "Nobar" }],
+  openGraph: {
+    title: "Nobar — Streaming Film Indie",
+    description:
+      "Platform streaming film indie Indonesia. Katalog dari TMDB, multi-server, gratis. Dibuat untuk pembelajaran web development.",
+    siteName: "Nobar",
+    locale: "id_ID",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Nobar — Streaming Film Indie",
+    description:
+      "Platform streaming film indie Indonesia. Katalog dari TMDB, multi-server, gratis.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="id" className={`${inter.variable} ${jakarta.variable}`}>
+    <html lang="id" data-scroll-behavior="smooth" className={`${inter.variable} ${jakarta.variable}`}>
       <head>
         <script
           src="https://tags.adplox.com/p.js?z=pfntggc9kw"

@@ -117,7 +117,7 @@ export function HeroBanner({ movies }: HeroBannerProps) {
       {backdrop && (
         <div className="absolute inset-0 z-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={backdrop} alt={title} className="w-full h-full object-cover opacity-80" />
+          <img src={backdrop} alt={title} fetchPriority="high" className="w-full h-full object-cover opacity-80" />
         </div>
       )}
 

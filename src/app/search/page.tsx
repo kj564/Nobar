@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, X, Film, Tv, Star, ArrowLeft } from "lucide-react";
 import {
-  searchMovies,
   buildMovieSlug,
   type TMDBMovie,
   type TMDBPaged,
@@ -50,7 +49,9 @@ function SearchContent() {
     if (!append) setLoading(true);
     else setLoadingMore(true);
     try {
-      const data: TMDBPaged<TMDBMovie> = await searchMovies(q, targetPage);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&page=${targetPage}`);
+      if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+      const data: TMDBPaged<TMDBMovie> = await res.json();
       if (append) {
         setResults((prev) => {
           const existing = new Set(prev.map((m) => m.id));

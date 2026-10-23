@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { X } from "lucide-react";
 import {
-  fetchTrendingTV,
   type TMDBSeries,
   type TMDBPaged,
 } from "@/lib/tmdb";
@@ -27,7 +26,9 @@ export default function SeriesListingPage() {
     }
     setError(null);
     try {
-      const data: TMDBPaged<TMDBSeries> = await fetchTrendingTV(targetPage);
+      const res = await fetch(`/api/tv-trending?page=${targetPage}`);
+      if (!res.ok) throw new Error(`TV trending failed: ${res.status}`);
+      const data: TMDBPaged<TMDBSeries> = await res.json();
       if (append) {
         setSeries((prev) => {
           const existing = new Set(prev.map((s) => s.id));
@@ -72,10 +73,9 @@ export default function SeriesListingPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {Array.from({ length: 10 }).map((_, i) => (
               <div key={i} className="rounded-lg overflow-hidden border border-white/5">
-                <div className="skeleton aspect-video"></div>
-                <div className="p-3 space-y-2">
+                <div className="skeleton aspect-[2/3]"></div>
+                <div className="p-2">
                   <div className="skeleton h-3 rounded w-3/4"></div>
-                  <div className="skeleton h-2 rounded w-1/2"></div>
                 </div>
               </div>
             ))}

@@ -8,10 +8,6 @@ import {
   Tv,
 } from "lucide-react";
 import {
-  fetchTrending,
-  fetchByGenre,
-  fetchTrendingTV,
-  searchMovies,
   type TMDBMovie,
   type TMDBSeries,
   type TMDBPaged,
@@ -41,9 +37,12 @@ export function HomeClient({ categories }: HomeClientProps) {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch TV trending once on mount (separate from movie category switching).
+  // Server-side API route benefits from shared ISR cache + keeps TMDB API
+  // key off the client.
   useEffect(() => {
-    fetchTrendingTV(1)
-      .then((data) => {
+    fetch(`/api/tv-trending?page=1`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
+      .then((data: TMDBPaged<TMDBSeries>) => {
         setTvSeries((data.results || []).slice(0, 12));
       })
       .catch((e) => console.warn("TV trending fetch failed", e));
@@ -71,13 +70,19 @@ export function HomeClient({ categories }: HomeClientProps) {
       try {
         let data: TMDBPaged<TMDBMovie>;
         if (searching && query) {
-          data = await searchMovies(query, targetPage);
+          const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&page=${targetPage}`);
+          if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+          data = (await res.json()) as TMDBPaged<TMDBMovie>;
           // No filter needed — dynamic routes handle ANY TMDB movie ID.
           // Endless: all search results are accessible.
         } else if (cat.tmdbGenreId === null) {
-          data = await fetchTrending(targetPage);
+          const res = await fetch(`/api/trending?page=${targetPage}`);
+          if (!res.ok) throw new Error(`Trending failed: ${res.status}`);
+          data = (await res.json()) as TMDBPaged<TMDBMovie>;
         } else {
-          data = await fetchByGenre(cat.tmdbGenreId, targetPage);
+          const res = await fetch(`/api/discover?genre=${cat.tmdbGenreId}&page=${targetPage}`);
+          if (!res.ok) throw new Error(`Discover failed: ${res.status}`);
+          data = (await res.json()) as TMDBPaged<TMDBMovie>;
         }
         if (append) {
           setMovies((prev) => {

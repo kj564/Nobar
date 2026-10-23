@@ -181,19 +181,14 @@ export function HomeClient({ categories }: HomeClientProps) {
         </div>
       </Navbar>
 
-      {/* Hero Banner — Netflix-style, dynamic from trending movies.
-          pt-16 wrapper pushes hero below fixed navbar (z-40) so content
-          doesn't get drowned/covered. */}
-      <div className="pt-16">
-        <HeroBanner movies={featured} />
-      </div>
+      {/* Hero Banner — full screen, navbar overlaps transparent */}
+      <HeroBanner movies={featured} />
 
       {/* Featured Movies — Trending Now (horizontal scroll, IDLIX style) */}
-      <section id="featured" className="py-10">
-        <div className="max-w-7xl mx-auto px-6 md:px-12">
+      <section id="featured" className="w-full bg-black px-3 sm:px-5 py-10">
+        <div className="max-w-[1520px] mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="font-display text-2xl font-bold">Trending Now</h2>
-            <p className="text-sm text-gray-400 mt-1 sm:mt-0">Top 6 film minggu ini.</p>
+            <h2 className="text-white text-2xl font-bold">Trending Now</h2>
           </div>
           {featured.length === 0 ? (
             <div className="flex gap-4 overflow-x-auto pb-4">
@@ -219,14 +214,13 @@ export function HomeClient({ categories }: HomeClientProps) {
       </section>
 
       {/* TV Series Trending (horizontal scroll, IDLIX style) */}
-      <section id="series" className="py-10 border-t border-white/5">
-        <div className="max-w-7xl mx-auto px-6 md:px-12">
+      <section id="series" className="w-full bg-black px-3 sm:px-5 py-10">
+        <div className="max-w-[1520px] mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="font-display text-2xl font-bold flex items-center gap-3">
+            <h2 className="text-white text-2xl font-bold flex items-center gap-3">
               <Tv className="w-6 h-6 text-brand-500" />
               Trending Series
             </h2>
-            <p className="text-sm text-gray-400 mt-1 sm:mt-0">Serial TV populer minggu ini.</p>
           </div>
           {tvSeries.length === 0 ? (
             <div className="flex gap-4 overflow-x-auto pb-4">
@@ -252,8 +246,8 @@ export function HomeClient({ categories }: HomeClientProps) {
       </section>
 
       {/* Movie Grid */}
-      <main id="kategori" className="py-8 flex-1">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <main id="kategori" className="w-full bg-black px-3 sm:px-5 py-8 flex-1">
+        <div className="max-w-[1520px] mx-auto">
           {/* Filter chips */}
           <div className="flex flex-wrap gap-2 mb-8">
             {categories.map((cat) => {

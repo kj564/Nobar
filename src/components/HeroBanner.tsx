@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Play, Star, ChevronLeft, ChevronRight } from "lucide-react";
+import { Play, Star, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import {
   type TMDBMovie,
   type TMDBMovieDetail,
@@ -23,7 +23,6 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const [details, setDetails] = useState<Record<number, TMDBMovieDetail>>({});
   const [logos, setLogos] = useState<Record<number, string | null>>({});
 
-  // Auto-rotate every 8 seconds
   useEffect(() => {
     if (movies.length <= 1) return;
     const timer = setInterval(() => {
@@ -32,8 +31,6 @@ export function HeroBanner({ movies }: HeroBannerProps) {
     return () => clearInterval(timer);
   }, [movies.length]);
 
-  // Fetch ALL movie details + images in parallel on mount (NOT lazy).
-  // Promise.all → parallel fetch, store in maps keyed by movie id.
   useEffect(() => {
     if (movies.length === 0) return;
     let cancelled = false;
@@ -47,11 +44,9 @@ export function HeroBanner({ movies }: HeroBannerProps) {
           return {
             id: m.id,
             detail,
-            // Prefer first logo (English or language-neutral)
             logo: images.logos?.[0]?.file_path || null,
           };
-        } catch (e) {
-          console.warn("Hero fetch failed for", m.id, e);
+        } catch {
           return { id: m.id, detail: null, logo: null };
         }
       })
@@ -82,20 +77,18 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const goPrev = useCallback(() => goToSlide(activeIndex - 1), [activeIndex, goToSlide]);
   const goNext = useCallback(() => goToSlide(activeIndex + 1), [activeIndex, goToSlide]);
 
-  // Skeleton state
   if (movies.length === 0) {
     return (
-      <div className="relative w-full h-[65vh] sm:h-[75vh] md:h-[85vh] min-h-[460px] max-h-[720px] bg-[#141414] overflow-hidden">
+      <section className="relative h-screen min-h-[600px] w-full bg-ink-950 overflow-hidden">
         <div className="absolute inset-0 skeleton opacity-30" />
-        <div className="absolute bottom-0 left-0 w-full md:w-3/4 lg:w-3/5 xl:w-1/2 p-6 md:p-16 pb-28 flex flex-col justify-end gap-4">
+        <div className="absolute bottom-0 left-0 px-6 md:px-12 pb-24 space-y-4 max-w-2xl">
           <div className="skeleton h-5 w-20 rounded" />
-          <div className="skeleton h-24 w-80 rounded" />
+          <div className="skeleton h-16 w-80 rounded" />
           <div className="skeleton h-4 w-48 rounded" />
-          <div className="skeleton h-4 w-64 rounded" />
-          <div className="skeleton h-24 w-full max-w-md rounded" />
+          <div className="skeleton h-24 w-full rounded" />
           <div className="skeleton h-12 w-40 rounded-lg" />
         </div>
-      </div>
+      </section>
     );
   }
 
@@ -110,11 +103,6 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const tagline = detail?.tagline;
   const genres = detail?.genres?.slice(0, 3).map((g) => g.name).join(", ");
   const overview = movie.overview || "Belum ada sinopsis resmi untuk film ini.";
-
-  // Status badge — conditional based on TMDB detail.status.
-  // Shows "Ongoing" (green) for in-production/returning content.
-  // Shows "Ended"/"Canceled" (red) for finished content.
-  // Hidden for "Released" movies (default, no badge needed).
   const status = detail?.status;
   const ongoingStatuses = ["Returning Series", "In Production", "Post Production", "Planned", "Rumored", "Pilot"];
   const endedStatuses = ["Ended", "Canceled"];
@@ -122,26 +110,18 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const isEnded = status && endedStatuses.includes(status);
 
   return (
-    <div
-      id="heroBannerSection"
-      className="relative w-full h-[65vh] sm:h-[75vh] md:h-[85vh] min-h-[460px] max-h-[720px] bg-[#141414] bg-cover bg-center bg-no-repeat overflow-hidden"
-      style={backdrop ? { backgroundImage: `url(${backdrop})` } : undefined}
-    >
-      {/* Background image with opacity (template: opacity-80) */}
+    <section className="relative h-screen min-h-[600px] w-full overflow-hidden bg-ink-950">
+      {/* Background image */}
       {backdrop && (
         <div className="absolute inset-0 z-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={backdrop}
-            alt={title}
-            className="w-full h-full object-cover opacity-80"
-          />
+          <img src={backdrop} alt={title} className="w-full h-full object-cover opacity-80" />
         </div>
       )}
 
-      {/* Heavy dark gradient overlays (template: dual layer) */}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#141414] via-[#141414]/80 to-transparent z-0" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/40 to-transparent z-0" />
+      {/* Gradient overlays — match IDLIX dual layer */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-transparent z-0 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-0 pointer-events-none" />
 
       {/* Slider arrows (desktop) */}
       {movies.length > 1 && (
@@ -163,23 +143,21 @@ export function HeroBanner({ movies }: HeroBannerProps) {
         </>
       )}
 
-      {/* Main content — bottom left, half width on desktop */}
-      <main className="relative z-10 flex-grow flex flex-col justify-end px-6 md:px-16 pb-28 w-full md:w-3/4 lg:w-3/5 xl:w-1/2 h-full">
-        {/* Red badge — media type */}
-        <div className="bg-brand-500 text-white text-xs font-bold px-3 py-1.5 rounded w-max mb-4 uppercase tracking-wider">
+      {/* Main content — bottom left, half width */}
+      <main className="relative z-10 flex flex-col justify-end w-full md:w-1/2 px-6 md:px-12 pb-24 gap-y-3 h-full">
+        {/* Badge */}
+        <div className="bg-brand-500 text-white text-[11px] font-bold px-2 py-1 rounded w-max tracking-wider uppercase">
           {mediaTypeLabel}
         </div>
 
-        {/* Tagline — conditional render (hidden if empty).
-            Position: ABOVE title (sesuai template IDLIX).
-            line-clamp-1 truncates with "..." if too long. */}
+        {/* Tagline (above title) */}
         {tagline && tagline.trim() !== "" && (
-          <p className="text-gray-400 italic text-xs sm:text-sm font-medium tracking-wide mb-2 block line-clamp-1">
+          <p className="text-gray-400 italic text-sm md:text-base font-light">
             {tagline}
           </p>
         )}
 
-        {/* Title — logo image (TMDB /movie/{id}/images) if available, else text */}
+        {/* Title — logo image if available, else text */}
         {logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -188,88 +166,88 @@ export function HeroBanner({ movies }: HeroBannerProps) {
             className="w-64 md:w-80 lg:w-96 object-contain my-1 drop-shadow-2xl"
           />
         ) : (
-          <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight mb-2 text-balance">
+          <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight my-1 text-balance">
             {title}
           </h1>
         )}
 
-        {/* Metadata row */}
-        <div className="flex flex-wrap items-center text-xs md:text-sm text-gray-300 mb-6 gap-y-2 mt-2">
-          {/* Rating — gold star */}
-          <div className="flex items-center mr-3 font-semibold">
-            <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500 mr-1.5" />
-            <span className="text-yellow-500">
-              {movie.vote_average ? movie.vote_average.toFixed(1) : "—"}
-            </span>
-          </div>
-
-          <span className="mx-2 text-gray-600 hidden sm:inline">•</span>
-
-          {/* Year */}
-          <span className="mr-3">{formatYear(movie.release_date)}</span>
-
-          <span className="mx-2 text-gray-600 hidden sm:inline">•</span>
-
-          {/* Vote count */}
-          <span className="mr-3">{formatViews(movie.vote_count)} suara</span>
-
-          {/* Genres (from pre-fetched detail) */}
-          {genres && (
+        {/* Metadata line */}
+        <div className="flex flex-wrap items-center text-xs md:text-sm text-gray-300 gap-y-2 gap-x-2">
+          {detail?.vote_average && (
+            <div className="flex items-center font-bold">
+              <Star className="w-3 h-3 fill-yellow-500 text-yellow-500 mr-1" />
+              <span className="text-yellow-500">{detail.vote_average.toFixed(1)}</span>
+            </div>
+          )}
+          <span className="text-gray-600">•</span>
+          <span>{formatYear(movie.release_date)}</span>
+          {detail?.runtime && (
             <>
-              <span className="mx-2 text-gray-600 hidden md:inline">•</span>
-              <span className="mr-4 text-gray-400">{genres}</span>
+              <span className="text-gray-600">•</span>
+              <span>{Math.floor(detail.runtime / 60)}h {detail.runtime % 60}m</span>
             </>
           )}
-
-          {/* Status badge — conditional based on TMDB detail.status.
-              Ongoing (green): Returning Series, In Production, Post Production, etc.
-              Ended (red): Ended, Canceled.
-              Hidden: Released (default for movies). */}
+          <span className="text-gray-600">•</span>
+          <span>{formatViews(movie.vote_count)} suara</span>
+          {genres && (
+            <>
+              <span className="text-gray-600 hidden sm:inline">•</span>
+              <span className="hidden sm:inline text-gray-300">{genres}</span>
+            </>
+          )}
           {isOngoing && (
-            <span className="border border-green-500 text-green-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-green-500/10 mt-2 sm:mt-0">
+            <span className="ml-1 border border-green-500 text-green-500 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wide bg-green-900/20 uppercase">
               Ongoing
             </span>
           )}
           {isEnded && (
-            <span className="border border-red-500 text-red-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-red-500/10 mt-2 sm:mt-0">
+            <span className="ml-1 border border-red-500 text-red-500 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wide bg-red-900/20 uppercase">
               {status}
             </span>
           )}
         </div>
 
-        {/* Synopsis — responsive line-clamp + fallback text.
-            line-clamp-2 on mobile, line-clamp-3 on sm+ truncates with "..." */}
-        <p className="text-gray-300 text-xs sm:text-sm md:text-base max-w-xs sm:max-w-md md:max-w-xl mb-6 line-clamp-2 sm:line-clamp-3 leading-relaxed">
+        {/* Synopsis */}
+        <p className="text-gray-400 text-sm md:text-base leading-snug max-w-xl mb-2 line-clamp-2 sm:line-clamp-3">
           {overview}
         </p>
 
-        {/* CTA button — rounded-lg + shadow + group hover */}
-        <Link
-          href={href}
-          className="bg-brand-500 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-lg flex items-center justify-center space-x-3 w-max transition-all shadow-lg shadow-brand-500/30 group"
-        >
-          <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
-          <span>Watch Now</span>
-        </Link>
+        {/* CTA buttons */}
+        <div className="flex items-center gap-3">
+          <Link
+            href={href}
+            className="bg-brand-500 hover:bg-red-700 text-white font-semibold py-2.5 px-6 rounded-lg flex items-center gap-3 w-max transition-all shadow-lg shadow-brand-500/30 group"
+          >
+            <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
+            <span>Watch Now</span>
+          </Link>
+          <Link
+            href={href}
+            className="bg-white/10 hover:bg-white/20 text-white font-semibold py-2.5 px-6 rounded-lg flex items-center gap-3 w-max transition border border-white/10"
+          >
+            <Info className="w-4 h-4" />
+            <span>Detail</span>
+          </Link>
+        </div>
       </main>
 
-      {/* Slider dots — LEFT aligned (template: left-6 md:left-16) */}
+      {/* Slider dots — bottom LEFT (IDLIX style) */}
       {movies.length > 1 && (
-        <div className="absolute bottom-8 left-6 md:left-16 flex space-x-3 items-center z-10">
+        <div className="absolute bottom-8 left-6 md:left-12 flex space-x-2 items-center z-10">
           {movies.map((_, i) => (
             <button
               key={i}
               onClick={() => goToSlide(i)}
-              className={`h-1.5 rounded-full cursor-pointer transition-colors ${
+              className={`rounded-full cursor-pointer transition-all duration-300 ${
                 i === activeIndex
-                  ? "w-10 bg-brand-500 hover:bg-red-400"
-                  : "w-1.5 bg-gray-500 hover:bg-gray-400"
+                  ? "h-1.5 w-8 bg-brand-500"
+                  : "h-1.5 w-1.5 bg-gray-500 hover:bg-gray-400"
               }`}
               aria-label={`Slide ${i + 1}`}
             />
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

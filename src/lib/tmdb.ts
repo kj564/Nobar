@@ -67,10 +67,10 @@ export type TMDBPaged<T> = {
   results: T[];
 };
 
-async function tmdbGet<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
+async function tmdbGet<T>(path: string, params: Record<string, string | number> = {}, lang: string = "id-ID"): Promise<T> {
   const url = new URL(TMDB_BASE + path);
   url.searchParams.set("api_key", TMDB_API_KEY);
-  url.searchParams.set("language", "id-ID");
+  url.searchParams.set("language", lang);
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, String(v));
   }
@@ -86,6 +86,22 @@ async function tmdbGet<T>(path: string, params: Record<string, string | number> 
   const data = (await res.json()) as T;
   cache.set(cacheKey, { at: Date.now(), data });
   return data;
+}
+
+// English-language variant — used by /api/stream to match against mzfi's
+// English-titled catalog. The UI keeps id-ID for display, but stream
+// matching needs English titles (e.g. "Thor: Love and Thunder" not
+// "Thor: Cinta dan Guntur").
+export async function fetchMovieDetailEnglish(id: number): Promise<TMDBMovieDetail> {
+  return tmdbGet<TMDBMovieDetail>(`/movie/${id}`, {
+    append_to_response: "videos,credits,similar",
+  }, "en-US");
+}
+
+export async function fetchTVDetailEnglish(id: number): Promise<TMDBSeriesDetail> {
+  return tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {
+    append_to_response: "videos,credits,similar",
+  }, "en-US");
 }
 
 export async function fetchTrending(page = 1): Promise<TMDBPaged<TMDBMovie>> {

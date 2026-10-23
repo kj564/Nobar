@@ -505,3 +505,44 @@ Stage Summary:
 - Retry logic handles rare transient vipLocked anti-bot behavior.
 - 100% success rate on 13-movie test suite (was ~70% before).
 - Quality upgraded from 480p max → 1080p for most titles.
+
+---
+Task ID: nobar-visionquest-bug-fix
+Agent: main
+Task: Fix Vision Quest playing wrong movie (Seven Havens) — matching bug
+
+Work Log:
+- Bug: User opened "Vision Quest" (TMDB 30069) but "Avatar: Seven Havens" played.
+- Root cause investigation:
+  • mzfi search "Vision Quest" returns 4 unrelated items (no exact match in catalog):
+    Viking Quest (2015), Avatar: Seven Havens (2026), Visions (2025), The Quest (2022)
+  • Previous Pass 4 (loose prefix match) picked "Visions" (score=6) or worse — wrong movie
+- FIX #1 — Strict Pass 4 threshold:
+  • Old: any hasResource (last resort) — picks wrong movie
+  • New: require prefix score >= 80% of query length AND year within ±2
+  • "Vision Quest" (11 chars) → minScore=9; "Visions" matches 6 < 9 → rejected
+  • If no pass matches, return null → embed fallback (CORRECT movie via IMDB ID)
+- FIX #2 — Also found REAL root cause of broader matching failures:
+  • tmdbGet() hardcoded language=id-ID → returns Indonesian titles
+  • mzfi catalog uses ENGLISH titles (e.g. "Thor: Love and Thunder")
+  • Our code searched mzfi with "Thor: Cinta dan Guntur" (Indonesian) → no match
+  • Created fetchMovieDetailEnglish() + fetchTVDetailEnglish() with language=en-US
+  • Stream route now uses English title for mzfi search (UI keeps id-ID for display)
+- FIX #3 — subjectType preference in Pass 4:
+  • Movies (kind=movie) prefer subjectType=1, TV (kind=tv) prefers subjectType=2
+  • typeBonus +100 for matching type prevents picking series when movie requested
+
+VERIFICATION (correct TMDB IDs this time):
+- Vision Quest (1985): 0src embed=yes ✓ CORRECT (not in mzfi, plays via embed)
+- Spider-Man NWH (2021): 3src+13subs ✅ FIXED (was embed due to Indo title)
+- Jurassic World (2015): 3src+20subs ✅ FIXED (was using wrong TMDB ID in tests)
+- The Matrix (1999): embed (genuinely not in mzfi — only Reloaded/Resurrections)
+- Blade Runner 2049: embed (genuinely not in mzfi)
+- All 7 previously-working movies: still working (no regression)
+  (Frozen, Inside Out 2, Joker Folie, Avatar 2, Parasite, Godfather, Breaking Bad)
+
+Stage Summary:
+- Vision Quest bug FIXED: no more wrong movie playback (Seven Havens → embed with correct IMDB ID)
+- English title fix: Spider-Man NWH + Jurassic World now direct MP4 (were embed)
+- Strict Pass 4: no more false-positive matches (Visions ≠ Vision Quest)
+- Genuinely-not-in-mzfi movies correctly fall to embed (The Matrix, Blade Runner 2049)

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchMovieDetail, fetchTVDetail } from "@/lib/tmdb";
+import { fetchMovieDetailEnglish, fetchTVDetailEnglish } from "@/lib/tmdb";
 
 // GET /api/stream/[id]?kind=movie|tv&season=1&episode=1
 // mzfi.me direct MP4 — NO ADS, NO IFRAME, direct stream.
@@ -50,13 +50,14 @@ export async function GET(
     ? Number(url.searchParams.get("episode"))
     : 1;
 
-  // Get title + year from TMDB
+  // Get title + year from TMDB (ENGLISH locale — mzfi catalog uses English
+  // titles, e.g. "Thor: Love and Thunder" not the id-ID "Thor: Cinta dan Guntur").
   let title = "";
   let year = "";
   let imdbId: string | null = null;
   try {
     const detail =
-      kind === "tv" ? await fetchTVDetail(tmdbId) : await fetchMovieDetail(tmdbId);
+      kind === "tv" ? await fetchTVDetailEnglish(tmdbId) : await fetchMovieDetailEnglish(tmdbId);
     title = detail.title || detail.name || "";
     imdbId = (detail as any).imdb_id || null;
     const dateField = kind === "tv" ? "first_air_date" : "release_date";
@@ -186,7 +187,7 @@ async function fetchMzfiStream(
       return null; // negative cache — known not-found
     }
   } else {
-    const match = await searchSubject(title, year, token);
+    const match = await searchSubject(title, year, token, kind);
     if (match) {
       subjectId = match.subjectId;
       detailPath = match.detailPath;
@@ -303,7 +304,8 @@ function yearMatch(itemYear: string, targetYear: string, tolerance: number): boo
 async function searchSubject(
   title: string,
   year: string,
-  token: string
+  token: string,
+  kind: "movie" | "tv"
 ): Promise<SubjectMatch & { subjectType: number } | null> {
   const searchRes = await fetch(
     "https://mzfi.me/wefeed-h5api-bff/subject/search",
@@ -365,22 +367,33 @@ async function searchSubject(
     }
   }
 
-  // Pass 4: any hasResource (last resort, year ignored) — pick the one
-  // with the most similar normalized title (longest common prefix)
+  // Pass 4: best prefix match — STRICT threshold to avoid false positives.
+  // Require score >= 80% of query length AND year within ±2.
+  // Without this, "Vision Quest" (1985) would match "Visions" (2025) —
+  // different movie! Better to return null (embed fallback) than play
+  // the WRONG movie. Also prefer items whose subjectType matches kind.
+  const minScore = Math.ceil(normTitle.length * 0.8);
   let best: any = null;
   let bestScore = -1;
   for (const item of items) {
     if (!item.hasResource) continue;
     const itemNorm = normalizeTitle(item.title || "");
-    // Score: how many chars of the shorter title match the start of the longer
+    const itemYear = item.releaseDate ? String(item.releaseDate).slice(0, 4) : "";
+    // Require year within ±2 (some old movies have wrong metadata)
+    if (!yearMatch(itemYear, year, 2)) continue;
     const shorter = Math.min(itemNorm.length, normTitle.length);
     let score = 0;
     for (let i = 0; i < shorter; i++) {
       if (itemNorm[i] === normTitle[i]) score++;
       else break;
     }
-    if (score > bestScore) {
-      bestScore = score;
+    if (score < minScore) continue;
+    // Prefer same subjectType (1=movie for movie queries, 2=series/anime for TV)
+    const expectedType = kind === "tv" ? 2 : 1;
+    const typeBonus = item.subjectType === expectedType ? 100 : 0;
+    const adjustedScore = score + typeBonus;
+    if (adjustedScore > bestScore) {
+      bestScore = adjustedScore;
       best = item;
     }
   }

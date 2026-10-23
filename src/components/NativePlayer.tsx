@@ -235,17 +235,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
-  // Loading state
-  if (loading) {
-    return (
-      <div className="relative bg-black aspect-video overflow-hidden rounded-lg flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
-        <span className="absolute bottom-4 text-sm text-gray-400">Loading stream...</span>
-      </div>
-    );
-  }
-
-  // Fallback to embed
+  // Fallback to embed — only when user clicks "Use Embed"
   if (useEmbed || !activeSource) {
     const embedUrl = kind === "tv" && season && episode
       ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
@@ -263,6 +253,22 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
           />
         </div>
         {error && <p className="text-xs text-gray-500">{error}</p>}
+        <button
+          onClick={() => { setUseEmbed(false); setError(null); }}
+          className="text-xs text-brand-500 hover:text-brand-400 transition underline"
+        >
+          ← Try native player again
+        </button>
+      </div>
+    );
+  }
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="relative bg-black aspect-video overflow-hidden rounded-lg flex items-center justify-center">
+        <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
+        <span className="absolute bottom-4 text-sm text-gray-400">Loading stream...</span>
       </div>
     );
   }
@@ -432,14 +438,22 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         </div>
       </div>
 
-      {/* Source info */}
+      {/* Source info + embed toggle */}
       <div className="flex items-center justify-between text-xs text-gray-500">
         <span>
           Source: <span className="text-gray-300">{activeSource.provider}</span> · {activeSource.quality}
         </span>
-        <span className="hidden sm:inline">
-          {subtitles.length > 0 ? `${subtitles.length} subtitles` : "No subtitles"}
-        </span>
+        <div className="flex items-center gap-3">
+          {subtitles.length > 0 && (
+            <span className="hidden sm:inline">{subtitles.length} subtitles</span>
+          )}
+          <button
+            onClick={() => setUseEmbed(true)}
+            className="text-gray-500 hover:text-brand-500 transition underline"
+          >
+            Use Embed Player
+          </button>
+        </div>
       </div>
     </div>
   );

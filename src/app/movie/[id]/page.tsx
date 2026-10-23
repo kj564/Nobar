@@ -178,24 +178,10 @@ export default async function MovieDetailPage({ params }: PageProps) {
 
       {/* ─── Body Content ─── */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 py-8 space-y-10">
-        {/* Player section — native player (direct stream) + embed fallback */}
+        {/* Player section — native player (SSSE) with embed-on-demand fallback */}
         <div id="player" className="space-y-4 scroll-mt-20">
           <h2 className="text-lg font-bold text-white">Player</h2>
           <NativePlayer tmdbId={detail.id} title={title} />
-          {/* Embed fallback (collapsible) */}
-          <details className="mt-2">
-            <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300 transition">
-              Embed player (alternative)
-            </summary>
-            <div className="mt-2">
-              <MoviePlayer
-                videoId={detail.id}
-                title={title}
-                servers={SERVERS as unknown as Server[]}
-                kind="movie"
-              />
-            </div>
-          </details>
         </div>
 
         {/* Overview + Info grid */}

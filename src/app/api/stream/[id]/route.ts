@@ -72,9 +72,11 @@ export async function GET(
         for (const quality of sortedKeys) {
           const info = qualities[quality];
           if (info?.url) {
+            // Proxy through our API for CORS bypass
+            const streamUrl = `/api/proxy?url=${encodeURIComponent(info.url)}`;
             result.sources.push({
               quality: `${quality}p`,
-              url: info.url,
+              url: streamUrl,
               provider: "vidlink.pro",
               type: info.type || "mp4",
             });
@@ -196,9 +198,11 @@ async function fetchVidemStream(
       const playData = await playRes.json();
 
       if (playData.url && !playData.url.includes("unavailable")) {
-        const streamUrl = `https://videm.xyz${playData.url}`;
+        const rawUrl = playData.url.startsWith("http") ? playData.url : `https://videm.xyz${playData.url}`;
+        // Proxy through our API to bypass Referer/CORS restrictions
+        const streamUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
         sources.push({
-          quality: server.lang ? `${server.name}` : "Auto",
+          quality: server.name || "Auto",
           url: streamUrl,
           provider: "videm.xyz",
           type: playData.type || "hls",

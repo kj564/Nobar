@@ -1,28 +1,59 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Users, X, Play, Copy, Check, ExternalLink, AlertCircle, Film } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Users,
+  X,
+  Play,
+  Copy,
+  Check,
+  ExternalLink,
+  AlertCircle,
+  Film,
+  LogOut,
+  MessageCircle,
+  Send,
+  Hash,
+  Lock,
+  Tv,
+} from "lucide-react";
 
-// VideoTogether integration — uses public server (2gether.video)
-// Auto-detects <video> elements + injects a floating watch-party panel.
-// No extension needed — works on the website directly.
+// NOBAR — Nonton Bareng
+// Custom UI for VideoTogether watch party.
 //
-// IMPORTANT: VideoTogether's website version can ONLY sync <video> elements
-// that live in the top-level document. When the NativePlayer falls back to
-// an embed <iframe> (videm.xyz / vidlink.pro), the actual video is inside a
-// cross-origin iframe that VideoTogether cannot reach — it then shows
-// "No video in this page". We detect this case and adapt the UI so the user
-// understands why Watch Party isn't available for that title.
+// Architecture:
+// - VideoTogether (VT) script runs in background (loaded but panel HIDDEN)
+// - VT panel (shadow DOM #VideoTogetherWrapper) is display:none always
+// - This component renders NOBAR's own UI panel (slide-up from bottom-right)
+// - NOBAR UI controls VT by manipulating shadow DOM elements directly:
+//   • Set #videoTogetherRoomNameInput value + dispatch input event
+//   • Click #videoTogetherCreateButton or #videoTogetherJoinButton
+//   • Read #memberCount + #videoTogetherStatusText for state sync
+// - State synced via MutationObserver on VT shadow DOM
 
 type VideoState = "checking" | "native" | "embed";
+type PartyState = "idle" | "host" | "member";
+type ChatMessage = { text: string; isMe: boolean; ts: number };
 
 export function WatchPartyButton() {
   const [loaded, setLoaded] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [videoState, setVideoState] = useState<VideoState>("checking");
+  const [partyState, setPartyState] = useState<PartyState>("idle");
+  const [roomId, setRoomId] = useState("");
+  const [roomPassword, setRoomPassword] = useState("");
+  const [joinRoomInput, setJoinRoomInput] = useState("");
+  const [joinPasswordInput, setJoinPasswordInput] = useState("");
+  const [memberCount, setMemberCount] = useState(0);
+  const [statusText, setStatusText] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+
   const videoStateRef = useRef<VideoState>("checking");
 
+  // ── Load VT script + hide native panel ──
   useEffect(() => {
     if (document.getElementById("vt-script")) {
       setLoaded(true);
@@ -35,27 +66,23 @@ export function WatchPartyButton() {
       "https://fastly.jsdelivr.net/gh/VideoTogether/VideoTogether@latest/release/vt.en-us.website.js";
     script.async = true;
     script.onload = () => {
-      console.log("[VideoTogether] Loaded");
+      console.log("[NOBAR] VideoTogether engine loaded");
       setLoaded(true);
-      injectVtTheme();
+      hideVtPanel();
+      startStateSync();
     };
     document.head.appendChild(script);
 
     return () => {
-      // Don't remove — VideoTogether UI persists across page navigations.
+      // Don't remove — VT persists across navigations
     };
   }, []);
 
-  // ── Detect whether the page has a real <video> element (native player) ──
-  // NativePlayer only renders a <video> when mzfi.me returns a direct MP4.
-  // In all other states (loading, embed fallback, no stream) there is no
-  // <video> in the top-level document — only an <iframe>. We observe the
-  // DOM so the button updates as soon as the player resolves its source.
+  // ── Detect video state (native vs embed) ──
   useEffect(() => {
     const hasNativeVideo = () => {
       const videos = document.querySelectorAll("video");
       for (const v of videos) {
-        // A video counts as "native/syncable" if it has a real src
         if (v.src && !v.src.startsWith("about:")) return true;
         const source = v.querySelector("source[src]");
         if (source) return true;
@@ -64,9 +91,8 @@ export function WatchPartyButton() {
     };
 
     const hasEmbedIframe = () => {
-      // The NativePlayer's embed iframe — title contains "— Player"
       const iframes = document.querySelectorAll(
-        'iframe[title*="Player"], iframe[src*="videm"], iframe[src*="vidlink"], iframe[src*="2embed"]'
+        'iframe[title*="Player"], iframe[src*="/api/embed"], iframe[src*="videm"], iframe[src*="vidlink"], iframe[src*="2embed"]'
       );
       return iframes.length > 0;
     };
@@ -76,11 +102,10 @@ export function WatchPartyButton() {
       if (hasNativeVideo()) {
         next = "native";
       } else if (hasEmbedIframe()) {
-        // Embed present and no native video → definitively embed-only.
-        next = "embed";
+        // Same-origin /api/embed iframes ARE syncable by VT (no extension needed)!
+        // VT can inject into same-origin iframes.
+        next = "native"; // treat same-origin embed as native-compatible
       } else {
-        // Neither — could still be loading. Stay in "checking" so the
-        // observer can flip it once the player renders.
         next = "checking";
       }
       if (next !== videoStateRef.current) {
@@ -90,11 +115,7 @@ export function WatchPartyButton() {
     };
 
     evaluate();
-
-    // Watch for the player resolving its source (adds <video> or <iframe>).
-    const observer = new MutationObserver(() => {
-      evaluate();
-    });
+    const observer = new MutationObserver(() => evaluate());
     observer.observe(document.body, {
       childList: true,
       subtree: true,
@@ -102,12 +123,10 @@ export function WatchPartyButton() {
       attributeFilter: ["src"],
     });
 
-    // Safety: after 12s, if still "checking", settle on "embed" so the UI
-    // doesn't stay in a perpetual loading state for the user.
     const settleTimer = window.setTimeout(() => {
       if (videoStateRef.current === "checking") {
-        videoStateRef.current = "embed";
-        setVideoState("embed");
+        videoStateRef.current = "native"; // optimistic — /api/embed makes it work
+        setVideoState("native");
       }
     }, 12000);
 
@@ -117,115 +136,185 @@ export function WatchPartyButton() {
     };
   }, []);
 
-  // ── Inject harmonized theme into VideoTogether's shadow DOM ──
-  // Aligned with Nobar's design language: dark glass + sage accent +
-  // motion tokens + rounded-full pills (matching navbar + hero buttons).
-  const injectVtTheme = () => {
-    const STYLE_ID = "nobar-vt-theme";
-    const css = `
-      :host, #VideoTogetherWrapper { font-family: "Inter", system-ui, sans-serif !important; }
-
-      /* Floating panel — dark glass, sage border, idlixku-style rounded */
-      #videoTogetherFlyPannel {
-        background: rgba(30, 32, 34, 0.96) !important;
-        backdrop-filter: blur(18px) saturate(1.35) !important;
-        border: 1px solid rgba(134, 167, 137, 0.2) !important;
-        border-radius: 16px !important;
-        box-shadow: 0 16px 48px -12px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03) !important;
-        color: #F8F9FA !important;
-        overflow: hidden !important;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-      }
-
-      /* Header — subtle sage gradient (matches Nobar hero accent) */
-      .vt-modal-header, #videoTogetherHeader {
-        background: linear-gradient(135deg, rgba(134,167,137,0.12), rgba(30,32,34,0)) !important;
-        border-bottom: 1px solid rgba(255,255,255,0.06) !important;
-        padding: 12px 14px !important;
-      }
-      .vt-modal-title { color: #F8F9FA !important; font-weight: 700 !important; letter-spacing: 0 !important; }
-
-      .vt-modal-content, .vt-modal-body, #mainPannel { background: transparent !important; color: #F8F9FA !important; }
-      #mainPannel, .content { color: #d4d6d9 !important; }
-
-      #videoTogetherStatusText, #memberCount, .vt-modal-easyshare span { color: rgba(248,249,250,0.65) !important; }
-
-      #videoTogetherRoomNameInput, #videoTogetherRoomPdIpt, #textMessageInput {
-        background: rgba(30,32,34,0.7) !important;
-        border: 1px solid rgba(255,255,255,0.08) !important;
-        border-radius: 8px !important;
-        color: #F8F9FA !important;
-        padding: 7px 10px !important;
-        outline: none !important;
-        transition: border-color .2s ease, box-shadow .2s ease !important;
-      }
-      #videoTogetherRoomNameInput:focus, #videoTogetherRoomPdIpt:focus, #textMessageInput:focus {
-        border-color: rgba(134,167,137,0.6) !important;
-        box-shadow: 0 0 0 3px rgba(134,167,137,0.14) !important;
-      }
-      #videoTogetherRoomNameInput::placeholder, #textMessageInput::placeholder { color: rgba(248,249,250,0.32) !important; }
-
-      .vt-btn, button.vt-btn {
-        border-radius: 999px !important;
-        font-weight: 600 !important;
-        min-height: 36px !important;
-        transition: background-color .2s cubic-bezier(0.4,0,0.2,1), transform .15s cubic-bezier(0.4,0,0.2,1), border-color .2s ease !important;
-        border: 1px solid transparent !important;
-      }
-      .vt-btn:hover { transform: translateY(-1px) !important; }
-
-      .vt-btn-primary { background: #86A789 !important; border-color: #86A789 !important; color: #1E2022 !important; }
-      .vt-btn-primary:hover { background: #9BBC9E !important; border-color: #9BBC9E !important; box-shadow: 0 4px 12px -2px rgba(134,167,137,0.4) !important; }
-
-      .vt-btn-secondary { background: rgba(255,255,255,0.08) !important; border-color: rgba(255,255,255,0.1) !important; color: #F8F9FA !important; }
-      .vt-btn-secondary:hover { background: rgba(255,255,255,0.14) !important; border-color: rgba(255,255,255,0.2) !important; }
-
-      .vt-btn-dangerous { background: rgba(194,94,94,0.16) !important; border-color: rgba(194,94,94,0.4) !important; color: #D67474 !important; }
-      .vt-btn-dangerous:hover { background: rgba(194,94,94,0.28) !important; }
-
-      .vt-modal-close, .vt-modal-close-x, .vt-modal-close-icon, .vt-modal-setting, .vt-modal-donate {
-        background: transparent !important; border-color: transparent !important; color: rgba(248,249,250,0.5) !important; border-radius: 999px !important;
-      }
-      .vt-modal-close:hover, .vt-modal-close-x:hover, .vt-modal-setting:hover, .vt-modal-donate:hover {
-        background: rgba(255,255,255,0.08) !important; color: #F8F9FA !important;
-      }
-
-      a, .vt-modal-easyshare a { color: #9BBC9E !important; text-decoration: none !important; }
-      a:hover { color: #9BBC9E !important; text-decoration: underline !important; }
-
-      #textMessageChat { background: rgba(30,32,34,0.5) !important; border-radius: 10px !important; border: 1px solid rgba(255,255,255,0.05) !important; }
-      input[type="range"].slider, .range-slider input { accent-color: #86A789 !important; }
-      .vt-modal-footer { border-top: 1px solid rgba(255,255,255,0.05) !important; padding: 10px 14px !important; }
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-thumb { background: rgba(134,167,137,0.3); border-radius: 999px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-    `;
-
-    let attempts = 0;
-    const tryInject = () => {
-      attempts++;
+  // ── Hide VT's native floating panel (keep engine running) ──
+  const hideVtPanel = () => {
+    const hide = () => {
       const wrapper = document.getElementById("VideoTogetherWrapper");
       const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
       if (sr) {
-        if (!sr.getElementById(STYLE_ID)) {
-          const style = document.createElement("style");
-          style.id = STYLE_ID;
-          style.textContent = css;
-          sr.appendChild(style);
-          console.log("[VideoTogether] Nobar theme injected into shadow root");
+        const panel = sr.getElementById("videoTogetherFlyPannel");
+        if (panel) {
+          panel.style.display = "none";
         }
-        return;
+        // Also inject CSS to keep it hidden even when VT tries to show it
+        if (!sr.getElementById("nobar-vt-hide")) {
+          const style = document.createElement("style");
+          style.id = "nobar-vt-hide";
+          style.textContent = `#videoTogetherFlyPannel { display: none !important; }`;
+          sr.appendChild(style);
+        }
       }
-      if (attempts < 40) setTimeout(tryInject, 250);
     };
-    tryInject();
+    hide();
+    // VT may re-show panel on state change — keep hiding
+    const interval = setInterval(hide, 1000);
+    return () => clearInterval(interval);
   };
 
-  const handleClick = () => {
-    if (!loaded) return;
-    setShowHelp(true);
+  // ── Sync NOBAR UI with VT state (member count, status, role) ──
+  const startStateSync = () => {
+    const sync = () => {
+      const wrapper = document.getElementById("VideoTogetherWrapper");
+      const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
+      if (!sr) return;
+
+      // Read member count
+      const memberEl = sr.getElementById("memberCount");
+      if (memberEl) {
+        const count = parseInt(memberEl.textContent?.replace(/\D/g, "") || "0", 10);
+        if (!isNaN(count)) setMemberCount(count);
+      }
+
+      // Read status text
+      const statusEl = sr.getElementById("videoTogetherStatusText");
+      if (statusEl) {
+        setStatusText(statusEl.textContent || "");
+      }
+
+      // Read role (Host/Member)
+      const roleEl = sr.getElementById("videoTogetherRoleText");
+      if (roleEl) {
+        const role = roleEl.textContent || "";
+        if (role.toLowerCase().includes("host") || role.toLowerCase().includes("master")) {
+          setPartyState("host");
+        } else if (role.toLowerCase().includes("member") || role.toLowerCase().includes("join")) {
+          setPartyState("member");
+        }
+      }
+
+      // Read room name (if joined/created)
+      const roomNameEl = sr.getElementById("videoTogetherRoomNameLabel");
+      if (roomNameEl) {
+        const name = roomNameEl.textContent?.trim() || "";
+        if (name && name !== roomId) {
+          setRoomId(name);
+        }
+      }
+    };
+
+    sync();
+    const interval = setInterval(sync, 500);
+    return () => clearInterval(interval);
   };
 
+  // ── Create room via VT shadow DOM ──
+  const createRoom = useCallback(async () => {
+    const wrapper = document.getElementById("VideoTogetherWrapper");
+    const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
+    if (!sr) return;
+
+    const name = roomId || generateRoomId();
+    setRoomId(name);
+
+    // Set room name input
+    const nameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
+    if (nameInput) {
+      nameInput.value = name;
+      nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+      nameInput.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    // Set password if provided
+    if (roomPassword) {
+      const pwdInput = sr.getElementById("videoTogetherRoomPdIpt") as HTMLInputElement;
+      if (pwdInput) {
+        pwdInput.value = roomPassword;
+        pwdInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
+
+    // Click create button
+    await new Promise((r) => setTimeout(r, 100));
+    const createBtn = sr.getElementById("videoTogetherCreateButton") as HTMLButtonElement;
+    if (createBtn) {
+      createBtn.click();
+      setPartyState("host");
+    }
+  }, [roomId, roomPassword]);
+
+  // ── Join room via VT shadow DOM ──
+  const joinRoom = useCallback(async () => {
+    if (!joinRoomInput.trim()) return;
+    const wrapper = document.getElementById("VideoTogetherWrapper");
+    const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
+    if (!sr) return;
+
+    setRoomId(joinRoomInput.trim());
+
+    const nameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
+    if (nameInput) {
+      nameInput.value = joinRoomInput.trim();
+      nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+      nameInput.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    if (joinPasswordInput) {
+      const pwdInput = sr.getElementById("videoTogetherRoomPdIpt") as HTMLInputElement;
+      if (pwdInput) {
+        pwdInput.value = joinPasswordInput;
+        pwdInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, 100));
+    const joinBtn = sr.getElementById("videoTogetherJoinButton") as HTMLButtonElement;
+    if (joinBtn) {
+      joinBtn.click();
+      setPartyState("member");
+    }
+  }, [joinRoomInput, joinPasswordInput]);
+
+  // ── Leave room ──
+  const leaveRoom = useCallback(() => {
+    const wrapper = document.getElementById("VideoTogetherWrapper");
+    const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
+    if (!sr) return;
+
+    // Find and click close/leave button
+    const closeBtn = sr.querySelector(".vt-modal-close, [class*='close']") as HTMLButtonElement;
+    if (closeBtn) closeBtn.click();
+
+    setPartyState("idle");
+    setRoomId("");
+    setJoinRoomInput("");
+    setJoinPasswordInput("");
+    setMessages([]);
+  }, []);
+
+  // ── Send chat ──
+  const sendChat = useCallback(() => {
+    if (!chatInput.trim()) return;
+    const wrapper = document.getElementById("VideoTogetherWrapper");
+    const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
+    if (!sr) return;
+
+    const chatInputEl = sr.getElementById("textMessageInput") as HTMLInputElement;
+    if (chatInputEl) {
+      chatInputEl.value = chatInput.trim();
+      chatInputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    const sendBtn = sr.getElementById("textMessageSend") as HTMLButtonElement;
+    if (sendBtn) sendBtn.click();
+
+    setMessages((prev) => [
+      ...prev,
+      { text: chatInput.trim(), isMe: true, ts: Date.now() },
+    ]);
+    setChatInput("");
+  }, [chatInput]);
+
+  // ── Copy room link ──
   const copyInvite = () => {
     const url = typeof window !== "undefined" ? window.location.href : "";
     navigator.clipboard?.writeText(url);
@@ -233,288 +322,293 @@ export function WatchPartyButton() {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  // Derive button appearance from video state.
-  // Aligned with hero pill pattern: h-11 rounded-full (matches Trailer/Watchlist/etc)
-  // - "native": sage glass — Watch Party is live (no extension needed)
-  // - "embed": terracotta tint — needs VideoTogether extension for embed
-  // - "checking": neutral while player resolves source
+  const generateRoomId = () => {
+    return "nobar-" + Math.random().toString(36).slice(2, 8);
+  };
+
+  const handleClick = () => {
+    if (!loaded) return;
+    setPanelOpen(true);
+  };
+
   const buttonClass =
     videoState === "native"
       ? "group relative inline-flex items-center gap-2 bg-brand-500/15 hover:bg-brand-500/25 backdrop-blur text-brand-400 hover:text-brand-300 font-semibold h-11 px-5 rounded-full transition-all border border-brand-500/30 hover:border-brand-500/50 disabled:opacity-50 disabled:cursor-wait overflow-hidden"
-      : videoState === "embed"
-        ? "group relative inline-flex items-center gap-2 bg-accent-500/10 hover:bg-accent-500/15 backdrop-blur text-accent-400/80 hover:text-accent-400 font-semibold h-11 px-5 rounded-full transition-all border border-accent-500/25 hover:border-accent-500/40 disabled:opacity-50 disabled:cursor-wait overflow-hidden"
-        : "group relative inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur text-white font-semibold h-11 px-5 rounded-full transition-all border border-white/10 hover:border-white/20 disabled:opacity-50 disabled:cursor-wait overflow-hidden";
+      : "group relative inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur text-white font-semibold h-11 px-5 rounded-full transition-all border border-white/10 hover:border-white/20 disabled:opacity-50 disabled:cursor-wait overflow-hidden";
 
-  const buttonLabel = "NOBAR";
-
-  const statusDot =
-    videoState === "native" ? (
-      <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />
-    ) : videoState === "embed" ? (
-      <span className="w-1.5 h-1.5 rounded-full bg-accent-400" title="Embed player — butuh ekstensi VideoTogether" />
-    ) : (
-      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
-    );
+  const statusDot = (
+    <span
+      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+        partyState !== "idle"
+          ? "bg-brand-400"
+          : videoState === "native"
+            ? "bg-brand-400/50"
+            : "bg-gray-400 animate-pulse"
+      }`}
+    />
+  );
 
   return (
     <>
+      {/* ── Trigger button (in hero action row) ── */}
       <button
         onClick={handleClick}
         disabled={!loaded}
-        aria-label={
-          videoState === "embed"
-            ? "NOBAR — butuh ekstensi VideoTogether untuk embed"
-            : "Mulai NOBAR"
-        }
-        title={
-          videoState === "embed"
-            ? "NOBAR butuh ekstensi VideoTogether — film ini pakai embed player"
-            : videoState === "native"
-              ? "NOBAR siap — player native terdeteksi"
-              : "Mendeteksi player…"
-        }
+        aria-label="Mulai NOBAR"
+        title={partyState !== "idle" ? `NOBAR aktif — ${memberCount} member` : "Mulai NOBAR"}
         className={buttonClass}
       >
         <span className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
         <Users className="w-4 h-4 relative z-10 flex-shrink-0" />
-        <span className="relative z-10 hidden sm:inline">{buttonLabel}</span>
+        <span className="relative z-10 hidden sm:inline">NOBAR</span>
         <span className="relative z-10 flex items-center gap-1 flex-shrink-0">
           {statusDot}
+          {partyState !== "idle" && memberCount > 0 && (
+            <span className="text-[10px] font-bold text-brand-400">{memberCount}</span>
+          )}
         </span>
       </button>
 
-      {/* ── Help modal — two variants based on video state ── */}
-      {showHelp && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-          onClick={() => setShowHelp(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="NOBAR guide"
-        >
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-          <div className="relative bg-ink-900 border border-white/10 rounded-2xl p-0 max-w-md w-full overflow-hidden shadow-2xl shadow-brand-500/10">
-            {/* Header band — color depends on readiness */}
-            <div
-              className={`relative px-6 pt-6 pb-5 border-b border-white/5 ${
-                videoState === "embed"
-                  ? "bg-gradient-to-br from-accent-500/20 via-ink-900 to-ink-900"
-                  : "bg-gradient-to-br from-brand-500/20 via-ink-900 to-ink-900"
-              }`}
-            >
+      {/* ── Custom NOBAR panel (slide-up, bottom-right) ── */}
+      {panelOpen && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-end p-4 pointer-events-none">
+          {/* Backdrop (click to close) — only catches clicks, no visual overlay */}
+          <div
+            className="absolute inset-0 pointer-events-auto"
+            onClick={() => setPanelOpen(false)}
+          />
+
+          {/* Panel */}
+          <div className="relative pointer-events-auto w-full max-w-sm bg-ink-900/98 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-gradient-to-r from-brand-500/10 to-transparent">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-brand-500/20 border border-brand-500/30 grid place-items-center">
+                  <Users className="w-4 h-4 text-brand-400" />
+                </div>
+                <div>
+                  <h3 className="font-display text-base font-extrabold text-white leading-tight">
+                    NOBAR
+                  </h3>
+                  <p className="text-[11px] text-gray-400">Nonton bareng — sync film</p>
+                </div>
+              </div>
               <button
-                onClick={() => setShowHelp(false)}
-                className="absolute top-4 right-4 w-8 h-8 grid place-items-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
-                aria-label="Close"
+                onClick={() => setPanelOpen(false)}
+                className="w-8 h-8 grid place-items-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
+                aria-label="Tutup"
               >
                 <X className="w-4 h-4" />
               </button>
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-11 h-11 rounded-xl border grid place-items-center ${
-                    videoState === "embed"
-                      ? "bg-accent-500/15 border-accent-500/30"
-                      : "bg-brand-500/20 border-brand-500/30"
-                  }`}
-                >
-                  {videoState === "embed" ? (
-                    <AlertCircle className="w-5 h-5 text-accent-400" />
-                  ) : (
-                    <Users className="w-5 h-5 text-brand-400" />
-                  )}
-                </div>
-                <div>
-                  <h3 className="font-display text-lg font-extrabold text-white leading-tight">
-                    NOBAR
-                  </h3>
-                  <p className="text-xs text-gray-400">
-                    {videoState === "embed"
-                      ? "Nonton bareng — butuh ekstensi untuk embed"
-                      : "Nonton bareng — sync film bareng teman"}
-                  </p>
-                </div>
-              </div>
             </div>
 
-            {/* Body — NATIVE variant (Watch Party ready) */}
-            {videoState === "native" && (
-              <div className="px-6 py-5 space-y-4 text-sm text-gray-300">
-                <p className="leading-relaxed">
-                  Panel{" "}
-                  <span className="text-brand-400 font-semibold">VideoTogether</span> sudah
-                  aktif di pojok kanan bawah layar. Ikuti langkah berikut:
-                </p>
-                <ol className="space-y-2.5">
-                  {[
-                    "Klik panel VideoTogether di pojok kanan bawah.",
-                    "Pilih Create room (buat room baru) atau masukkan room ID teman.",
-                    "Share link halaman ini ke teman agar mereka join di film yang sama.",
-                    "Play / pause / seek akan tersinkron otomatis antar penonton.",
-                  ].map((step, i) => (
-                    <li key={i} className="flex items-start gap-3">
-                      <span className="flex-none mt-0.5 w-5 h-5 rounded-full bg-brand-500/15 border border-brand-500/30 text-brand-400 text-[11px] font-bold grid place-items-center">
-                        {i + 1}
-                      </span>
-                      <span className="leading-relaxed text-gray-300">{step}</span>
-                    </li>
-                  ))}
-                </ol>
-                <div className="rounded-lg bg-white/5 border border-white/10 p-3 flex items-start gap-2.5">
-                  <Play className="w-4 h-4 text-brand-400 flex-none mt-0.5" />
-                  <p className="text-xs text-gray-400 leading-relaxed">
-                    Video sinkron (play / pause / seek) otomatis. Tersedia juga voice chat
-                    &amp; text chat bawaan VideoTogether.
-                  </p>
+            {/* Body */}
+            <div className="px-5 py-4 space-y-4 max-h-[60vh] overflow-y-auto scroll-row">
+              {/* Status badge */}
+              {partyState !== "idle" && (
+                <div className="flex items-center justify-between bg-brand-500/10 border border-brand-500/20 rounded-xl px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" />
+                    <span className="text-xs font-semibold text-brand-400">
+                      {partyState === "host" ? "Host" : "Member"} · {memberCount} online
+                    </span>
+                  </div>
+                  {roomId && (
+                    <button
+                      onClick={copyInvite}
+                      className="text-[11px] text-gray-400 hover:text-white flex items-center gap-1 transition"
+                    >
+                      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      {copied ? "Tersalin" : "Salin link"}
+                    </button>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Body — EMBED variant (needs VideoTogether extension) */}
-            {videoState === "embed" && (
-              <div className="px-6 py-5 space-y-4 text-sm text-gray-300">
-                <div className="rounded-lg bg-accent-500/10 border border-accent-500/25 p-3.5 flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-accent-400 flex-none mt-0.5" />
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    Film ini diputar lewat <strong className="text-white">embed player</strong>{" "}
-                    (videm.xyz / vidlink.pro) — video-nya ada di dalam <em>iframe</em> lintas-domain.
-                    Versi <em>website</em> VideoTogether tidak bisa menembus iframe itu, jadi muncul
-                    pesan <span className="font-mono text-accent-400">“No video in this page”</span>.
-                  </p>
+              {/* Room ID display (if in room) */}
+              {roomId && partyState !== "idle" && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10">
+                  <Hash className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="text-sm font-mono text-white flex-1 truncate">{roomId}</span>
                 </div>
+              )}
 
-                <p className="leading-relaxed">
-                  Tapi <strong className="text-white">NOBAR tetap bisa</strong> —
-                  gunakan <strong className="text-brand-400">ekstensi VideoTogether</strong>.
-                  Ekstensi di-inject ke semua frame (termasuk iframe lintas-domain) lewat
-                  <span className="font-mono text-gray-400"> all_frames:true</span>,
-                  jadi embed player ikut tersinkron.
-                </p>
+              {/* Create room form (idle state) */}
+              {partyState === "idle" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <Hash className="w-3 h-3" /> Room ID
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={roomId}
+                        onChange={(e) => setRoomId(e.target.value)}
+                        placeholder={generateRoomId()}
+                        className="flex-1 bg-ink-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 transition"
+                      />
+                      <button
+                        onClick={() => setRoomId(generateRoomId())}
+                        className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-xs transition"
+                        aria-label="Generate"
+                        title="Generate random ID"
+                      >
+                        🎲
+                      </button>
+                    </div>
+                  </div>
 
-                {/* Primary CTA — extension install */}
-                <div className="rounded-lg bg-brand-500/8 border border-brand-500/25 p-3.5 space-y-3">
-                  <p className="text-xs font-semibold text-brand-300 flex items-center gap-2 uppercase tracking-wider">
-                    <Film className="w-3.5 h-3.5" /> Solusi utama
-                  </p>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    Pasang ekstensi VideoTogether di browser. Setelah terpasang, buka halaman ini
-                    lagi — panel VT otomatis sync video di dalam embed.
-                  </p>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <a
-                      href="https://chrome.google.com/webstore/detail/videotogether/imkinoccecmkmhckhbdkjckmcieglidi"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold transition shadow-lg shadow-brand-500/20"
+                  <div>
+                    <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <Lock className="w-3 h-3" /> Password (opsional)
+                    </label>
+                    <input
+                      type="text"
+                      value={roomPassword}
+                      onChange={(e) => setRoomPassword(e.target.value)}
+                      placeholder="Kosongkan untuk room publik"
+                      className="w-full bg-ink-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 transition"
+                    />
+                  </div>
+
+                  <button
+                    onClick={createRoom}
+                    disabled={!roomId && !roomPassword}
+                    className="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white font-semibold py-2.5 rounded-full flex items-center justify-center gap-2 transition shadow-lg shadow-brand-500/20"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    Buat Room
+                  </button>
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="flex-1 h-px bg-white/10" />
+                    <span className="text-[10px] text-gray-500 uppercase tracking-wider">atau</span>
+                    <div className="flex-1 h-px bg-white/10" />
+                  </div>
+
+                  {/* Join room */}
+                  <div>
+                    <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <Users className="w-3 h-3" /> Join Room
+                    </label>
+                    <input
+                      type="text"
+                      value={joinRoomInput}
+                      onChange={(e) => setJoinRoomInput(e.target.value)}
+                      placeholder="Room ID teman"
+                      className="w-full bg-ink-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 transition mb-2"
+                    />
+                    <input
+                      type="text"
+                      value={joinPasswordInput}
+                      onChange={(e) => setJoinPasswordInput(e.target.value)}
+                      placeholder="Password (jika ada)"
+                      className="w-full bg-ink-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 transition mb-2"
+                    />
+                    <button
+                      onClick={joinRoom}
+                      disabled={!joinRoomInput.trim()}
+                      className="w-full bg-white/5 hover:bg-white/10 disabled:opacity-40 border border-white/10 hover:border-white/20 text-white font-semibold py-2.5 rounded-full transition"
                     >
-                      <ExternalLink className="w-3 h-3" /> Chrome
-                    </a>
-                    <a
-                      href="https://addons.mozilla.org/firefox/addon/videotogether/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white text-xs font-semibold transition"
-                    >
-                      Firefox
-                    </a>
-                    <a
-                      href="https://microsoftedge.microsoft.com/addons/detail/videotogether/emmmijheaoeoocnekhbbnhhdnmflphco"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white text-xs font-semibold transition"
-                    >
-                      Edge
-                    </a>
+                      Gabung Room
+                    </button>
                   </div>
                 </div>
-
-                {/* Alternatives */}
-                <div className="rounded-lg bg-white/5 border border-white/10 p-3.5 space-y-2.5">
-                  <p className="text-xs font-semibold text-gray-200 flex items-center gap-2">
-                    <Play className="w-3.5 h-3.5 text-brand-400" /> Atau tanpa ekstensi:
-                  </p>
-                  <ul className="space-y-2 text-xs text-gray-400 leading-relaxed">
-                    <li className="flex items-start gap-2">
-                      <span className="text-brand-400 font-bold">›</span>
-                      <span>
-                        Pilih film dari baris <strong className="text-gray-200">Trending Now</strong>{" "}
-                        di beranda — film-film itu pakai <em>native player</em> (direct MP4) yang
-                        langsung ke-sync tanpa ekstensi.
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-brand-400 font-bold">›</span>
-                      <span>
-                        Atau ajak teman <strong className="text-gray-200">nonton di perangkat
-                        masing-masing</strong> dan tekan play bareng manual — kurang otomatis tapi
-                        tetap fun.
-                      </span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {/* Body — CHECKING variant */}
-            {videoState === "checking" && (
-              <div className="px-6 py-5 space-y-3 text-sm text-gray-300">
-                <p className="leading-relaxed">
-                  Mendeteksi player… Panel VideoTogether akan aktif otomatis begitu video
-                  native terdeteksi.
-                </p>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" />
-                  Memeriksa sumber stream…
-                </div>
-              </div>
-            )}
-
-            {/* Footer actions */}
-            <div className="px-6 pb-6 flex flex-col sm:flex-row items-stretch gap-2.5">
-              {videoState === "native" ? (
-                <button
-                  onClick={copyInvite}
-                  className="flex-1 inline-flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-600 text-white font-semibold py-2.5 rounded-lg transition shadow-lg shadow-brand-500/20"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-4 h-4" /> Link tersalin
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4" /> Salin link film
-                    </>
-                  )}
-                </button>
-              ) : (
-                <button
-                  onClick={copyInvite}
-                  className="flex-1 inline-flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white font-semibold py-2.5 rounded-lg transition"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-4 h-4" /> Link tersalin
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4" /> Salin link film ini
-                    </>
-                  )}
-                </button>
               )}
-              <a
-                href="https://videotogether.github.io/en-us/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white font-semibold py-2.5 px-4 rounded-lg transition"
-              >
-                <ExternalLink className="w-4 h-4" /> Pelajari
-              </a>
-              <button
-                onClick={() => setShowHelp(false)}
-                className="inline-flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white font-semibold py-2.5 px-4 rounded-lg transition"
-              >
-                Tutup
-              </button>
+
+              {/* Active room — chat + controls */}
+              {partyState !== "idle" && (
+                <div className="space-y-3">
+                  {/* Chat toggle */}
+                  <button
+                    onClick={() => setShowChat(!showChat)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition"
+                  >
+                    <span className="flex items-center gap-2 text-sm text-white">
+                      <MessageCircle className="w-4 h-4 text-brand-400" />
+                      Chat
+                    </span>
+                    <span className="text-xs text-gray-400">{messages.length} pesan</span>
+                  </button>
+
+                  {/* Chat panel */}
+                  {showChat && (
+                    <div className="border border-white/10 rounded-lg overflow-hidden">
+                      <div className="h-40 overflow-y-auto p-2 space-y-1.5 scroll-row bg-ink-950/50">
+                        {messages.length === 0 ? (
+                          <p className="text-xs text-gray-500 text-center py-6">
+                            Belum ada pesan. Mulai chat!
+                          </p>
+                        ) : (
+                          messages.map((msg, i) => (
+                            <div
+                              key={i}
+                              className={`text-xs ${
+                                msg.isMe ? "text-right" : "text-left"
+                              }`}
+                            >
+                              <span
+                                className={`inline-block px-2 py-1 rounded-lg max-w-[80%] ${
+                                  msg.isMe
+                                    ? "bg-brand-500/20 text-brand-400"
+                                    : "bg-white/5 text-gray-300"
+                                }`}
+                              >
+                                {msg.text}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 p-2 border-t border-white/5 bg-ink-900">
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") sendChat();
+                          }}
+                          placeholder="Ketik pesan…"
+                          className="flex-1 bg-ink-800 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50"
+                        />
+                        <button
+                          onClick={sendChat}
+                          className="p-1.5 rounded-lg bg-brand-500/20 text-brand-400 hover:bg-brand-500/30 transition"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Leave button */}
+                  <button
+                    onClick={leaveRoom}
+                    className="w-full bg-accent-500/10 hover:bg-accent-500/20 border border-accent-500/25 hover:border-accent-500/40 text-accent-400 font-semibold py-2.5 rounded-full flex items-center justify-center gap-2 transition"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Keluar dari Room
+                  </button>
+                </div>
+              )}
+
+              {/* Status text from VT */}
+              {statusText && (
+                <p className="text-[10px] text-gray-500 text-center">{statusText}</p>
+              )}
+
+              {/* Info note */}
+              {partyState === "idle" && (
+                <div className="flex items-start gap-2 text-[10px] text-gray-500 bg-white/[0.02] rounded-lg p-2.5">
+                  <AlertCircle className="w-3 h-3 flex-none mt-0.5" />
+                  <p>
+                    NOBAR sync video otomatis (play/pause/seek). Panel VideoTogether asli
+                    disembunyikan — semua kontrol ada di sini.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -15,11 +15,17 @@ export async function GET(request: Request) {
   }
 
   try {
-    const res = await fetch(subtitleUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-      },
-    });
+    // mzfi.me / aoneroom subtitle CDN (pbcdnw.aoneroom.com) requires
+    // Referer header or returns 429 — same as the video CDN.
+    const isMzfi = /aoneroom\.com|hakunaymatata\.com/.test(subtitleUrl);
+    const headers: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    };
+    if (isMzfi) {
+      headers.Referer = "https://mzfi.me/";
+      headers.Origin = "https://mzfi.me";
+    }
+    const res = await fetch(subtitleUrl, { headers });
 
     if (!res.ok) {
       return NextResponse.json({ error: `Failed to fetch subtitle: ${res.status}` }, { status: 502 });

@@ -365,3 +365,81 @@ Stage Summary:
 - Architecture: clean separation — server API routes wrap TMDB lib, client uses HTTP only
 - QC: all flows verified end-to-end, 0 console errors, responsive mobile+desktop, sticky
   footer working correctly
+
+---
+Task ID: nobar-moviebox-mapping
+Agent: main
+Task: Map MovieBox untuk direct MP4 streams (catalog expansion)
+
+Work Log:
+- Research subagent confirm BIG DISCOVERY: MovieBox = mzfi.me = movieboxhd.net
+  (same aoneroom BFF backend, 7 mirror front-ends). "50-100 movie limit" was a BUG
+  in our code, bukan catalog limit. Search "batman"=105, "spider-man"=94, "avengers"=157
+  results — catalog ada ribuan.
+- ROOT CAUSE analysis (2 bugs in /api/stream/[id]/route.ts):
+  • Bug #1: Code pakai `se=1&ep=1` untuk movies → return hasResource:false → embed fallback.
+    Movies HARUSNYA `se=0&ep=0` (verified live). TV series `se=N&ep=N` correct.
+  • Bug #2: Code scan /home?page=1..5 (5 pages × ~20 = ~100 movies max).
+    Harusnya pakai POST /subject/search (full catalog search).
+- FIX #1 — Rewrite fetchMzfiStream signature to accept kind/season/episode:
+  • Movies: se=0&ep=0 (was se=1&ep=1 — bug fix)
+  • TV: se=season&ep=episode (unchanged, was correct)
+- FIX #2 — Replace /home?page=1..5 scan with POST /subject/search:
+  • New searchSubject() function: POST /wefeed-h5api-bff/subject/search
+    with {keyword:title, page:1, perPage:20}
+  • 3-pass matching: exact title+year → contains+year → any hasResource (last resort)
+  • Filter by subjectType (1=movie, 2=series) + hasResource flag
+- FIX #3 — Add 5min in-memory cache for search results:
+  • Prevents 429 rate-limit from mzfi BFF (searchCache Map with CACHE_TTL=5min)
+  • Negative cache: known-not-found titles skip re-query (avoid 429 spam)
+- FIX #4 — Add subtitle fetch dari /subject/caption endpoint:
+  • Returns SRT URLs per language (Arabic, English, Spanish, French, Hindi, Indonesian,
+    Malay, Portuguese, etc.)
+  • Stream route returns subtitles[] in response, NativePlayer renders <track> elements
+- FIX #5 — Proxy Range support (CRITICAL for video seeking):
+  • streamResponse() was returning status 200 always — even when mzfi CDN returned 206
+    (Partial Content) for Range requests. Browser treated 200 as full response → seek
+    broke (PIPELINE_ERROR_DECODE karena byte offset mismatch dengan currentTime)
+  • Fix: pass through res.status + add Access-Control-Allow-Headers: Range +
+    Access-Control-Expose-Headers: Content-Range, Accept-Ranges, Content-Length
+  • Verified: Range request sekarang return 206 + Content-Range + Content-Length=1024
+- FIX #6 — /api/subtitle: add Referer+Origin untuk mzfi CDN (pbcdnw.aoneroom.com):
+  • Detect via /aoneroom\.com|hakunaymatata\.com/ regex
+  • Inject Referer: https://mzfi.me/ + Origin (prevent 429)
+  • SRT→VTT conversion tetap berfungsi
+- FIX #7 — NativePlayer subtitle support:
+  • Add Subtitle type + subtitles[] + activeSubtitle state
+  • Render <track kind=subtitles> elements di dalam <video>
+  • Add subtitle toggle button (Subtitles icon) dengan menu: Off + list bahasa
+  • Click bahasa → set textTracks[i].mode = "showing" / "disabled"
+  • Max-h-60 overflow-y-auto scroll-row untuk list panjang (9-13 bahasa)
+
+VERIFICATION RESULTS:
+- 9/10 test movies now have direct MP4 (previously mostly embed-only):
+  • Clayface (1400940): 1 source 360p — WAS embed!
+  • Masterplan (1561726): 2 sources + 8 subs
+  • Spider-Man BND (969681): 2 sources
+  • Tenzing (1288069): 2 sources + 9 subs
+  • Hope (1242462): 1 source 480p + 11 subs
+  • Star Wars (1064213, 558, 11): 2 sources each + 9-11 subs
+  • Breaking Bad S1E1 (1396): 2 sources + 13 subs — TV SERIES WORKS!
+  • Only The Voyeurs (615657): embed fallback (VIP-locked per research)
+- Browser test (agent-browser):
+  • NativePlayer renders (not embed iframe) ✓
+  • Video plays from start ✓ (readyState=4, playing=true)
+  • Seek to 60s/120s works (NO decode errors) ✓
+  • Subtitle menu: 8 bahasa (Off, Arabic, English, Spanish, French, Hindi, Indonesian,
+    Malay, Portuguese) ✓
+  • Select Indonesian → subtitle renders: "SUITE PRESIDENSIAL" visible at bottom
+    (VLM confirmed) ✓
+  • Range request via proxy: 206 + Content-Range (was 200 before fix) ✓
+- ffprobe confirm codecs: H.264 High profile video + AAC LC audio (browser-native)
+
+Stage Summary:
+- Catalog expanded dari ~50-100 → RIBUAN movies (search unlocks full aoneroom BFF)
+- Bug fix se=0&ep=0 untuk movies: Clayface + banyak lainnya sekarang direct MP4
+  (sebelumnya embed-only)
+- Subtitle support: 8-13 bahasa per movie, SRT→VTT proxy dengan Referer injection
+- Proxy Range fix: video seeking works (no more PIPELINE_ERROR_DECODE)
+- TV series: Breaking Bad S1E1 verified — 2 sources + 13 subs
+- Only VIP-locked titles (The Voyeurs) fall to embed — expected behavior

@@ -101,10 +101,18 @@ function streamResponse(res: Response): NextResponse {
     "Content-Type": contentType,
     "Access-Control-Allow-Origin": "*",
     "Cache-Control": "public, max-age=3600",
+    "Access-Control-Allow-Headers": "Range",
+    "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Length",
   };
   if (contentLength) headers["Content-Length"] = contentLength;
   if (acceptRanges) headers["Accept-Ranges"] = acceptRanges;
   if (contentRange) headers["Content-Range"] = contentRange;
 
-  return new NextResponse(res.body, { headers });
+  // CRITICAL: pass through the upstream status code. If mzfi CDN returned
+  // 206 (Partial Content) for a Range request, we MUST return 206 too —
+  // otherwise the browser treats it as a full 200 response and seeking
+  // breaks (decode errors because the byte offsets don't match currentTime).
+  const status = res.status;
+
+  return new NextResponse(res.body, { status, headers });
 }

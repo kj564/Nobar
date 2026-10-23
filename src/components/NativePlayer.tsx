@@ -10,6 +10,11 @@ type StreamSource = {
   type: string;
 };
 
+type Subtitle = {
+  language: string;
+  url: string;
+};
+
 type NativePlayerProps = {
   tmdbId: number;
   title: string;
@@ -21,6 +26,8 @@ type NativePlayerProps = {
 export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }: NativePlayerProps) {
   const [sources, setSources] = useState<StreamSource[]>([]);
   const [activeSource, setActiveSource] = useState<StreamSource | null>(null);
+  const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
+  const [activeSubtitle, setActiveSubtitle] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [useEmbed, setUseEmbed] = useState(false);
@@ -51,6 +58,12 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       .then((data) => {
         if (cancelled) return;
         setSources(data.sources || []);
+        // Subtitles come as SRT URLs — proxy via /api/subtitle for SRT→VTT conversion.
+        const subs = (data.subtitles || []).map((s: Subtitle) => ({
+          language: s.language,
+          url: `/api/subtitle?url=${encodeURIComponent(s.url)}`,
+        }));
+        setSubtitles(subs);
         if (data.sources?.length > 0) {
           const best = data.sources.reduce((b: StreamSource, s: StreamSource) =>
             parseInt(s.quality) > parseInt(b.quality) ? s : b
@@ -192,6 +205,16 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
           playsInline
           autoPlay
         >
+          {subtitles.map((sub, i) => (
+            <track
+              key={i}
+              kind="subtitles"
+              src={sub.url}
+              srcLang={sub.language.toLowerCase().slice(0, 2)}
+              label={sub.language}
+              default={activeSubtitle === sub.url}
+            />
+          ))}
         </video>
 
         {buffering && (
@@ -245,6 +268,53 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
                     {sources.map((s, i) => (
                       <button key={i} onClick={() => changeQuality(s)} className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${activeSource.url === s.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}>
                         {s.quality}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Subtitles toggle */}
+            {subtitles.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowSettings(showSettings === "s" ? "" : "s")}
+                  className={`text-white hover:text-brand-500 transition flex items-center gap-1 ${activeSubtitle ? "text-brand-400" : ""}`}
+                  aria-label="Subtitles"
+                >
+                  <Subtitles className="w-5 h-5" />
+                </button>
+                {showSettings === "s" && (
+                  <div className="absolute bottom-8 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[150px] max-h-60 overflow-y-auto scroll-row">
+                    <button
+                      onClick={() => {
+                        setActiveSubtitle(null);
+                        const v = videoRef.current;
+                        if (v) {
+                          for (let i = 0; i < v.textTracks.length; i++) v.textTracks[i].mode = "disabled";
+                        }
+                        setShowSettings("");
+                      }}
+                      className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${!activeSubtitle ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
+                    >
+                      Off
+                    </button>
+                    {subtitles.map((sub, i) => (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          setActiveSubtitle(sub.url);
+                          const v = videoRef.current;
+                          if (v) {
+                            for (let j = 0; j < v.textTracks.length; j++) {
+                              v.textTracks[j].mode = j === i ? "showing" : "disabled";
+                            }
+                          }
+                          setShowSettings("");
+                        }}
+                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${activeSubtitle === sub.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
+                      >
+                        {sub.language}
                       </button>
                     ))}
                   </div>

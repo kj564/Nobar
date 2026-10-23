@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Play, Home, Film, Tv, Search, Menu, X, Globe } from "lucide-react";
+import { Home, Film, Tv, Search, Menu, X } from "lucide-react";
 
 type NavItem = {
   label: string;
@@ -18,28 +18,47 @@ const NAV_ITEMS: NavItem[] = [
   { label: "TV Series", href: "/series/", icon: Tv, matchPath: (p) => p.startsWith("/series") },
 ];
 
+// Pages with full-bleed hero/backdrop where navbar should start transparent
+// and turn solid on scroll. All other pages (listing, search) get solid navbar
+// from the top — otherwise the transparent navbar floats awkwardly over
+// plain content with no backdrop to blend into.
+const HERO_PAGES = ["/", "/movie/", "/series/"];
+
+function isHeroPage(pathname: string): boolean {
+  // Movie/series detail pages: /movie/{slug}, /series/{slug}
+  if (pathname.startsWith("/movie/") && pathname !== "/movie/") return true;
+  if (pathname.startsWith("/series/") && pathname !== "/series/") return true;
+  return HERO_PAGES.includes(pathname);
+}
+
 export function Navbar({ children }: { children?: React.ReactNode }) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Header scroll state — solid bg after scroll (idlixku pattern)
+  const hasHero = isHeroPage(pathname);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
     window.addEventListener("scroll", onScroll);
+    onScroll();
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [pathname]);
+
+  // Navbar background logic:
+  // - Non-hero pages (listing/search): always solid from top
+  // - Hero pages: transparent gradient at top → solid on scroll
+  const solidBg = !hasHero || scrolled;
 
   return (
     <header
       id="header"
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
+        solidBg
           ? "bg-ink-950/95 backdrop-blur-md border-b border-white/5"
           : "bg-gradient-to-b from-black/80 via-black/40 to-transparent"
       }`}
@@ -48,13 +67,17 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
         <div className="flex items-center justify-between h-16">
           {/* Left: Logo + Nav links */}
           <div className="flex items-center gap-8">
-            <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
-              <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition-all group-hover:scale-105">
-                <Play className="w-5 h-5 fill-white" />
-              </div>
-              <span className="text-xl font-black uppercase tracking-tighter text-white font-display">
-                No<span className="text-brand-500">bar</span>
-              </span>
+            <Link href="/" className="flex items-center flex-shrink-0 group" aria-label="Nobar home">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo/nobar-horizontal-white.svg"
+                alt="Nobar"
+                className="h-7 w-auto transition-transform group-hover:scale-105"
+                onError={(e) => {
+                  // Fallback to PNG if SVG fails
+                  (e.currentTarget as HTMLImageElement).src = "/logo/nobar-horizontal-white.png";
+                }}
+              />
             </Link>
 
             {/* Desktop nav — idlixku style: text links with active underline */}
@@ -74,7 +97,6 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
                   >
                     <Icon className="w-3.5 h-3.5" />
                     <span>{item.label}</span>
-                    {/* Active underline (idlixku pattern) */}
                     {isActive && (
                       <span className="absolute -bottom-px left-0 right-0 h-0.5 bg-brand-500 rounded-full" />
                     )}
@@ -94,7 +116,6 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
               <Search className="w-5 h-5" />
             </Link>
             {children}
-            {/* Mobile menu toggle */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="md:hidden text-gray-300 hover:text-white transition p-2 rounded-lg hover:bg-white/5"

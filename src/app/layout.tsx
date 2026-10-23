@@ -20,6 +20,15 @@ export const metadata: Metadata = {
     "Platform streaming film indie Indonesia. Katalog dari TMDB, multi-server, gratis. Dibuat untuk pembelajaran web development.",
   keywords: ["film", "streaming", "indie", "indonesia", "nobar"],
   authors: [{ name: "Nobar" }],
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
+  manifest: "/manifest.webmanifest",
   openGraph: {
     title: "Nobar — Streaming Film Indie",
     description:

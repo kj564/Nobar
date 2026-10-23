@@ -198,12 +198,12 @@ export function HeroBanner({ movies }: HeroBannerProps) {
             </>
           )}
           {isOngoing && (
-            <span className="ml-1 border border-green-500 text-green-500 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wide bg-green-900/20 uppercase">
+            <span className="ml-1 border border-green-500 text-green-500 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wide bg-green-500/10 uppercase">
               Ongoing
             </span>
           )}
           {isEnded && (
-            <span className="ml-1 border border-red-500 text-red-500 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wide bg-red-900/20 uppercase">
+            <span className="ml-1 border border-accent-500 text-accent-500 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wide bg-accent-500/10 uppercase">
               {status}
             </span>
           )}
@@ -218,7 +218,7 @@ export function HeroBanner({ movies }: HeroBannerProps) {
         <div className="flex items-center gap-3">
           <Link
             href={href}
-            className="bg-brand-500 hover:bg-red-700 text-white font-semibold py-2.5 px-6 rounded-lg flex items-center gap-3 w-max transition-all shadow-lg shadow-brand-500/30 group"
+            className="bg-brand-500 hover:bg-brand-600 text-white font-semibold py-2.5 px-6 rounded-lg flex items-center gap-3 w-max transition-all shadow-lg shadow-brand-500/30 group"
           >
             <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
             <span>Watch Now</span>

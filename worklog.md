@@ -77,3 +77,55 @@ Stage Summary:
 - vidsrc.to/vidsrc.sh server patterns preserved (skip point 2 per user request)
 - Deployable ke Vercel/Netlify/Cloudflare Pages dengan API routes support
 - FoMT backup di /tmp/fomt-backup/ (branch fomt-backup di git local untuk history)
+
+---
+Task ID: nobar-ui-selaras
+Agent: main
+Task: Buat UI Nobar selaras (harmonious) — palette consistency + VideoTogether panel theming
+
+Work Log:
+- Audit semua komponen: ditemukan `hover:bg-red-700` di primary CTA (sage green button) yang clash dengan palette (brand = Sage Green #86A789, accent = Terracotta #C25E5E)
+- Fix primary CTA hover `bg-brand-500 hover:bg-red-700` → `bg-brand-500 hover:bg-brand-600` di:
+  • src/components/HeroBanner.tsx (Watch Now)
+  • src/app/movie/[id]/page.tsx (Watch Now)
+  • src/app/series/[id]/page.tsx (Watch Now)
+  • src/app/not-found.tsx (Kembali ke Beranda)
+  • src/components/WatchPartyButton.tsx (modal Coba lagi)
+- Harmonize status badges: `red-500/red-900` → `accent-500` (Terracotta palette) di:
+  • HeroBanner.tsx (Ended badge)
+  • series/[id]/page.tsx (Ended/Canceled status)
+- Harmonize Ongoing badge bg: `green-900/20` → `green-500/10` (match terracotta pattern)
+- Redesign WatchPartyButton: glass-sage treatment (`bg-brand-500/15 border-brand-500/30 text-brand-400`)
+  — sits between solid primary (Watch Now) dan neutral secondary (Trailer/Watchlist),
+  signaling "featured social action" sambil on-palette. Tambah sheen hover + loading pulse.
+- Redesign help modal: header band sage-gradient, numbered step badges (sage), copy-invite
+  + pelajari + tutup footer, konsisten dengan dark+sage theme
+- VideoTogether panel theming:
+  • Discover VT website version inject UI ke SHADOW DOM (#VideoTogetherWrapper.shadowRoot)
+  • External CSS di globals.css TIDAK bisa penetrate shadow boundary
+  • Fix: WatchPartyButton inject `<style id="nobar-vt-theme">` langsung ke shadowRoot
+    via polling (40 attempts × 250ms) setelah VT script load
+  • Target VT-internal classes: #videoTogetherFlyPannel, .vt-modal-header, .vt-btn-primary
+    (sage), .vt-btn-secondary (neutral glass), .vt-btn-dangerous (terracotta), inputs (dark
+    field + sage focus ring), #textMessageChat, scrollbars
+  • globals.css: hanya style host #VideoTogetherWrapper (z-index + entrance animation)
+- Verifikasi:
+  • Dev server jalan (port 3000, Next 16.4.2 Turbopack)
+  • Home page 200, movie page 200 (redirect 307 ke canonical slug — expected)
+  • WatchPartyButton modal render: "Nobar Bareng" heading, "Salin link film"/"Pelajari"/"Tutup"
+  • Shadow DOM theme injection: "THEME INJECTED (5018 chars)" — verified via eval
+  • VLM (glm-5v-turbo) konfirmasi:
+    - Movie page: "hero action buttons maintain strong visual consistency... sage green primary...
+      no significant color clashes"
+    - Modal: "effectively matches the site's dark theme with sage green accent... clean and harmonious"
+    - Home: "color palette consistent... Watch Now button correctly uses sage green (not red)"
+  • Grep confirm: 0 sisa `hover:bg-red-700` / `bg-red-900`
+
+Stage Summary:
+- Palette sekarang 100% konsisten: ink (charcoal bg) + brand (sage green CTA/active) +
+  accent (terracotta alerts/badges) — zero red-on-sage clashes
+- WatchPartyButton: glass-sage style yang harmonis dengan hero button row
+- VideoTogether floating panel: di-theme jadi dark glass + sage accent via shadow-root
+  style injection (solusi untuk shadow DOM encapsulation)
+- Help modal: polished, on-brand, dengan copy-invite + external link + close
+- Semua verified via agent-browser + VLM

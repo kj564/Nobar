@@ -100,7 +100,7 @@ export default async function SeriesDetailPage({ params }: PageProps) {
                   status === "Returning Series"
                     ? "border-green-500 text-green-500 bg-green-500/10"
                     : status === "Ended" || status === "Canceled"
-                      ? "border-red-500 text-red-500 bg-red-500/10"
+                      ? "border-accent-500 text-accent-500 bg-accent-500/10"
                       : "border-gray-500 text-gray-500 bg-gray-500/10"
                 }`}>
                   {status === "Returning Series" ? "Ongoing" : status}
@@ -152,7 +152,7 @@ export default async function SeriesDetailPage({ params }: PageProps) {
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <a
                 href="#player"
-                className="bg-brand-500 hover:bg-red-700 text-white font-semibold py-2.5 px-7 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-brand-500/30 group"
+                className="bg-brand-500 hover:bg-brand-600 text-white font-semibold py-2.5 px-7 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-brand-500/30 group"
               >
                 <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
                 <span>Watch Now</span>

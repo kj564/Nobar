@@ -146,7 +146,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <a
                 href="#player"
-                className="bg-brand-500 hover:bg-red-700 text-white font-semibold py-2.5 px-7 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-brand-500/30 group"
+                className="bg-brand-500 hover:bg-brand-600 text-white font-semibold py-2.5 px-7 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-brand-500/30 group"
               >
                 <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
                 <span>Watch Now</span>

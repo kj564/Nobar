@@ -43,7 +43,7 @@ export default function NotFound() {
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-red-700 rounded-lg font-semibold text-sm transition shadow-lg shadow-brand-500/30"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 rounded-lg font-semibold text-sm transition shadow-lg shadow-brand-500/30"
             >
               <Home className="w-4 h-4" />
               Kembali ke Beranda

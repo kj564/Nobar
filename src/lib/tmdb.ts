@@ -467,6 +467,39 @@ export function formatViews(count?: number | null): string {
   return String(count);
 }
 
+// ─── Routing helpers ──────────────────────────────────────────────────
+// URL format: /movie/{slug}-{id} (e.g. /movie/fight-club-550)
+// slug for readability, ID at end for reliable lookup.
+
+export function slugifyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function buildMovieSlug(movie: { title?: string; name?: string; release_date?: string; id: number }): string {
+  const title = slugifyTitle(movie.title || movie.name || "untitled");
+  const year = movie.release_date ? String(movie.release_date).slice(0, 4) : "";
+  const titlePart = year ? `${title}-${year}` : title;
+  return `${titlePart}-${movie.id}`;
+}
+
+export function buildSeriesSlug(series: { name?: string; title?: string; first_air_date?: string; id: number }): string {
+  const title = slugifyTitle(series.name || series.title || "untitled");
+  const year = series.first_air_date ? String(series.first_air_date).slice(0, 4) : "";
+  const titlePart = year ? `${title}-${year}` : title;
+  return `${titlePart}-${series.id}`;
+}
+
+// Extract TMDB ID from URL slug (last segment after last dash).
+export function extractIdFromSlug(slug: string): number | null {
+  const parts = slug.split("-");
+  const idStr = parts[parts.length - 1];
+  const id = Number(idStr);
+  return Number.isFinite(id) ? id : null;
+}
+
 export function buildServerUrl(
   serverPattern: string,
   videoId: string | number,

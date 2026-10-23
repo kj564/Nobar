@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   Play,
@@ -15,6 +16,8 @@ import {
   posterUrl,
   formatYear,
   formatViews,
+  buildSeriesSlug,
+  extractIdFromSlug,
   SERVERS_TV,
   type Server,
 } from "@/lib/tmdb";
@@ -26,9 +29,10 @@ type PageProps = {
 };
 
 export default async function SeriesDetailPage({ params }: PageProps) {
-  const { id } = await params;
-  const seriesId = Number(id);
-  if (!Number.isFinite(seriesId)) return notFound();
+  const { id: slug } = await params;
+
+  const seriesId = extractIdFromSlug(slug);
+  if (!seriesId) return notFound();
 
   let detail;
   try {
@@ -36,6 +40,12 @@ export default async function SeriesDetailPage({ params }: PageProps) {
   } catch (err) {
     console.error("fetchTVDetail failed:", err);
     return notFound();
+  }
+
+  // Redirect to canonical slug if URL doesn't match
+  const canonicalSlug = buildSeriesSlug(detail);
+  if (slug !== canonicalSlug) {
+    redirect(`/series/${canonicalSlug}`);
   }
 
   const title = detail.name || detail.title || "Untitled";
@@ -275,7 +285,7 @@ export default async function SeriesDetailPage({ params }: PageProps) {
               {similar.map((s) => {
                 const similarTitle = s.name || s.title || "Untitled";
                 return (
-                  <Link key={s.id} href={`/series/${s.id}`} className="group text-left">
+                  <Link key={s.id} href={`/series/${buildSeriesSlug(s)}`} className="group text-left">
                     <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 border border-white/5 group-hover:border-brand-500/50 transition">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img

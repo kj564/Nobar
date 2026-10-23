@@ -6,6 +6,8 @@ import {
   posterUrl,
   formatYear,
   formatViews,
+  buildMovieSlug,
+  buildSeriesSlug,
 } from "@/lib/tmdb";
 
 // MovieCard — uses TMDB ID directly in URL (dynamic route, no slug).
@@ -19,7 +21,7 @@ export function MovieCard({
   featured?: boolean;
 }) {
   const title = movie.title || movie.name || "Untitled";
-  const href = `/movie/${movie.id}`;
+  const href = `/movie/${buildMovieSlug(movie)}`;
   return (
     <Link
       href={href}
@@ -74,7 +76,7 @@ export function SeriesCard({
   featured?: boolean;
 }) {
   const title = series.name || series.title || "Untitled";
-  const href = `/series/${series.id}`;
+  const href = `/series/${buildSeriesSlug(series)}`;
   return (
     <Link
       href={href}

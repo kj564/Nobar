@@ -10,6 +10,8 @@ import {
   logoUrl,
   formatYear,
   formatViews,
+  buildMovieSlug,
+  buildSeriesSlug,
   fetchMovieDetail,
   fetchMovieImages,
 } from "@/lib/tmdb";
@@ -97,7 +99,7 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const backdrop = backdropUrl(movie.backdrop_path, "original");
   const isMovie = Boolean(movie.title);
   const mediaTypeLabel = isMovie ? "Film" : "TV Series";
-  const href = isMovie ? `/movie/${movie.id}` : `/series/${movie.id}`;
+  const href = isMovie ? `/movie/${buildMovieSlug(movie)}` : `/series/${buildSeriesSlug(movie)}`;
   const detail = details[movie.id];
   const logo = logos[movie.id];
   const tagline = detail?.tagline;

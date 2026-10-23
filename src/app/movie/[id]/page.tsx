@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   Play,
@@ -16,6 +17,8 @@ import {
   formatRuntime,
   formatYear,
   formatViews,
+  buildMovieSlug,
+  extractIdFromSlug,
   SERVERS,
   type Server,
 } from "@/lib/tmdb";
@@ -27,9 +30,11 @@ type PageProps = {
 };
 
 export default async function MovieDetailPage({ params }: PageProps) {
-  const { id } = await params;
-  const movieId = Number(id);
-  if (!Number.isFinite(movieId)) return notFound();
+  const { id: slug } = await params;
+
+  // Extract TMDB ID from slug (last segment after last dash)
+  const movieId = extractIdFromSlug(slug);
+  if (!movieId) return notFound();
 
   let detail;
   try {
@@ -37,6 +42,12 @@ export default async function MovieDetailPage({ params }: PageProps) {
   } catch (err) {
     console.error("fetchMovieDetail failed:", err);
     return notFound();
+  }
+
+  // Redirect to canonical slug if URL doesn't match (SEO + clean URLs)
+  const canonicalSlug = buildMovieSlug(detail);
+  if (slug !== canonicalSlug) {
+    redirect(`/movie/${canonicalSlug}`);
   }
 
   const title = detail.title || detail.name || "Untitled";
@@ -283,7 +294,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
                 return (
                   <Link
                     key={m.id}
-                    href={`/movie/${m.id}`}
+                    href={`/movie/${buildMovieSlug(m)}`}
                     className="group text-left"
                   >
                     <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 border border-white/5 group-hover:border-brand-500/50 transition">

@@ -228,8 +228,10 @@ export function WatchPartyButton() {
   };
 
   // Derive button appearance from video state.
-  // - "native": full sage glass — Watch Party is live and syncable.
-  // - "embed": muted terracotta-tinted — signals "limited / unavailable here".
+  // - "native": full sage glass — Watch Party is live and syncable (no extension needed).
+  // - "embed": muted terracotta-tinted — signals "install the VideoTogether extension
+  //   to sync this embed". VideoTogether CAN sync embeds, but only via the browser
+  //   extension (all_frames:true). The website version can't cross the iframe origin.
   // - "checking": neutral while the player is still resolving its source.
   const buttonClass =
     videoState === "native"
@@ -249,7 +251,7 @@ export function WatchPartyButton() {
     videoState === "native" ? (
       <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />
     ) : videoState === "embed" ? (
-      <span className="w-1.5 h-1.5 rounded-full bg-accent-400" title="Embed player — sync terbatas" />
+      <span className="w-1.5 h-1.5 rounded-full bg-accent-400" title="Embed player — butuh ekstensi VideoTogether" />
     ) : (
       <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
     );
@@ -261,12 +263,12 @@ export function WatchPartyButton() {
         disabled={!loaded}
         aria-label={
           videoState === "embed"
-            ? "Watch Party — limited (embed player)"
+            ? "Watch Party — butuh ekstensi VideoTogether untuk embed"
             : "Start Watch Party"
         }
         title={
           videoState === "embed"
-            ? "Watch Party terbatas — film ini pakai embed player"
+            ? "Watch Party butuh ekstensi VideoTogether — film ini pakai embed player"
             : videoState === "native"
               ? "Watch Party siap — player native terdeteksi"
               : "Mendeteksi player…"
@@ -331,7 +333,7 @@ export function WatchPartyButton() {
                   </h3>
                   <p className="text-xs text-gray-400">
                     {videoState === "embed"
-                      ? "Watch party — tidak tersedia untuk film ini"
+                      ? "Watch party — butuh ekstensi untuk embed player"
                       : "Watch party — sync film bareng teman"}
                   </p>
                 </div>
@@ -371,34 +373,76 @@ export function WatchPartyButton() {
               </div>
             )}
 
-            {/* Body — EMBED variant (Watch Party unavailable) */}
+            {/* Body — EMBED variant (needs VideoTogether extension) */}
             {videoState === "embed" && (
               <div className="px-6 py-5 space-y-4 text-sm text-gray-300">
                 <div className="rounded-lg bg-accent-500/10 border border-accent-500/25 p-3.5 flex items-start gap-2.5">
                   <AlertCircle className="w-4 h-4 text-accent-400 flex-none mt-0.5" />
                   <p className="text-xs text-gray-300 leading-relaxed">
                     Film ini diputar lewat <strong className="text-white">embed player</strong>{" "}
-                    (videm.xyz / vidlink.pro). Video-nya ada di dalam <em>iframe</em> lintas-domain
-                    yang tidak bisa di-sync VideoTogether — itulah kenapa muncul pesan{" "}
-                    <span className="font-mono text-accent-400">“No video in this page”</span>.
+                    (videm.xyz / vidlink.pro) — video-nya ada di dalam <em>iframe</em> lintas-domain.
+                    Versi <em>website</em> VideoTogether tidak bisa menembus iframe itu, jadi muncul
+                    pesan <span className="font-mono text-accent-400">“No video in this page”</span>.
                   </p>
                 </div>
+
                 <p className="leading-relaxed">
-                  Watch Party hanya bisa sinkron{" "}
-                  <span className="text-brand-400 font-semibold">native player</span> — yaitu saat
-                  Nobar memutar direct MP4 tanpa iframe.
+                  Tapi <strong className="text-white">Watch Party tetap bisa</strong> —
+                  gunakan <strong className="text-brand-400">ekstensi VideoTogether</strong>.
+                  Ekstensi di-inject ke semua frame (termasuk iframe lintas-domain) lewat
+                  <span className="font-mono text-gray-400"> all_frames:true</span>,
+                  jadi embed player ikut tersinkron.
                 </p>
+
+                {/* Primary CTA — extension install */}
+                <div className="rounded-lg bg-brand-500/8 border border-brand-500/25 p-3.5 space-y-3">
+                  <p className="text-xs font-semibold text-brand-300 flex items-center gap-2 uppercase tracking-wider">
+                    <Film className="w-3.5 h-3.5" /> Solusi utama
+                  </p>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    Pasang ekstensi VideoTogether di browser. Setelah terpasang, buka halaman ini
+                    lagi — panel VT otomatis sync video di dalam embed.
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <a
+                      href="https://chrome.google.com/webstore/detail/videotogether/imkinoccecmkmhckhbdkjckmcieglidi"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold transition shadow-lg shadow-brand-500/20"
+                    >
+                      <ExternalLink className="w-3 h-3" /> Chrome
+                    </a>
+                    <a
+                      href="https://addons.mozilla.org/firefox/addon/videotogether/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white text-xs font-semibold transition"
+                    >
+                      Firefox
+                    </a>
+                    <a
+                      href="https://microsoftedge.microsoft.com/addons/detail/videotogether/emmmijheaoeoocnekhbbnhhdnmflphco"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white text-xs font-semibold transition"
+                    >
+                      Edge
+                    </a>
+                  </div>
+                </div>
+
+                {/* Alternatives */}
                 <div className="rounded-lg bg-white/5 border border-white/10 p-3.5 space-y-2.5">
                   <p className="text-xs font-semibold text-gray-200 flex items-center gap-2">
-                    <Film className="w-3.5 h-3.5 text-brand-400" />
-                    Solusi:
+                    <Play className="w-3.5 h-3.5 text-brand-400" /> Atau tanpa ekstensi:
                   </p>
                   <ul className="space-y-2 text-xs text-gray-400 leading-relaxed">
                     <li className="flex items-start gap-2">
                       <span className="text-brand-400 font-bold">›</span>
                       <span>
                         Pilih film dari baris <strong className="text-gray-200">Trending Now</strong>{" "}
-                        di beranda — film-film itu umumnya punya direct stream mzfi.me.
+                        di beranda — film-film itu pakai <em>native player</em> (direct MP4) yang
+                        langsung ke-sync tanpa ekstensi.
                       </span>
                     </li>
                     <li className="flex items-start gap-2">
@@ -407,21 +451,6 @@ export function WatchPartyButton() {
                         Atau ajak teman <strong className="text-gray-200">nonton di perangkat
                         masing-masing</strong> dan tekan play bareng manual — kurang otomatis tapi
                         tetap fun.
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-brand-400 font-bold">›</span>
-                      <span>
-                        Untuk sync iframe, pasang{" "}
-                        <a
-                          href="https://videotogether.github.io/en-us/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-brand-400 hover:text-brand-300 underline"
-                        >
-                          ekstensi VideoTogether
-                        </a>{" "}
-                        di browser — ekstensi bisa menembus iframe.
                       </span>
                     </li>
                   </ul>

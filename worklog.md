@@ -178,3 +178,52 @@ Stage Summary:
 - 3 modal variant (native/embed/checking) semuanya harmonis dengan dark+sage+terracotta
 - Limitasi fundamental tetap: Watch Party hanya sync film dengan direct mzfi stream
   (~50-100 movies). Untuk film embed, user diarahkan ke Trending Now atau ekstensi VT.
+
+---
+Task ID: nobar-watchparty-embed-extension-fix
+Agent: main
+Task: Fix inaccurate "Watch Party unavailable" framing — VideoTogether CAN sync embeds via extension
+
+Work Log:
+- Research subagent confirm via source code (vt.en-us.website.js + manifest.json):
+  • WEBSITE version (vt.en-us.website.js): scan document.getElementsByTagName('video')
+    only — NEVER iframe.contentDocument. Bootstrap coba inject ke iframe tapi guard
+    `window.location.origin === iframe.contentWindow.location.origin` throw SecurityError
+    untuk cross-origin iframe (videm.xyz/vidlink.pro) → di-swallow try/catch → "No video"
+  • BROWSER EXTENSION: manifest.json register content scripts dengan `all_frames: true`
+    + `matches: ["<all_urls>"]` → browser inject ke SEMUA frame, cross-origin included.
+    Extension bisa sync embed. ✅
+  • EasyShare mode (Beta): paste direct video URL, VT load di player sendiri — butuh
+    direct m3u8/mp4 URL yang unreliable untuk extract dari embed.
+- User correct: "bukannya video together bisa untuk embed juga?" → YES, via extension.
+- Reframe UI dari "terbatas/tidak tersedia" → "butuh ekstensi VideoTogether":
+  • Button tooltip: "Watch Party terbatas" → "Watch Party butuh ekstensi VideoTogether"
+  • Button aria-label: "limited (embed player)" → "butuh ekstensi VideoTogether untuk embed"
+  • Status dot title: "sync terbatas" → "butuh ekstensi VideoTogether"
+  • Modal subtitle: "tidak tersedia untuk film ini" → "butuh ekstensi untuk embed player"
+- Restructure embed modal body:
+  • Warning box (terracotta): jelasin KENAPA website version gagal (iframe cross-origin,
+    SecurityError) — bukan "VideoTogether tidak bisa"
+  • Positive statement: "Watch Party tetap bisa — gunakan ekstensi VideoTogether.
+    all_frames:true inject ke semua frame"
+  • PRIMARY CTA box (sage): "Solusi utama" + 3 store link buttons:
+    - Chrome (sage solid, prominent): chrome.google.com/webstore/detail/videotogether/imkinoccecmkmhckhbdkjckmcieglidi
+    - Firefox (neutral glass): addons.mozilla.org/firefox/addon/videotogether/
+    - Edge (neutral glass): microsoftedge.microsoft.com/addons/detail/videotogether/emmmijheaoeoocnekhbbnhhdnmflphco
+  • Alternatives box: Trending Now (native, no extension) + manual play
+- Verifikasi via agent-browser:
+  • Clayface (embed): button "Watch Party — butuh ekstensi VideoTogether untuk embed" ✓
+  • Modal: 3 store links (Chrome/Firefox/Edge) — all valid URLs ✓
+- VLM (glm-5v-turbo) konfirmasi: "effectively explains the technical limitation...
+  immediately offers the browser extension as a robust solution... helpful and
+  non-dismissive tone... Chrome/Firefox/Edge links highly prominent within dedicated
+  SOLUSI UTAMA section... excellent harmony with dark+sage+terracotta palette"
+
+Stage Summary:
+- Watch Party untuk embed film sekarang jelas BISA via ekstensi VideoTogether
+  (bukan "unavailable" lagi). 3 store link (Chrome/Firefox/Edge) prominent di modal.
+- Akurasi teknis: jelaskan distinction website version (limitasi browser security)
+  vs extension (all_frames:true bypass same-origin)
+- Tone: helpful + solution-oriented, bukan dismissive
+- Limitasi tersisa: tanpa ekstensi, embed film tetap tidak bisa sync — user arahkan
+  ke Trending Now (native) atau install extension (works for ALL embeds)

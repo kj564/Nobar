@@ -148,23 +148,15 @@ export async function GET(
   }
 
   // Set embed fallback URL (only used if mzfi fails)
-  // Direct cross-origin embed — videm.xyz/vidlink.pro player JS needs to
-  // make its own AJAX calls to fetch stream URLs, which breaks when proxied.
-  // VideoTogether website version can't sync cross-origin iframes (browser
-  // security) — for embed-only movies, users need the VT browser extension.
-  // Native MP4 movies (90%+ of catalog) work with VT without extension.
+  // Route through /api/embed/* (same-origin proxy with <base> tag).
+  // This makes VT sync work WITHOUT browser extension:
+  //   iframe src = /api/embed/123 → same-origin as page
+  //   VT injects into same-origin iframe → finds <video> → syncs
   if (result.sources.length === 0) {
-    if (imdbId) {
-      result.embedUrl =
-        kind === "tv"
-          ? `https://videm.xyz/embed/tv/${imdbId}/${season}/${episode}`
-          : `https://videm.xyz/embed/movie/${imdbId}`;
-    } else {
-      result.embedUrl =
-        kind === "tv"
-          ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
-          : `https://vidlink.pro/movie/${tmdbId}`;
-    }
+    result.embedUrl =
+      kind === "tv"
+        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}`
+        : `/api/embed/${tmdbId}?kind=movie`;
   }
 
   return NextResponse.json(result, {

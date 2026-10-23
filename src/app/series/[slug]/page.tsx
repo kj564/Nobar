@@ -123,12 +123,13 @@ export default async function SeriesDetailPage({ params }: PageProps) {
           )}
         </div>
 
-        {/* Player + server picker */}
+        {/* Player + server picker + season/episode selector */}
         <MoviePlayer
           videoId={detail.id}
           title={title}
           servers={SERVERS_TV as unknown as Server[]}
           kind="series"
+          seasons={detail.seasons}
         />
 
         {/* Description */}

@@ -344,12 +344,13 @@ export type Server = {
   recommended: boolean;
 };
 
-// Server patterns for TV series — vidsrc uses /tv/ instead of /movie/
+// Server patterns for TV series — support {season} and {episode} placeholders.
+// buildServerUrl() replaces these along with {video_id}.
 export const SERVERS_TV = [
   {
     id: "multiembed-tv",
     name: "Server 1 (Clean)",
-    pattern: "https://multiembed.mov/?video_id={video_id}",
+    pattern: "https://multiembed.mov/?video_id={video_id}&s={season}&e={episode}",
     quality: "1080p",
     load: 22,
     recommended: true,
@@ -357,7 +358,7 @@ export const SERVERS_TV = [
   {
     id: "embedsu-tv",
     name: "Server 2 (Fast)",
-    pattern: "https://embed.su/embed/tv/{video_id}/1/1",
+    pattern: "https://embed.su/embed/tv/{video_id}/{season}/{episode}",
     quality: "1080p",
     load: 28,
     recommended: false,
@@ -365,15 +366,18 @@ export const SERVERS_TV = [
   {
     id: "2embed-tv",
     name: "Server 3 (Backup)",
-    pattern: "https://www.2embed.cc/embedtv/{video_id}&s=1&e=1",
+    pattern: "https://www.2embed.cc/embedtv/{video_id}&s={season}&e={episode}",
     quality: "720p",
     load: 35,
     recommended: false,
   },
+  // vidsrc.to/sh have built-in season/episode selector in their player UI.
+  // Pattern below includes season/episode so they deep-link to the right
+  // episode, but user can still change via the embedded player's own UI.
   {
     id: "vidsrc-to-tv",
     name: "Server 4 (vidsrc.to)",
-    pattern: "https://vidsrc.to/embed/tv/{video_id}",
+    pattern: "https://vidsrc.to/embed/tv/{video_id}/{season}/{episode}",
     quality: "720p",
     load: 50,
     recommended: false,
@@ -381,7 +385,7 @@ export const SERVERS_TV = [
   {
     id: "vidsrc-sh-tv",
     name: "Server 5 (vidsrc.sh)",
-    pattern: "https://vidsrc.sh/embed/tv/{video_id}",
+    pattern: "https://vidsrc.sh/embed/tv/{video_id}/{season}-{episode}",
     quality: "720p",
     load: 45,
     recommended: false,
@@ -457,8 +461,20 @@ export function formatViews(count?: number | null): string {
   return String(count);
 }
 
-export function buildServerUrl(serverPattern: string, videoId: string | number): string {
-  return serverPattern.replace("{video_id}", encodeURIComponent(String(videoId)));
+export function buildServerUrl(
+  serverPattern: string,
+  videoId: string | number,
+  season?: number,
+  episode?: number
+): string {
+  let url = serverPattern.replace("{video_id}", encodeURIComponent(String(videoId)));
+  if (season !== undefined) {
+    url = url.replace("{season}", String(season));
+  }
+  if (episode !== undefined) {
+    url = url.replace("{episode}", String(episode));
+  }
+  return url;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -477,6 +493,38 @@ export type TMDBSeries = {
   vote_count?: number;
 };
 
+export type TMDBSeasonSummary = {
+  id: number;
+  name: string;
+  season_number: number;
+  episode_count: number;
+  air_date?: string;
+  poster_path?: string | null;
+  overview?: string;
+};
+
+export type TMDBEpisode = {
+  id: number;
+  name: string;
+  episode_number: number;
+  season_number: number;
+  air_date?: string;
+  runtime?: number | null;
+  overview?: string;
+  still_path?: string | null;
+  vote_average?: number;
+};
+
+export type TMDBSeasonDetail = {
+  id: number;
+  name: string;
+  season_number: number;
+  air_date?: string;
+  poster_path?: string | null;
+  overview?: string;
+  episodes: TMDBEpisode[];
+};
+
 export type TMDBSeriesDetail = TMDBSeries & {
   number_of_seasons?: number;
   number_of_episodes?: number;
@@ -484,6 +532,7 @@ export type TMDBSeriesDetail = TMDBSeries & {
   status?: string;
   genres?: TMDBGenre[];
   created_by?: Array<{ id: number; name: string; profile_path?: string | null }>;
+  seasons?: TMDBSeasonSummary[];
   credits?: {
     cast: TMDBCastMember[];
     crew: TMDBCrewMember[];
@@ -500,6 +549,15 @@ export async function fetchTVDetail(id: number): Promise<TMDBSeriesDetail> {
   return tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {
     append_to_response: "videos,credits,similar",
   });
+}
+
+// Fetch full season detail (with episode list) — used by series player
+// to render Season + Episode dropdowns.
+export async function fetchTVSeason(
+  tvId: number,
+  seasonNumber: number
+): Promise<TMDBSeasonDetail> {
+  return tmdbGet<TMDBSeasonDetail>(`/tv/${tvId}/season/${seasonNumber}`);
 }
 
 // ──────────────────────────────────────────────────────────────────────────

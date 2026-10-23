@@ -235,7 +235,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
-  // Fallback to embed — only when user clicks "Use Embed"
+  // Fallback to embed — only when user clicks "Use Embed" or API fails
   if (useEmbed || !activeSource) {
     const embedUrl = kind === "tv" && season && episode
       ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
@@ -263,12 +263,30 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     );
   }
 
-  // Loading state
+  // Loading state — shown while fetching stream
   if (loading) {
     return (
       <div className="relative bg-black aspect-video overflow-hidden rounded-lg flex items-center justify-center">
         <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
         <span className="absolute bottom-4 text-sm text-gray-400">Loading stream...</span>
+      </div>
+    );
+  }
+
+  // If native stream failed but we have error — show error + embed button
+  if (!activeSource && error) {
+    return (
+      <div className="space-y-2">
+        <div className="relative bg-black aspect-video overflow-hidden rounded-lg flex flex-col items-center justify-center gap-3">
+          <p className="text-sm text-gray-400">{error}</p>
+          <button
+            onClick={() => setUseEmbed(true)}
+            className="bg-brand-500 hover:bg-red-700 text-white font-semibold py-2 px-5 rounded-lg flex items-center gap-2 transition text-sm"
+          >
+            <Play className="w-4 h-4 fill-white" />
+            Use Embed Player
+          </button>
+        </div>
       </div>
     );
   }

@@ -82,16 +82,20 @@ export function MovieCard({
 export function SeriesCard({
   series,
   rank,
+  featured = false,
 }: {
   series: TMDBSeries;
   rank?: number;
+  featured?: boolean;
 }) {
   const title = series.name || series.title || "Untitled";
   const href = `/series/${slugify(series.name || series.title, series.first_air_date)}`;
   return (
     <Link
       href={href}
-      className="group cursor-pointer flex flex-col gap-2 fade-in"
+      className={`group cursor-pointer flex flex-col gap-2 fade-in ${
+        featured ? "flex-none w-40 md:w-48 snap-start" : ""
+      }`}
     >
       <div
         className="relative aspect-[2/3] rounded-lg overflow-hidden bg-cover bg-center bg-ink-800"

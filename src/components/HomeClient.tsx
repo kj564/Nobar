@@ -255,6 +255,7 @@ export function HomeClient({ categories, prerenderedSlugs }: HomeClientProps) {
                   key={s.id}
                   series={s}
                   rank={i + 1}
+                  featured
                 />
               ))}
             </div>

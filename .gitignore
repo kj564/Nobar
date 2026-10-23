@@ -49,3 +49,7 @@ server.log
 upload/
 skills/
 tool-results/
+
+# Dev artifacts
+.zscripts/
+agent-ctx/

@@ -119,23 +119,8 @@ export function MovieListingClient({ categories }: MovieListingClientProps) {
 
   return (
     <div className="min-h-screen flex flex-col bg-ink-950 text-white">
-      {/* Header — IDLIX pill style (shared component) */}
-      <Navbar>
-        <div className="relative w-[200px] sm:w-[280px]">
-          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Cari film, judul…"
-            autoComplete="off"
-            aria-label="Cari film"
-            onChange={(e) => handleSearchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && isSearching) exitSearch();
-            }}
-            className="w-full pl-9 pr-3 py-1.5 rounded-full bg-ink-800 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500/50 focus:bg-ink-700 transition"
-          />
-        </div>
-      </Navbar>
+      {/* Header — IDLIX pill style (shared, with search overlay) */}
+      <Navbar />
 
       {/* Body — pt-16 pushes content below fixed navbar */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 pt-24">

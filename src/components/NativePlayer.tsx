@@ -111,6 +111,10 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    // Force muted on load — browser blocks autoplay of unmuted videos.
+    // React's `muted` prop doesn't reliably set the property, so do it here.
+    v.muted = true;
+    setMuted(true);
     const handlers = {
       timeupdate: () => setCurrentTime(v.currentTime),
       durationchange: () => setDuration(v.duration || 0),
@@ -224,6 +228,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
           onClick={togglePlay}
           playsInline
           autoPlay
+          muted
         >
           {subtitles.map((sub, i) => (
             <track

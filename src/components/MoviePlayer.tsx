@@ -47,8 +47,16 @@ export function MoviePlayer({ videoId, title, servers, kind }: MoviePlayerProps)
               ? buildServerUrl(activeServer.pattern, videoId)
               : "about:blank"
           }
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
           allowFullScreen
+          // sandbox: blocks popunders, popups, top-level navigation, alert
+          // dialogs (fake virus warnings), window.open() — closest we can
+          // get to uBlock for cross-origin embeds. Player still works
+          // because allow-scripts + allow-same-origin are included.
+          // NOT included: allow-popups, allow-top-navigation, allow-modals
+          // (these enable ads/redirects/malicious alerts)
+          sandbox="allow-scripts allow-same-origin allow-presentation"
+          referrerPolicy="no-referrer"
         />
       </div>
 

@@ -113,6 +113,16 @@ export function HeroBanner({ movies }: HeroBannerProps) {
   const genres = detail?.genres?.slice(0, 3).map((g) => g.name).join(", ");
   const overview = movie.overview || "Belum ada sinopsis resmi untuk film ini.";
 
+  // Status badge — conditional based on TMDB detail.status.
+  // Shows "Ongoing" (green) for in-production/returning content.
+  // Shows "Ended"/"Canceled" (red) for finished content.
+  // Hidden for "Released" movies (default, no badge needed).
+  const status = detail?.status;
+  const ongoingStatuses = ["Returning Series", "In Production", "Post Production", "Planned", "Rumored", "Pilot"];
+  const endedStatuses = ["Ended", "Canceled"];
+  const isOngoing = status && ongoingStatuses.includes(status);
+  const isEnded = status && endedStatuses.includes(status);
+
   return (
     <div
       id="heroBannerSection"
@@ -213,10 +223,20 @@ export function HeroBanner({ movies }: HeroBannerProps) {
             </>
           )}
 
-          {/* Ongoing badge — outline style */}
-          <span className="border border-green-500 text-green-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-green-500/10 mt-2 sm:mt-0">
-            Ongoing
-          </span>
+          {/* Status badge — conditional based on TMDB detail.status.
+              Ongoing (green): Returning Series, In Production, Post Production, etc.
+              Ended (red): Ended, Canceled.
+              Hidden: Released (default for movies). */}
+          {isOngoing && (
+            <span className="border border-green-500 text-green-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-green-500/10 mt-2 sm:mt-0">
+              Ongoing
+            </span>
+          )}
+          {isEnded && (
+            <span className="border border-red-500 text-red-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-red-500/10 mt-2 sm:mt-0">
+              {status}
+            </span>
+          )}
         </div>
 
         {/* Synopsis — responsive line-clamp + fallback text.

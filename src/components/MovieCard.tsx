@@ -51,11 +51,6 @@ export function MovieCard({
           </span>
         )}
 
-        {/* S badge (top-right) — season indicator placeholder */}
-        <span className="absolute top-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/20 z-10">
-          S1
-        </span>
-
         {/* Bottom gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-0 pointer-events-none"></div>
 

@@ -49,6 +49,7 @@ export type TMDBCrewMember = { id: number; name: string; job?: string };
 export type TMDBMovieDetail = TMDBMovie & {
   runtime?: number | null;
   tagline?: string;
+  status?: string;
   genres?: TMDBGenre[];
   credits?: {
     cast: TMDBCastMember[];
@@ -113,6 +114,35 @@ export async function fetchMovieDetail(id: number): Promise<TMDBMovieDetail> {
   });
 }
 
+// Fetch movie genres dynamically from TMDB /genre/movie/list.
+// Replaces the previously hardcoded CATEGORIES array.
+export async function fetchMovieGenres(): Promise<TMDBGenre[]> {
+  return tmdbGet<{ genres: TMDBGenre[] }>("/genre/movie/list").then((d) => d.genres);
+}
+
+// Fetch TV genres dynamically from TMDB /genre/tv/list.
+export async function fetchTVGenres(): Promise<TMDBGenre[]> {
+  return tmdbGet<{ genres: TMDBGenre[] }>("/genre/tv/list").then((d) => d.genres);
+}
+
+// Category type used by listing pages — "trending" is a synthetic category
+// (no TMDB genre ID) that fetches /trending instead of /discover.
+export type Category = {
+  id: string | number;
+  name: string;
+  tmdbGenreId: number | null;
+};
+
+// Build categories dynamically: trending + all genres from TMDB.
+// Called at build time by server components.
+export async function fetchCategories(): Promise<Category[]> {
+  const genres = await fetchMovieGenres();
+  return [
+    { id: "trending", name: "Trending", tmdbGenreId: null },
+    ...genres.map((g) => ({ id: g.id, name: g.name, tmdbGenreId: g.id })),
+  ];
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Movie images (logos, posters, backdrops) — used by hero banner for
 // cinematic title logo display instead of plain text.
@@ -142,16 +172,9 @@ export async function fetchMovieImages(id: number): Promise<TMDBImages> {
   });
 }
 
-export const CATEGORIES = [
-  { id: "trending", name: "Trending", tmdbGenreId: null as number | null },
-  { id: 28, name: "Action", tmdbGenreId: 28 },
-  { id: 16, name: "Animation", tmdbGenreId: 16 },
-  { id: 35, name: "Comedy", tmdbGenreId: 35 },
-  { id: 18, name: "Drama", tmdbGenreId: 18 },
-  { id: 99, name: "Documentary", tmdbGenreId: 99 },
-  { id: 27, name: "Horror", tmdbGenreId: 27 },
-  { id: 10749, name: "Romance", tmdbGenreId: 10749 },
-] as const;
+// CATEGORIES removed — now fetched dynamically via fetchCategories()
+// (calls TMDB /genre/movie/list at build time). See fetchCategories() above.
+
 
 export const SERVERS = [
   {

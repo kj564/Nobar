@@ -322,34 +322,34 @@ export default async function MovieDetailPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Cast section */}
+        {/* Cast section — idlixku style: horizontal scroll, circular avatars */}
         {cast.length > 0 && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-bold text-white">Cast</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <div className="mt-10">
+            <h2 className="text-lg sm:text-xl font-bold text-white mb-5 font-display">Cast</h2>
+            <div className="flex gap-5 sm:gap-6 overflow-x-auto pb-4 -mx-1 px-1 scroll-row">
               {cast.map((p) => {
                 const initial = (p.name || "?").charAt(0);
                 return (
-                  <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5 hover:border-white/20 transition">
+                  <div key={p.id} className="flex-shrink-0 w-24 sm:w-28 text-center group">
                     {p.profile_path ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={posterUrl(p.profile_path)}
                         alt={p.name}
                         loading="lazy"
-                        className="w-12 h-12 rounded-full object-cover border border-white/10 flex-shrink-0"
+                        className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover mx-auto border-2 border-white/10 group-hover:border-brand-500/50 transition-all group-hover:scale-105"
                       />
                     ) : (
-                      <div className="w-12 h-12 rounded-full bg-ink-700 border border-white/10 flex items-center justify-center text-sm font-bold text-gray-400 flex-shrink-0">
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-ink-700 border-2 border-white/10 flex items-center justify-center text-2xl font-bold text-gray-400 mx-auto group-hover:border-brand-500/50 transition">
                         {initial}
                       </div>
                     )}
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-sm font-medium text-white truncate">{p.name}</span>
-                      {p.character && (
-                        <span className="text-xs text-gray-400 truncate">{p.character}</span>
-                      )}
-                    </div>
+                    <p className="text-sm font-medium text-white mt-2.5 line-clamp-2 leading-tight group-hover:text-brand-400 transition-colors">
+                      {p.name}
+                    </p>
+                    {p.character && (
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-1">{p.character}</p>
+                    )}
                   </div>
                 );
               })}

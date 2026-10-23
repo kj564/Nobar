@@ -692,3 +692,38 @@ Stage Summary:
   lazy subtitles, parallel TMDB fetch
 - Main stream response ~1s faster (saves subtitle fetch latency)
 - Subtitles still work — just fetched lazily when user opens the menu
+
+---
+Task ID: nobar-vercel-search-not-working
+Agent: main
+Task: Fix search Stranger Things tidak muncul di Vercel (workspace works)
+
+REAL ROOT CAUSE (bukan geography/timeout seperti dugaan sebelumnya):
+- Build Vercel GAGAL karena TypeScript error: "Duplicate identifier 'TMDBSeries'"
+  • Saat add type TMDBSeries baru (line 39, extends TMDBMovie), type lama (line 651)
+    belum dihapus → duplicate declaration
+  • Vercel build error → deployment gagal → Vercel tetap serve deployment LAMA
+    yang masih pakai /search/movie (movies-only, no media_type)
+  • Workspace dev server (next dev) TIDAK typecheck, jadi bug tidak terdeteksi
+    locally — cuma muncul saat `next build`
+
+DIAGNOSIS:
+- Vercel /api/search?q=stranger+things: 11 results, media_type=None (kode lama)
+- Workspace /api/search?q=stranger+things: 14 results, media_type='tv' (kode baru)
+- Bandingkan: Vercel masih serve deployment lama karena build terbaru gagal
+
+FIX: Hapus duplicate TMDBSeries type definition (line 651).
+TMDBSeries baru (line 39) sudah extends TMDBMovie yang punya semua fields.
+
+VERIFICATION (Vercel setelah rebuild):
+- Search "stranger things": 14 results, first = Stranger Things (2016) [tv] ✓
+  (was: 11 results, Stranger Things 2013 movie only, media_type=None)
+- Search "breaking bad": 15 results, first = Breaking Bad (2008) [tv] ✓
+- Search "game of thrones": 19 results, first = Game of Thrones [tv] ✓
+- Search "spider": 20 results, mixed movie + TV ✓
+
+PELAJARAN PENTING:
+- Selalu jalankan `bun run build` sebelum push untuk catch TypeScript errors
+- Dev server (next dev) tidak typecheck — bugs type hanya muncul saat build
+- Kalau Vercel behave differently dari workspace, check build logs dulu
+  (bukan langsung blame geography/timeout)

@@ -148,18 +148,14 @@ export async function GET(
   }
 
   // Set embed fallback URL (only used if mzfi fails)
+  // Route through /api/embed/* for same-origin — VideoTogether website
+  // version can then inject into the iframe and sync the <video> inside
+  // (cross-origin iframes are blocked by browser security).
   if (result.sources.length === 0) {
-    if (imdbId) {
-      result.embedUrl =
-        kind === "tv"
-          ? `https://videm.xyz/embed/tv/${imdbId}/${season}/${episode}`
-          : `https://videm.xyz/embed/movie/${imdbId}`;
-    } else {
-      result.embedUrl =
-        kind === "tv"
-          ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
-          : `https://vidlink.pro/movie/${tmdbId}`;
-    }
+    result.embedUrl =
+      kind === "tv"
+        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}`
+        : `/api/embed/${tmdbId}?kind=movie`;
   }
 
   return NextResponse.json(result, {

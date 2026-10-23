@@ -186,6 +186,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   }
 
   // Embed fallback (only when no direct stream available)
+  // embedUrl is now same-origin (/api/embed/*) so VideoTogether can sync it.
   if (useEmbed && embedUrl) {
     return (
       <div className="space-y-2">
@@ -196,10 +197,9 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
             src={embedUrl}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
-            referrerPolicy="no-referrer"
           />
         </div>
-        <p className="text-xs text-gray-500">Native stream not available for this title. Using embed player.</p>
+        <p className="text-xs text-gray-500">Embed player (same-origin proxy — VideoTogether compatible).</p>
       </div>
     );
   }

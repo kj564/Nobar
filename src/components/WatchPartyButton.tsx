@@ -228,17 +228,16 @@ export function WatchPartyButton() {
   };
 
   // Derive button appearance from video state.
-  // - "native": full sage glass — Watch Party is live and syncable (no extension needed).
-  // - "embed": muted terracotta-tinted — signals "install the VideoTogether extension
-  //   to sync this embed". VideoTogether CAN sync embeds, but only via the browser
-  //   extension (all_frames:true). The website version can't cross the iframe origin.
-  // - "checking": neutral while the player is still resolving its source.
+  // Aligned with hero pill pattern: h-11 rounded-full (matches Trailer/Watchlist/etc)
+  // - "native": sage glass — Watch Party is live (no extension needed)
+  // - "embed": terracotta tint — needs VideoTogether extension for embed
+  // - "checking": neutral while player resolves source
   const buttonClass =
     videoState === "native"
-      ? "group relative inline-flex items-center gap-2 bg-brand-500/15 hover:bg-brand-500/25 backdrop-blur text-brand-400 hover:text-brand-300 font-semibold py-2.5 px-4 rounded-lg transition-all border border-brand-500/30 hover:border-brand-500/50 disabled:opacity-50 disabled:cursor-wait overflow-hidden"
+      ? "group relative inline-flex items-center gap-2 bg-brand-500/15 hover:bg-brand-500/25 backdrop-blur text-brand-400 hover:text-brand-300 font-semibold h-11 px-5 rounded-full transition-all border border-brand-500/30 hover:border-brand-500/50 disabled:opacity-50 disabled:cursor-wait overflow-hidden"
       : videoState === "embed"
-        ? "group relative inline-flex items-center gap-2 bg-accent-500/10 hover:bg-accent-500/15 backdrop-blur text-accent-400/80 hover:text-accent-400 font-semibold py-2.5 px-4 rounded-lg transition-all border border-accent-500/25 hover:border-accent-500/40 disabled:opacity-50 disabled:cursor-wait overflow-hidden"
-        : "group relative inline-flex items-center gap-2 bg-white/5 hover:bg-white/10 backdrop-blur text-gray-400 hover:text-gray-300 font-semibold py-2.5 px-4 rounded-lg transition-all border border-white/10 hover:border-white/20 disabled:opacity-50 disabled:cursor-wait overflow-hidden";
+        ? "group relative inline-flex items-center gap-2 bg-accent-500/10 hover:bg-accent-500/15 backdrop-blur text-accent-400/80 hover:text-accent-400 font-semibold h-11 px-5 rounded-full transition-all border border-accent-500/25 hover:border-accent-500/40 disabled:opacity-50 disabled:cursor-wait overflow-hidden"
+        : "group relative inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur text-white font-semibold h-11 px-5 rounded-full transition-all border border-white/10 hover:border-white/20 disabled:opacity-50 disabled:cursor-wait overflow-hidden";
 
   const buttonLabel =
     videoState === "native"
@@ -276,14 +275,10 @@ export function WatchPartyButton() {
         className={buttonClass}
       >
         <span className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-        <Users className="w-4 h-4 relative z-10" />
+        <Users className="w-4 h-4 relative z-10 flex-shrink-0" />
         <span className="relative z-10 hidden sm:inline">{buttonLabel}</span>
-        <span className="relative z-10 sm:hidden">Party</span>
-        <span className="relative z-10 flex items-center gap-1">
+        <span className="relative z-10 flex items-center gap-1 flex-shrink-0">
           {statusDot}
-          {!loaded && (
-            <span className="text-[10px] text-brand-400/70">…</span>
-          )}
         </span>
       </button>
 

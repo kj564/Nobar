@@ -43,8 +43,10 @@ export function WatchPartyButton({ videoId }: WatchPartyButtonProps) {
       const checkInterval = setInterval(() => {
         if ((window as any).io) {
           clearInterval(checkInterval);
-          const socket = (window as any).io("/?XTransformPort=3032", {
-            transports: ["websocket"],
+          const socket = (window as any).io("/", {
+            transports: ["polling"],
+            path: "/socket.io",
+            query: { XTransformPort: "3032" },
           });
           socketRef.current = socket;
 

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2 } from "lucide-react";
-import { WatchParty } from "@/components/WatchParty";
 
 type StreamSource = {
   quality: string;
@@ -259,10 +258,9 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         </div>
       </div>
 
-      {/* Info bar + Watch Party */}
-      <div className="flex items-center justify-between text-xs text-gray-500 gap-3 flex-wrap">
+      {/* Info bar */}
+      <div className="flex items-center justify-between text-xs text-gray-500">
         <span>✓ Ad-free · <span className="text-gray-300">{activeSource.provider}</span> · {activeSource.quality}</span>
-        <WatchParty videoRef={videoRef} onSeek={seek} onPlay={togglePlay} onPause={togglePlay} />
       </div>
     </div>
   );

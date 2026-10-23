@@ -24,6 +24,7 @@ import {
 import { MoviePlayer } from "@/components/MoviePlayer";
 import { NativePlayer } from "@/components/NativePlayer";
 import { SeriesNativePlayer } from "@/components/SeriesNativePlayer";
+import { WatchPartyButton } from "@/components/WatchPartyButton";
 import { Navbar } from "@/components/Navbar";
 
 type PageProps = {
@@ -156,6 +157,8 @@ export default async function SeriesDetailPage({ params }: PageProps) {
                 <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
                 <span>Watch Now</span>
               </a>
+              {/* Watch Party — same position as IDLIX */}
+              <WatchPartyButton videoId={String(detail.id)} />
               <button className="bg-white/10 backdrop-blur hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg flex items-center gap-2 transition border border-white/10">
                 <Bookmark className="w-4 h-4" />
                 <span className="hidden sm:inline">Watchlist</span>

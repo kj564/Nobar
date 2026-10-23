@@ -727,3 +727,67 @@ PELAJARAN PENTING:
 - Dev server (next dev) tidak typecheck — bugs type hanya muncul saat build
 - Kalau Vercel behave differently dari workspace, check build logs dulu
   (bukan langsung blame geography/timeout)
+
+---
+Task ID: nobar-idlix-ui-polish
+Agent: main
+Task: Apply idlixku UI/UX polish patterns to Nobar
+
+Work Log:
+- Research subagent RE idlixku (53KB report at research/idlix-ui-research.md)
+- Applied polish patterns to globals.css + components:
+
+1. MOTION TOKENS (idlixku secret sauce):
+   - --motion-dur-fast: 0.14s, base: 0.2s, sheet: 0.26s, slow: 0.32s, loop: 1.6s
+   - --motion-ease-standard: cubic-bezier(0.4,0,0.2,1)
+   - --motion-ease-expo: cubic-bezier(0.16,1,0.3,1) (expo-out)
+   - --motion-ease-sheet: cubic-bezier(0.32,0.72,0,1)
+
+2. CARD POLISH (MovieCard/SeriesCard):
+   - Hover scale 1.05 + z-index 20 (Netflix pop)
+   - Ring border: white/5 → brand-500/50 on hover
+   - Rank numbers: stroke italic (-webkit-text-stroke 2px white/35%)
+   - Quality badges (color-coded): q-1080=gold, q-720=cyan, q-480=sage, q-360=gray
+   - TV badge: sage gradient + glow
+   - Play button overlay: brand-500/90 + ring-2 ring-white/20
+   - Title hover: text-brand-400 transition
+
+3. HERO CTA (idlixku diagonal gradient):
+   - .hero-cta-primary: linear-gradient(135deg, brand-500, brand-600)
+   - ::before pseudo: white/15 sheen on hover
+   - box-shadow: 0 8px 24px -8px brand-500/50 on hover
+
+4. DETAIL PAGE NETFLIX PULL-UP:
+   - .detail-pull-up: margin-top -180/-200/-240px (responsive)
+   - Content overlaps backdrop hero (classic Netflix/idlixku pattern)
+   - Hero height: 65svh (was 55vh) — taller, more cinematic
+   - Title: drop-shadow-2xl for depth
+   - Badge: rounded-md + shadow-lg
+
+5. MODAL BLUR-IN (idlixku entrance):
+   - .modal-panel: filter blur(2px) → 0 + scale(0.97) → 1
+   - Transition: sheet ease + 0.26s duration
+
+6. NAVBAR PILL:
+   - .nav-pill: border-radius 999px + active state bg brand-500/15
+   - Logo: group-hover:scale-105
+
+7. SECTION HEADERS:
+   - Accent bar: w-1 h-6 bg-brand-500 rounded-full
+   - font-display (Plus Jakarta Sans)
+   - section-enter animation (staggered blur+translate)
+
+8. SKELETON + FADE-IN:
+   - shimmer: 1.6s loop (was 1.4s)
+   - fadeInUp: blur(2px) → 0 + translateY(12px) → 0 + expo ease
+
+9. MOBILE BOTTOM BAR (idlixku np-bar):
+   - Fixed bottom, backdrop-blur, safe-area-inset padding
+   - Pill-shaped items, active state brand-400
+
+VERIFICATION:
+- bun run build: passes ✓
+- Browser home: section headers with accent bars, cards with quality badges ✓
+- Browser movie detail: pull-up overlap, hero CTA, polished ✓
+- 0 console errors ✓
+- VLM: "high level of polish... professional and cohesive"

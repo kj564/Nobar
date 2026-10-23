@@ -30,10 +30,10 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
           {/* Left: Logo + Nav links */}
           <div className="flex items-center gap-6 lg:gap-8">
             <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
-              <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition">
+              <div className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition-all group-hover:scale-105">
                 <Play className="w-5 h-5 fill-white" />
               </div>
-              <span className="text-xl font-black uppercase tracking-tighter text-white">
+              <span className="text-xl font-black uppercase tracking-tighter text-white font-display">
                 No<span className="text-brand-500">bar</span>
               </span>
             </Link>
@@ -45,10 +45,10 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
                   <Link
                     key={item.label}
                     href={item.href}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition ${
+                    className={`nav-pill flex items-center gap-2 px-4 py-2 text-sm font-semibold transition ${
                       isActive
-                        ? "bg-brand-500/20 text-brand-500"
-                        : "text-gray-300 hover:text-white"
+                        ? "active"
+                        : "text-gray-300 hover:text-white hover:bg-white/5"
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />

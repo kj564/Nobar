@@ -169,10 +169,13 @@ export function HomeClient({ categories }: HomeClientProps) {
       <HeroBanner movies={featured} />
 
       {/* Featured Movies — Trending Now (horizontal scroll, IDLIX style) */}
-      <section id="featured" className="w-full bg-black px-3 sm:px-5 py-10">
+      <section id="featured" className="w-full bg-black px-3 sm:px-5 py-10 section-enter">
         <div className="max-w-[1520px] mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-white text-2xl font-bold">Trending Now</h2>
+            <h2 className="text-white text-2xl font-bold font-display flex items-center gap-3">
+              <span className="w-1 h-6 bg-brand-500 rounded-full"></span>
+              Trending Now
+            </h2>
           </div>
           {featured.length === 0 ? (
             <div className="flex gap-4 overflow-x-auto pb-4">
@@ -198,10 +201,11 @@ export function HomeClient({ categories }: HomeClientProps) {
       </section>
 
       {/* TV Series Trending (horizontal scroll, IDLIX style) */}
-      <section id="series" className="w-full bg-black px-3 sm:px-5 py-10">
+      <section id="series" className="w-full bg-black px-3 sm:px-5 py-10 section-enter">
         <div className="max-w-[1520px] mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-white text-2xl font-bold flex items-center gap-3">
+            <h2 className="text-white text-2xl font-bold font-display flex items-center gap-3">
+              <span className="w-1 h-6 bg-brand-500 rounded-full"></span>
               <Tv className="w-6 h-6 text-brand-500" />
               Trending Series
             </h2>

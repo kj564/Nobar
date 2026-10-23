@@ -26,6 +26,16 @@
 
   --font-sans: "Inter", system-ui, sans-serif;
   --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
+
+  /* ── Motion tokens (idlixku-inspired) ── */
+  --motion-dur-fast: 0.14s;
+  --motion-dur-base: 0.2s;
+  --motion-dur-sheet: 0.26s;
+  --motion-dur-slow: 0.32s;
+  --motion-dur-loop: 1.6s;
+  --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 :root {
@@ -43,7 +53,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom scrollbar — slim, sage-tinted */
+/* ── Custom scrollbar — slim, sage-tinted ── */
 .scroll-row {
   scrollbar-width: thin;
   scrollbar-color: rgba(134, 167, 137, 0.3) transparent;
@@ -62,62 +72,147 @@ body {
   background: rgba(134, 167, 137, 0.5);
 }
 
-/* Header scroll state */
+/* ── Header scroll state ── */
 #header.scrolled {
   background: rgba(30, 32, 34, 0.92);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-/* Video card */
+/* ── Video card (idlixku polish: scale 1.05, z-index 20, blur-in play) ── */
 .video-card {
   cursor: pointer;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  transition: transform var(--motion-dur-base) var(--motion-ease-standard),
+              box-shadow var(--motion-dur-base) var(--motion-ease-standard),
+              z-index 0s;
 }
 .video-card:hover {
-  transform: translateY(-4px);
+  transform: scale(1.05);
+  z-index: 20;
 }
 .video-card:hover .card-thumb img {
-  transform: scale(1.06);
+  transform: scale(1.08);
 }
 .video-card:hover .card-play {
   opacity: 1;
   transform: scale(1);
 }
+.video-card:hover .card-info {
+  opacity: 1;
+  transform: translateY(0);
+}
 .card-thumb img {
-  transition: transform 0.45s ease;
+  transition: transform var(--motion-dur-slow) var(--motion-ease-standard);
 }
 .card-play {
   opacity: 0;
   transform: scale(0.85);
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity var(--motion-dur-base) var(--motion-ease-standard),
+              transform var(--motion-dur-base) var(--motion-ease-standard);
+}
+/* Hover info panel (idlixku-style reveal) */
+.card-info {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--motion-dur-base) var(--motion-ease-standard),
+              transform var(--motion-dur-base) var(--motion-ease-standard);
 }
 
-/* Modal */
+/* ── Rank numbers (idlixku stroke italic style) ── */
+.rank-number {
+  color: transparent;
+  -webkit-text-stroke: 2px rgba(255, 255, 255, 0.35);
+  font-style: italic;
+  font-weight: 800;
+  font-family: var(--font-display);
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Quality badges (idlixku per-quality color coding) ── */
+.quality-badge {
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.quality-badge.q-1080, .quality-badge.q-fhd {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.25), rgba(212, 175, 55, 0.1));
+  border-color: rgba(212, 175, 55, 0.5);
+  color: #ffd700;
+  box-shadow: 0 0 8px rgba(212, 175, 55, 0.2);
+}
+.quality-badge.q-720, .quality-badge.q-hd {
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.25), rgba(34, 211, 238, 0.1));
+  border-color: rgba(34, 211, 238, 0.5);
+  color: #22d3ee;
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.2);
+}
+.quality-badge.q-480 {
+  background: linear-gradient(135deg, rgba(134, 167, 137, 0.25), rgba(134, 167, 137, 0.1));
+  border-color: rgba(134, 167, 137, 0.5);
+  color: var(--color-brand-400);
+}
+.quality-badge.q-360 {
+  background: linear-gradient(135deg, rgba(156, 163, 175, 0.25), rgba(156, 163, 175, 0.1));
+  border-color: rgba(156, 163, 175, 0.5);
+  color: #9ca3af;
+}
+
+/* ── TV badge (series indicator) ── */
+.tv-badge {
+  background: linear-gradient(135deg, rgba(134, 167, 137, 0.25), rgba(134, 167, 137, 0.05));
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(134, 167, 137, 0.4);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--color-brand-400);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  box-shadow: 0 0 8px rgba(134, 167, 137, 0.15);
+}
+
+/* ── Modal/dialog (idlixku blur-in entrance) ── */
 .modal-open {
   overflow: hidden;
 }
 .modal-backdrop {
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--motion-dur-base) var(--motion-ease-standard);
 }
 .modal-panel {
-  transform: translateY(1rem);
+  transform: translateY(1rem) scale(0.97);
   opacity: 0;
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  filter: blur(2px);
+  transition: transform var(--motion-dur-sheet) var(--motion-ease-sheet),
+              opacity var(--motion-dur-base) var(--motion-ease-standard),
+              filter var(--motion-dur-base) var(--motion-ease-standard);
 }
 .modal-open-state .modal-backdrop {
   opacity: 1;
 }
 .modal-open-state .modal-panel {
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
   opacity: 1;
+  filter: blur(0);
 }
 
-/* Server button — sage green active */
+/* ── Server button — sage green active ── */
 .server-btn {
   position: relative;
-  transition: all 0.2s ease;
+  transition: all var(--motion-dur-base) var(--motion-ease-standard);
 }
 .server-btn.active {
   background: var(--color-brand-500);
@@ -133,34 +228,93 @@ body {
   pointer-events: none;
 }
 
-/* Toast */
+/* ── Toast ── */
 .toast-show {
   opacity: 1 !important;
   transform: translate(-50%, 0) !important;
 }
 
-/* Skeleton shimmer */
+/* ── Skeleton shimmer (idlixku-style: exact layout match) ── */
 .skeleton {
   background: linear-gradient(90deg, #313437 25%, #3A3D41 50%, #313437 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.4s infinite;
+  animation: shimmer var(--motion-dur-loop) infinite linear;
 }
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-/* Fade-in */
+/* ── Fade-in (idlixku-style: blur + translate + scale) ── */
 .fade-in {
-  animation: fadeInUp 0.5s ease forwards;
+  animation: fadeInUp var(--motion-dur-slow) var(--motion-ease-expo) forwards;
   opacity: 0;
 }
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(12px); filter: blur(2px); }
+  to   { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 
-/* Subtitle styling for HTML5 <video> <track> elements */
+/* ── Section entrance (staggered) ── */
+.section-enter {
+  animation: sectionEnter var(--motion-dur-slow) var(--motion-ease-expo) forwards;
+  opacity: 0;
+}
+@keyframes sectionEnter {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Hero CTA (idlixku diagonal gradient) ── */
+.hero-cta-primary {
+  background: linear-gradient(135deg, var(--color-brand-500), var(--color-brand-600));
+  position: relative;
+  overflow: hidden;
+}
+.hero-cta-primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), transparent 50%);
+  opacity: 0;
+  transition: opacity var(--motion-dur-base) var(--motion-ease-standard);
+}
+.hero-cta-primary:hover::before {
+  opacity: 1;
+}
+.hero-cta-primary:hover {
+  box-shadow: 0 8px 24px -8px rgba(134, 167, 137, 0.5);
+}
+
+/* ── Detail page Netflix pull-up overlap (idlixku pattern) ── */
+.detail-pull-up {
+  margin-top: -180px;
+  position: relative;
+  z-index: 10;
+}
+@media (min-width: 768px) {
+  .detail-pull-up {
+    margin-top: -200px;
+  }
+}
+@media (min-width: 1024px) {
+  .detail-pull-up {
+    margin-top: -240px;
+  }
+}
+
+/* ── Pill nav link (idlixku-style rounded full) ── */
+.nav-pill {
+  border-radius: 999px;
+  transition: background-color var(--motion-dur-base) var(--motion-ease-standard),
+              color var(--motion-dur-base) var(--motion-ease-standard);
+}
+.nav-pill.active {
+  background: rgba(134, 167, 137, 0.15);
+  color: var(--color-brand-400);
+}
+
+/* ── Subtitle styling for HTML5 <video> <track> elements ── */
 video::cue {
   background: rgba(0, 0, 0, 0.75);
   color: #F8F9FA;
@@ -185,12 +339,6 @@ video::cue(b) {
 
 /* ───────────────────────────────────────────────────────────────
    VideoTogether panel — host-level harmonization
-   The website version (vt.en-us.website.js) injects its UI into a
-   SHADOW DOM inside #VideoTogetherWrapper. External CSS cannot
-   penetrate the shadow boundary, so here we only style the host
-   (positioning / z-index / entrance animation). The internal
-   harmonization (dark glass, sage accents) is injected as a
-   <style> tag into the shadowRoot by WatchPartyButton.tsx.
    ─────────────────────────────────────────────────────────────── */
 #VideoTogetherWrapper {
   z-index: 90 !important;
@@ -200,4 +348,39 @@ video::cue(b) {
 @keyframes vt-host-fade-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Mobile bottom tab bar (idlixku np-bar pattern) ── */
+@media (max-width: 767px) {
+  .mobile-bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: rgba(30, 32, 34, 0.95);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+  }
+  .mobile-bottom-bar a,
+  .mobile-bottom-bar button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    color: rgba(248, 249, 250, 0.5);
+    font-size: 10px;
+    font-weight: 600;
+    transition: color var(--motion-dur-fast) var(--motion-ease-standard);
+  }
+  .mobile-bottom-bar a.active,
+  .mobile-bottom-bar button.active {
+    color: var(--color-brand-400);
+  }
 }

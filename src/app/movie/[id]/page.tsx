@@ -144,28 +144,29 @@ export default async function MovieDetailPage({ params }: PageProps) {
         </Link>
       </Navbar>
 
-      {/* ─── Backdrop Hero Section (idlfix-style) ─── */}
-      <section className="relative w-full h-[55vh] min-h-[400px] max-h-[600px] overflow-hidden">
+      {/* ─── Backdrop Hero Section (idlixku-polished) ─── */}
+      <section className="relative w-full h-[65svh] min-h-[420px] max-h-[600px] overflow-hidden">
         {backdrop ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={backdrop}
             alt={title}
-            className="absolute inset-0 w-full h-full object-cover"
+            fetchPriority="high"
+            className="absolute inset-0 w-full h-full object-cover opacity-90"
           />
         ) : (
           <div className="absolute inset-0 bg-ink-900" />
         )}
-        {/* Gradient overlays */}
+        {/* Gradient overlays — idlixku dual layer (bottom + left) */}
         <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/60 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-ink-950 via-ink-950/40 to-transparent" />
 
         {/* Content overlay — bottom left */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 md:px-12 lg:px-16 pb-8 pt-16">
+        <div className="absolute bottom-0 left-0 right-0 px-6 md:px-12 lg:px-16 pb-10 pt-20">
           <div className="max-w-2xl space-y-4">
             {/* Badge */}
             <div className="flex items-center gap-2">
-              <span className="bg-brand-500 text-white text-[11px] font-bold px-3 py-1 rounded uppercase tracking-wider inline-flex items-center gap-1.5">
+              <span className="bg-brand-500 text-white text-[11px] font-bold px-3 py-1 rounded-md uppercase tracking-wider inline-flex items-center gap-1.5 shadow-lg shadow-brand-500/20">
                 <Film className="w-3 h-3" />
                 Film
               </span>
@@ -174,10 +175,13 @@ export default async function MovieDetailPage({ params }: PageProps) {
                   {detail.status}
                 </span>
               )}
+              {detail.vote_average && detail.vote_average >= 8 && (
+                <span className="quality-badge q-1080">HD</span>
+              )}
             </div>
 
             {/* Title */}
-            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight text-balance">
+            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight text-balance drop-shadow-2xl">
               {title}
             </h1>
 
@@ -216,7 +220,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <a
                 href="#player"
-                className="bg-brand-500 hover:bg-brand-600 text-white font-semibold py-2.5 px-7 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-brand-500/30 group"
+                className="hero-cta-primary text-white font-semibold py-2.5 px-7 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-brand-500/30 group"
               >
                 <Play className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
                 <span>Watch Now</span>
@@ -249,8 +253,8 @@ export default async function MovieDetailPage({ params }: PageProps) {
         </div>
       </section>
 
-      {/* ─── Body Content ─── */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 py-8 space-y-10">
+      {/* ─── Body Content (idlixku Netflix pull-up overlap) ─── */}
+      <main className="detail-pull-up flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 py-8 space-y-10">
         {/* Player — native player (direct MP4, no ads) + embed fallback */}
         <div id="player" className="space-y-4 scroll-mt-20">
           <h2 className="text-lg font-bold text-white">Player</h2>

@@ -312,11 +312,11 @@ export const SERVERS = [
     recommended: true,
   },
   {
-    id: "moviebox",
-    name: "Server 2 (MovieBox)",
-    pattern: "https://mzfi.me/spa/videoPlayPage/movies/{video_id}",
+    id: "videasy",
+    name: "Server 2 (VidEasy)",
+    pattern: "https://player.videasy.net/movie/{video_id}",
     quality: "1080p",
-    load: 25,
+    load: 22,
     recommended: false,
   },
   {
@@ -349,11 +349,11 @@ export const SERVERS_TV = [
     recommended: true,
   },
   {
-    id: "moviebox-tv",
-    name: "Server 2 (MovieBox)",
-    pattern: "https://mzfi.me/spa/videoPlayPage/movies/{video_id}",
+    id: "videasy-tv",
+    name: "Server 2 (VidEasy)",
+    pattern: "https://player.videasy.net/tv/{video_id}/{season}/{episode}",
     quality: "1080p",
-    load: 25,
+    load: 22,
     recommended: false,
   },
   {

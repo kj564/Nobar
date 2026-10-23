@@ -304,24 +304,32 @@ export async function fetchMovieImages(id: number): Promise<TMDBImages> {
 
 export const SERVERS = [
   {
-    id: "multiembed",
+    id: "videasy",
     name: "Server 1 (Clean)",
-    pattern: "https://multiembed.mov/?video_id={video_id}",
+    pattern: "https://player.videasy.net/movie/{video_id}",
     quality: "1080p",
-    load: 22,
+    load: 18,
     recommended: true,
   },
   {
-    id: "embedsu",
+    id: "autoembed",
     name: "Server 2 (Fast)",
-    pattern: "https://embed.su/embed/movie/{video_id}",
+    pattern: "https://player.autoembed.cc/embed/movie/{video_id}",
+    quality: "1080p",
+    load: 22,
+    recommended: false,
+  },
+  {
+    id: "multiembed",
+    name: "Server 3 (Multi)",
+    pattern: "https://multiembed.mov/?video_id={video_id}&tmdb=1",
     quality: "1080p",
     load: 28,
     recommended: false,
   },
   {
     id: "2embed",
-    name: "Server 3 (Backup)",
+    name: "Server 4 (2Embed)",
     pattern: "https://www.2embed.cc/embed/{video_id}",
     quality: "720p",
     load: 35,
@@ -329,18 +337,10 @@ export const SERVERS = [
   },
   {
     id: "vidsrc-to",
-    name: "Server 4 (vidsrc.to)",
+    name: "Server 5 (vidsrc.to)",
     pattern: "https://vidsrc.to/embed/movie/{video_id}",
     quality: "720p",
     load: 50,
-    recommended: false,
-  },
-  {
-    id: "vidsrc-sh",
-    name: "Server 5 (vidsrc.sh)",
-    pattern: "https://vidsrc.sh/embed/movie/{video_id}",
-    quality: "720p",
-    load: 45,
     recommended: false,
   },
 ] as const;
@@ -355,49 +355,45 @@ export type Server = {
 };
 
 // Server patterns for TV series — support {season} and {episode} placeholders.
-// buildServerUrl() replaces these along with {video_id}.
 export const SERVERS_TV = [
   {
-    id: "multiembed-tv",
+    id: "videasy-tv",
     name: "Server 1 (Clean)",
-    pattern: "https://multiembed.mov/?video_id={video_id}&s={season}&e={episode}",
+    pattern: "https://player.videasy.net/tv/{video_id}/{season}/{episode}",
     quality: "1080p",
-    load: 22,
+    load: 18,
     recommended: true,
   },
   {
-    id: "embedsu-tv",
+    id: "autoembed-tv",
     name: "Server 2 (Fast)",
-    pattern: "https://embed.su/embed/tv/{video_id}/{season}/{episode}",
+    pattern: "https://player.autoembed.cc/embed/tv/{video_id}/{season}/{episode}",
+    quality: "1080p",
+    load: 22,
+    recommended: false,
+  },
+  {
+    id: "multiembed-tv",
+    name: "Server 3 (Multi)",
+    pattern: "https://multiembed.mov/?video_id={video_id}&tmdb=1&s={season}&e={episode}",
     quality: "1080p",
     load: 28,
     recommended: false,
   },
   {
     id: "2embed-tv",
-    name: "Server 3 (Backup)",
+    name: "Server 4 (2Embed)",
     pattern: "https://www.2embed.cc/embedtv/{video_id}&s={season}&e={episode}",
     quality: "720p",
     load: 35,
     recommended: false,
   },
-  // vidsrc.to/sh have built-in season/episode selector in their player UI.
-  // Pattern below includes season/episode so they deep-link to the right
-  // episode, but user can still change via the embedded player's own UI.
   {
     id: "vidsrc-to-tv",
-    name: "Server 4 (vidsrc.to)",
+    name: "Server 5 (vidsrc.to)",
     pattern: "https://vidsrc.to/embed/tv/{video_id}/{season}/{episode}",
     quality: "720p",
     load: 50,
-    recommended: false,
-  },
-  {
-    id: "vidsrc-sh-tv",
-    name: "Server 5 (vidsrc.sh)",
-    pattern: "https://vidsrc.sh/embed/tv/{video_id}/{season}-{episode}",
-    quality: "720p",
-    load: 45,
     recommended: false,
   },
 ] as const;

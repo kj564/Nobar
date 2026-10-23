@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Search as SearchIcon, X } from "lucide-react";
 import {
   fetchTrending,
   fetchByGenre,
   searchMovies,
-  slugify,
   type TMDBMovie,
   type TMDBPaged,
   type Category,
@@ -16,11 +15,9 @@ import { Navbar } from "@/components/Navbar";
 
 type MovieListingClientProps = {
   categories: Category[];
-  prerenderedSlugs: string[];
 };
 
-export function MovieListingClient({ categories, prerenderedSlugs }: MovieListingClientProps) {
-  const slugSet = useMemo(() => new Set(prerenderedSlugs), [prerenderedSlugs]);
+export function MovieListingClient({ categories }: MovieListingClientProps) {
   const [activeCategory, setActiveCategory] = useState<Category>(categories[0]);
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [page, setPage] = useState(1);
@@ -54,14 +51,7 @@ export function MovieListingClient({ categories, prerenderedSlugs }: MovieListin
         let data: TMDBPaged<TMDBMovie>;
         if (searching && query) {
           data = await searchMovies(query, targetPage);
-          // Filter search results to only show movies with pre-rendered detail pages.
-          // Prevents 404 on click for movies not in the pre-render set.
-          data = {
-            ...data,
-            results: data.results.filter((m) =>
-              slugSet.has(slugify(m.title || m.name, m.release_date))
-            ),
-          };
+          // No filter needed — dynamic routes handle ANY TMDB movie ID.
         } else if (cat.tmdbGenreId === null) {
           data = await fetchTrending(targetPage);
         } else {
@@ -84,7 +74,7 @@ export function MovieListingClient({ categories, prerenderedSlugs }: MovieListin
         setLoadingMore(false);
       }
     },
-    [isSearching, searchQuery, slugSet]
+    [isSearching, searchQuery]
   );
 
   // Initial load

@@ -28,7 +28,7 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
       id="header"
       className="fixed top-0 inset-x-0 z-40 transition-all duration-300"
     >
-      <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <nav className="max-w-7xl mx-auto px-6 md:px-12 lg:px-16">
         <div className="flex items-center justify-between h-16 gap-4">
           {/* Left: Logo + Nav pills (IDLIX style) */}
           <div className="flex items-center gap-8">

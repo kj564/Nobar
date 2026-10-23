@@ -658,6 +658,7 @@ export type TMDBSeriesDetail = TMDBSeries & {
   number_of_episodes?: number;
   episode_run_time?: number[];
   status?: string;
+  tagline?: string;
   genres?: TMDBGenre[];
   created_by?: Array<{ id: number; name: string; profile_path?: string | null }>;
   seasons?: TMDBSeasonSummary[];

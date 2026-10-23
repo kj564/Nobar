@@ -50,6 +50,7 @@ export type TMDBMovieDetail = TMDBMovie & {
   runtime?: number | null;
   tagline?: string;
   status?: string;
+  imdb_id?: string;
   genres?: TMDBGenre[];
   credits?: {
     cast: TMDBCastMember[];
@@ -304,17 +305,17 @@ export async function fetchMovieImages(id: number): Promise<TMDBImages> {
 
 export const SERVERS = [
   {
-    id: "vidlink",
-    name: "Server 1 (VidLink)",
-    pattern: "https://vidlink.pro/movie/{video_id}",
+    id: "videm",
+    name: "Server 1 (Videm)",
+    pattern: "https://videm.xyz/embed/movie/{imdb_id}",
     quality: "1080p",
     load: 18,
     recommended: true,
   },
   {
-    id: "videasy",
-    name: "Server 2 (VidEasy)",
-    pattern: "https://player.videasy.to/movie/{video_id}",
+    id: "vidlink",
+    name: "Server 2 (VidLink)",
+    pattern: "https://vidlink.pro/movie/{video_id}",
     quality: "1080p",
     load: 22,
     recommended: false,
@@ -341,17 +342,17 @@ export type Server = {
 // Server patterns for TV series — support {season} and {episode} placeholders.
 export const SERVERS_TV = [
   {
-    id: "vidlink-tv",
-    name: "Server 1 (VidLink)",
-    pattern: "https://vidlink.pro/tv/{video_id}/{season}/{episode}",
+    id: "videm-tv",
+    name: "Server 1 (Videm)",
+    pattern: "https://videm.xyz/embed/tv/{imdb_id}/{season}/{episode}",
     quality: "1080p",
     load: 18,
     recommended: true,
   },
   {
-    id: "videasy-tv",
-    name: "Server 2 (VidEasy)",
-    pattern: "https://player.videasy.to/tv/{video_id}/{season}/{episode}",
+    id: "vidlink-tv",
+    name: "Server 2 (VidLink)",
+    pattern: "https://vidlink.pro/tv/{video_id}/{season}/{episode}",
     quality: "1080p",
     load: 22,
     recommended: false,
@@ -472,9 +473,13 @@ export function buildServerUrl(
   serverPattern: string,
   videoId: string | number,
   season?: number,
-  episode?: number
+  episode?: number,
+  imdbId?: string
 ): string {
   let url = serverPattern.replace("{video_id}", encodeURIComponent(String(videoId)));
+  if (imdbId) {
+    url = url.replace("{imdb_id}", encodeURIComponent(imdbId));
+  }
   if (season !== undefined) {
     url = url.replace("{season}", String(season));
   }
@@ -660,6 +665,7 @@ export type TMDBSeriesDetail = TMDBSeries & {
   episode_run_time?: number[];
   status?: string;
   tagline?: string;
+  imdb_id?: string;
   genres?: TMDBGenre[];
   created_by?: Array<{ id: number; name: string; profile_path?: string | null }>;
   seasons?: TMDBSeasonSummary[];

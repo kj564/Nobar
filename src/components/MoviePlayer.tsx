@@ -16,6 +16,7 @@ type MoviePlayerProps = {
   servers: ReadonlyArray<Server>;
   kind: "movie" | "series";
   seasons?: TMDBSeasonSummary[];
+  imdbId?: string;
 };
 
 export function MoviePlayer({
@@ -24,6 +25,7 @@ export function MoviePlayer({
   servers,
   kind,
   seasons,
+  imdbId,
 }: MoviePlayerProps) {
   const [activeServer, setActiveServer] = useState<Server | null>(
     servers.find((s) => s.recommended) || servers[0] || null
@@ -100,8 +102,8 @@ export function MoviePlayer({
   // Build iframe src — for series include season + episode
   const iframeSrc = activeServer
     ? kind === "series"
-      ? buildServerUrl(activeServer.pattern, videoId, activeSeason, activeEpisode)
-      : buildServerUrl(activeServer.pattern, videoId)
+      ? buildServerUrl(activeServer.pattern, videoId, activeSeason, activeEpisode, imdbId)
+      : buildServerUrl(activeServer.pattern, videoId, undefined, undefined, imdbId)
     : "about:blank";
 
   return (

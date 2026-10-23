@@ -23,7 +23,6 @@ import {
   type Server,
 } from "@/lib/tmdb";
 import { MoviePlayer } from "@/components/MoviePlayer";
-import { NativePlayer } from "@/components/NativePlayer";
 import { Navbar } from "@/components/Navbar";
 
 type PageProps = {
@@ -178,10 +177,16 @@ export default async function MovieDetailPage({ params }: PageProps) {
 
       {/* ─── Body Content ─── */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 md:px-12 lg:px-16 py-8 space-y-10">
-        {/* Player section — native player (SSSE) with embed-on-demand fallback */}
+        {/* Player section — embed iframe (movie-web.click approach) */}
         <div id="player" className="space-y-4 scroll-mt-20">
           <h2 className="text-lg font-bold text-white">Player</h2>
-          <NativePlayer tmdbId={detail.id} title={title} />
+          <MoviePlayer
+            videoId={detail.id}
+            title={title}
+            servers={SERVERS as unknown as Server[]}
+            kind="movie"
+            imdbId={detail.imdb_id}
+          />
         </div>
 
         {/* Overview + Info grid */}

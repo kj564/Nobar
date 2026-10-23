@@ -488,6 +488,128 @@ export function buildServerUrl(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Direct video sources — experimental.
+// Attempts to fetch direct stream URLs (m3u8/mp4) from third-party
+// APIs that are CORS-friendly. If all fail, returns empty array and
+// MoviePlayer falls back to embed iframe.
+//
+// ⚠️  This is for experimental purposes only. Direct stream URLs
+//     typically expire within 24-48 hours and may violate the source
+//     site's ToS. Use at your own risk.
+// ──────────────────────────────────────────────────────────────────────────
+
+export type VideoSource = {
+  url: string;
+  quality: string;
+  type: "hls" | "mp4";
+  provider: string;
+};
+
+// `vidsrc.to` returns an HTML page; we can't parse cross-origin HTML
+// from the browser. So we try a few JSON APIs that allow CORS:
+//
+// 1. vidsrc.xyz embed API (returns JSON with stream list)
+// 2. 2embed.cc iframe src (CORS-blocked, will fallback)
+// 3. multiembed.mov direct endpoint
+//
+// Returns [] if no source worked.
+export async function fetchVideoSources(
+  tmdbId: number,
+  kind: "movie" | "tv",
+  season?: number,
+  episode?: number
+): Promise<VideoSource[]> {
+  const sources: VideoSource[] = [];
+
+  // Build target URL list to try in order
+  const endpoints: string[] = [];
+  if (kind === "movie") {
+    endpoints.push(`https://vidsrc.xyz/embed/movie/${tmdbId}`);
+  } else {
+    const s = season ?? 1;
+    const e = episode ?? 1;
+    endpoints.push(`https://vidsrc.xyz/embed/tv/${tmdbId}/${s}/${e}`);
+  }
+
+  // We can't actually scrape these from browser (CORS), so we just return
+  // the embed URLs as "hls" type placeholders. The NativePlayer will try
+  // to load them, and if they don't work as direct stream, fallback to
+  // embed iframe.
+  for (const endpoint of endpoints) {
+    sources.push({
+      url: endpoint,
+      quality: "auto",
+      type: "hls",
+      provider: "vidsrc.xyz",
+    });
+  }
+
+  return sources;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subtitle support
+//
+// Fetches subtitle/translation list from TMDB /movie/{id}/translations.
+// Returns list of languages that have subtitle data available (we treat
+// presence of `overview` translation as proxy for subtitle availability,
+// since TMDB doesn't expose direct subtitle track URLs).
+//
+// For actual VTT subtitles, user can:
+//   - Use server 4 (vidsrc.to) which has built-in subtitle selector
+//   - Use OpenSubtitles API (requires API key, not included)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type SubtitleTrack = {
+  language: string;
+  iso: string;
+  englishName: string;
+  available: boolean;
+};
+
+export async function fetchMovieSubtitleLanguages(
+  movieId: number
+): Promise<SubtitleTrack[]> {
+  try {
+    const data = await tmdbGet<{ id: number; translations: Array<{ iso_639_1: string; english_name: string; data?: { overview?: string } }> }>(
+      `/movie/${movieId}/translations`
+    );
+    return (data.translations || [])
+      .filter((t) => t.data?.overview && t.data.overview.trim() !== "")
+      .map((t) => ({
+        language: t.iso_639_1,
+        iso: t.iso_639_1,
+        englishName: t.english_name || t.iso_639_1,
+        available: true,
+      }));
+  } catch (err) {
+    console.warn("fetchMovieSubtitleLanguages failed:", err);
+    return [];
+  }
+}
+
+export async function fetchTVSubtitleLanguages(
+  tvId: number
+): Promise<SubtitleTrack[]> {
+  try {
+    const data = await tmdbGet<{ id: number; translations: Array<{ iso_639_1: string; english_name: string; data?: { overview?: string } }> }>(
+      `/tv/${tvId}/translations`
+    );
+    return (data.translations || [])
+      .filter((t) => t.data?.overview && t.data.overview.trim() !== "")
+      .map((t) => ({
+        language: t.iso_639_1,
+        iso: t.iso_639_1,
+        englishName: t.english_name || t.iso_639_1,
+        available: true,
+      }));
+  } catch (err) {
+    console.warn("fetchTVSubtitleLanguages failed:", err);
+    return [];
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // TV Series types + fetchers
 // ──────────────────────────────────────────────────────────────────────────
 

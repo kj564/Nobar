@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2 } from "lucide-react";
+import { WatchParty } from "@/components/WatchParty";
 
 type StreamSource = {
   quality: string;
@@ -114,6 +115,8 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   const togglePlay = useCallback(() => {
     const v = videoRef.current; if (!v) return;
     if (v.paused) v.play(); else v.pause();
+    // Broadcast to watch party
+    (window as any).__watchPartySync?.(!v.paused, v.currentTime);
   }, []);
 
   const toggleMute = () => { const v = videoRef.current; if (v) v.muted = !v.muted; };
@@ -121,7 +124,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     const el = containerRef.current; if (!el) return;
     document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen();
   };
-  const seek = (t: number) => { const v = videoRef.current; if (v) v.currentTime = t; };
+  const seek = (t: number) => { const v = videoRef.current; if (v) { v.currentTime = t; (window as any).__watchPartySync?.(!v.paused, t); } };
   const setVol = (vol: number) => { const v = videoRef.current; if (v) { v.volume = vol; v.muted = vol === 0; } };
 
   const changeQuality = (s: StreamSource) => {
@@ -256,9 +259,10 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         </div>
       </div>
 
-      {/* Info bar */}
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      {/* Info bar + Watch Party */}
+      <div className="flex items-center justify-between text-xs text-gray-500 gap-3 flex-wrap">
         <span>✓ Ad-free · <span className="text-gray-300">{activeSource.provider}</span> · {activeSource.quality}</span>
+        <WatchParty videoRef={videoRef} onSeek={seek} onPlay={togglePlay} onPause={togglePlay} />
       </div>
     </div>
   );

@@ -161,7 +161,7 @@ export function WatchPartyButton() {
     return () => clearInterval(interval);
   };
 
-  // ── Sync NOBAR UI with VT state (member count, status, role) ──
+  // ── Sync NOBAR UI with VT state (member count, status, role, room name) ──
   const startStateSync = () => {
     const sync = () => {
       const wrapper = document.getElementById("VideoTogetherWrapper");
@@ -181,21 +181,21 @@ export function WatchPartyButton() {
         setStatusText(statusEl.textContent || "");
       }
 
-      // Read role (Host/Member)
+      // Read role (Host/Member) — detect party state from VT
       const roleEl = sr.getElementById("videoTogetherRoleText");
       if (roleEl) {
-        const role = roleEl.textContent || "";
-        if (role.toLowerCase().includes("host") || role.toLowerCase().includes("master")) {
-          setPartyState("host");
-        } else if (role.toLowerCase().includes("member") || role.toLowerCase().includes("join")) {
-          setPartyState("member");
+        const role = (roleEl.textContent || "").toLowerCase();
+        if (role.includes("host") || role.includes("master")) {
+          if (partyState !== "host") setPartyState("host");
+        } else if (role.includes("member") || role.includes("join")) {
+          if (partyState !== "member") setPartyState("member");
         }
       }
 
-      // Read room name (if joined/created)
-      const roomNameEl = sr.getElementById("videoTogetherRoomNameLabel");
-      if (roomNameEl) {
-        const name = roomNameEl.textContent?.trim() || "";
+      // Read room name from input (VT stores active room name in the input)
+      const roomNameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
+      if (roomNameInput && roomNameInput.value && roomNameInput.value !== "Room") {
+        const name = roomNameInput.value.trim();
         if (name && name !== roomId) {
           setRoomId(name);
         }
@@ -208,37 +208,53 @@ export function WatchPartyButton() {
   };
 
   // ── Create room via VT shadow DOM ──
+  // VT reads this.inputRoomName.value on create button click.
+  // We must set the value RIGHT BEFORE clicking create (VT resets it
+  // to "Room" on panel init via InLobby). Setting value + dispatching
+  // input event + then clicking create in same tick works.
   const createRoom = useCallback(async () => {
-    const wrapper = document.getElementById("VideoTogetherWrapper");
-    const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
-    if (!sr) return;
+    try {
+      const wrapper = document.getElementById("VideoTogetherWrapper");
+      const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
+      if (!sr) {
+        console.error("[NOBAR] No VT shadow root");
+        return;
+      }
 
-    const name = roomId || generateRoomId();
-    setRoomId(name);
+      const name = roomId || generateRoomId();
+      setRoomId(name);
+      console.log("[NOBAR] Creating room:", name);
 
-    // Set room name input
-    const nameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
-    if (nameInput) {
+      const nameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
+      if (!nameInput) {
+        console.error("[NOBAR] No room name input in VT shadow DOM");
+        return;
+      }
+
+      // Set value using native setter (React-controlled inputs need this)
       nameInput.value = name;
       nameInput.dispatchEvent(new Event("input", { bubbles: true }));
       nameInput.dispatchEvent(new Event("change", { bubbles: true }));
-    }
 
-    // Set password if provided
-    if (roomPassword) {
-      const pwdInput = sr.getElementById("videoTogetherRoomPdIpt") as HTMLInputElement;
-      if (pwdInput) {
-        pwdInput.value = roomPassword;
-        pwdInput.dispatchEvent(new Event("input", { bubbles: true }));
+      if (roomPassword) {
+        const pwdInput = sr.getElementById("videoTogetherRoomPdIpt") as HTMLInputElement;
+        if (pwdInput) {
+          pwdInput.value = roomPassword;
+          pwdInput.dispatchEvent(new Event("input", { bubbles: true }));
+        }
       }
-    }
 
-    // Click create button
-    await new Promise((r) => setTimeout(r, 100));
-    const createBtn = sr.getElementById("videoTogetherCreateButton") as HTMLButtonElement;
-    if (createBtn) {
-      createBtn.click();
-      setPartyState("host");
+      // Click create button — re-set value right before click (VT may reset)
+      await new Promise((r) => setTimeout(r, 50));
+      nameInput.value = name;
+      const createBtn = sr.getElementById("videoTogetherCreateButton") as HTMLButtonElement;
+      if (createBtn) {
+        createBtn.click();
+        setPartyState("host");
+        console.log("[NOBAR] Create button clicked");
+      }
+    } catch (err) {
+      console.error("[NOBAR] createRoom error:", err);
     }
   }, [roomId, roomPassword]);
 
@@ -249,11 +265,16 @@ export function WatchPartyButton() {
     const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
     if (!sr) return;
 
-    setRoomId(joinRoomInput.trim());
+    const name = joinRoomInput.trim();
+    setRoomId(name);
 
     const nameInput = sr.getElementById("videoTogetherRoomNameInput") as HTMLInputElement;
     if (nameInput) {
-      nameInput.value = joinRoomInput.trim();
+      const nativeInputSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      nativeInputSetter?.call(nameInput, name);
       nameInput.dispatchEvent(new Event("input", { bubbles: true }));
       nameInput.dispatchEvent(new Event("change", { bubbles: true }));
     }
@@ -261,34 +282,44 @@ export function WatchPartyButton() {
     if (joinPasswordInput) {
       const pwdInput = sr.getElementById("videoTogetherRoomPdIpt") as HTMLInputElement;
       if (pwdInput) {
-        pwdInput.value = joinPasswordInput;
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value"
+        )?.set;
+        nativeSetter?.call(pwdInput, joinPasswordInput);
         pwdInput.dispatchEvent(new Event("input", { bubbles: true }));
       }
     }
 
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 50));
     const joinBtn = sr.getElementById("videoTogetherJoinButton") as HTMLButtonElement;
     if (joinBtn) {
+      if (nameInput) nameInput.value = name;
       joinBtn.click();
       setPartyState("member");
     }
   }, [joinRoomInput, joinPasswordInput]);
 
-  // ── Leave room ──
+  // ── Leave room via VT shadow DOM ──
+  // VT has #videoTogetherExitButton (vt-btn-dangerous) that calls
+  // window.videoTogetherExtension.exitRoom() on click.
   const leaveRoom = useCallback(() => {
     const wrapper = document.getElementById("VideoTogetherWrapper");
     const sr = (wrapper as any)?.shadowRoot as ShadowRoot | null;
     if (!sr) return;
 
-    // Find and click close/leave button
-    const closeBtn = sr.querySelector(".vt-modal-close, [class*='close']") as HTMLButtonElement;
-    if (closeBtn) closeBtn.click();
+    const exitBtn = sr.getElementById("videoTogetherExitButton") as HTMLButtonElement;
+    if (exitBtn) {
+      exitBtn.click();
+    }
 
     setPartyState("idle");
     setRoomId("");
     setJoinRoomInput("");
     setJoinPasswordInput("");
+    setRoomPassword("");
     setMessages([]);
+    setShowChat(false);
   }, []);
 
   // ── Send chat ──

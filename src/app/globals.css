@@ -286,20 +286,23 @@ body {
   box-shadow: 0 8px 24px -8px rgba(134, 167, 137, 0.5);
 }
 
-/* ── Detail page Netflix pull-up overlap (idlixku pattern) ── */
+/* ── Detail page Netflix pull-up overlap (idlixku pattern) ──
+   Subtle overlap — content slides up slightly over the hero gradient.
+   -180px was too aggressive (covered hero title + CTA buttons).
+   -100/-120px is enough to create the overlap feel without hiding content. */
 .detail-pull-up {
-  margin-top: -180px;
+  margin-top: -80px;
   position: relative;
-  z-index: 10;
+  z-index: 5;
 }
 @media (min-width: 768px) {
   .detail-pull-up {
-    margin-top: -200px;
+    margin-top: -100px;
   }
 }
 @media (min-width: 1024px) {
   .detail-pull-up {
-    margin-top: -240px;
+    margin-top: -120px;
   }
 }
 

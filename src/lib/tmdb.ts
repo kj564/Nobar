@@ -143,9 +143,20 @@ export async function searchMovies(query: string, page = 1): Promise<TMDBPaged<T
 }
 
 export async function fetchMovieDetail(id: number): Promise<TMDBMovieDetail> {
-  return tmdbGet<TMDBMovieDetail>(`/movie/${id}`, {
+  const data = await tmdbGet<TMDBMovieDetail>(`/movie/${id}`, {
     append_to_response: "videos,credits,similar",
-  });
+  }, "id-ID");
+  // Fallback: if id-ID overview is empty, fetch English overview.
+  // Many movies (especially older/classic) lack id-ID translations.
+  if (!data.overview || data.overview.trim() === "") {
+    try {
+      const en = await tmdbGet<TMDBMovieDetail>(`/movie/${id}`, {}, "en-US");
+      if (en.overview) data.overview = en.overview;
+    } catch {
+      // English fetch failed — keep empty overview, UI shows fallback text
+    }
+  }
+  return data;
 }
 
 // Fetch movie genres dynamically from TMDB /genre/movie/list.
@@ -703,9 +714,19 @@ export async function fetchTrendingTV(page = 1): Promise<TMDBPaged<TMDBSeries>> 
 }
 
 export async function fetchTVDetail(id: number): Promise<TMDBSeriesDetail> {
-  return tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {
+  const data = await tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {
     append_to_response: "videos,credits,similar",
-  });
+  }, "id-ID");
+  // Fallback: if id-ID overview is empty, fetch English overview.
+  if (!data.overview || data.overview.trim() === "") {
+    try {
+      const en = await tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {}, "en-US");
+      if (en.overview) data.overview = en.overview;
+    } catch {
+      // English fetch failed — keep empty overview
+    }
+  }
+  return data;
 }
 
 // Fetch full season detail (with episode list) — used by series player

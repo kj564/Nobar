@@ -169,24 +169,32 @@ export async function fetchAllMoviesForPrerender(): Promise<TMDBMovie[]> {
   };
 
   try {
-    // 1. Trending pages 1-10 (parallel)
+    // 1. Trending pages 1-20 (parallel) — ~400 movies
     const trendingPages = await Promise.all(
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => fetchTrending(p).catch(() => null))
+      Array.from({ length: 20 }, (_, i) =>
+        fetchTrending(i + 1).catch(() => null)
+      )
     );
     for (const page of trendingPages) {
       if (page) addMovies(page.results);
     }
 
-    // 2. Discover popular per genre (parallel)
+    // 2. Discover popular per genre, pages 1-5 (parallel) — 19 genres × 100 = ~1900
     const genres = await fetchMovieGenres();
     const genrePages = await Promise.all(
-      genres.map((g) => fetchByGenre(g.id, 1).catch(() => null))
+      genres.map((g) =>
+        Promise.all(
+          [1, 2, 3, 4, 5].map((p) => fetchByGenre(g.id, p).catch(() => null))
+        )
+      )
     );
-    for (const page of genrePages) {
-      if (page) addMovies(page.results);
+    for (const genrePageSet of genrePages) {
+      for (const page of genrePageSet) {
+        if (page) addMovies(page.results);
+      }
     }
 
-    // 3. Similar movies from all trending page 1 (parallel)
+    // 3. Similar movies from all trending page 1 (parallel) — ~400 extra
     const trending1 = trendingPages[0];
     if (trending1) {
       const details = await Promise.all(
@@ -203,7 +211,7 @@ export async function fetchAllMoviesForPrerender(): Promise<TMDBMovie[]> {
   return Array.from(movieMap.values());
 }
 
-// Same for TV series — trending 1-10 + discover per genre + similar.
+// Same for TV series — trending 1-20 + similar from trending.
 export async function fetchAllSeriesForPrerender(): Promise<TMDBSeries[]> {
   const seriesMap = new Map<number, TMDBSeries>();
 
@@ -214,15 +222,17 @@ export async function fetchAllSeriesForPrerender(): Promise<TMDBSeries[]> {
   };
 
   try {
-    // 1. Trending TV pages 1-10 (parallel)
+    // 1. Trending TV pages 1-20 (parallel) — ~400 series
     const trendingPages = await Promise.all(
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => fetchTrendingTV(p).catch(() => null))
+      Array.from({ length: 20 }, (_, i) =>
+        fetchTrendingTV(i + 1).catch(() => null)
+      )
     );
     for (const page of trendingPages) {
       if (page) addSeries(page.results);
     }
 
-    // 2. Similar series from all trending page 1 (parallel)
+    // 2. Similar series from all trending page 1 (parallel) — ~400 extra
     const trending1 = trendingPages[0];
     if (trending1) {
       const details = await Promise.all(

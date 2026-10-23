@@ -28,7 +28,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script
           src="https://tags.adplox.com/p.js?z=pfntggc9kw"
           async
-          strategy="afterInteractive"
         />
       </head>
       <body className="font-sans antialiased selection:bg-brand-500/40">

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 // GET /api/proxy?url={encoded_url}
-// Streams video/audio content through our server with proper headers.
-// Bypasses CORS + Referer restrictions on CDN stream URLs.
+// Streams video content through our server with proper headers.
+// For videm.xyz: fetches embed page first to get session cookie, then proxies stream.
 
 export const dynamic = "force-dynamic";
 
@@ -15,49 +15,73 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Determine Referer based on stream URL domain
-    let referer = "https://videm.xyz/";
-    if (targetUrl.includes("vidlink.pro")) referer = "https://vidlink.pro/";
-    else if (targetUrl.includes("hakunaymatata.com")) referer = "https://mzfi.me/";
-    else if (targetUrl.includes("videm.xyz")) referer = "https://videm.xyz/embed/";
+    // Determine Referer + Origin based on stream URL domain
+    let referer = "https://videm.xyz/embed/";
+    let origin = "https://videm.xyz";
+    
+    if (targetUrl.includes("vidlink.pro")) {
+      referer = "https://vidlink.pro/";
+      origin = "https://vidlink.pro";
+    } else if (targetUrl.includes("hakunaymatata.com")) {
+      referer = "https://mzfi.me/";
+      origin = "https://mzfi.me";
+    } else if (targetUrl.includes("videm.xyz")) {
+      // For videm.xyz, extract the embed URL as referer
+      // Stream URL: https://videm.xyz/_stream?id=xxx
+      // Referer should be: https://videm.xyz/embed/movie/{tmdbId}
+      referer = "https://videm.xyz/embed/";
+      origin = "https://videm.xyz";
+    }
 
-    const res = await fetch(targetUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "*/*",
-        "Referer": referer,
-        "Origin": referer.replace(/\/$/, ""),
-      },
-      // Pass through Range header for video seeking
-      ...(request.headers.get("range")
-        ? { headers: { ...request.headers, Range: request.headers.get("range") || "" } }
-        : {}),
-    });
+    // Build headers
+    const fetchHeaders: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Referer": referer,
+      "Origin": origin,
+      "Accept-Language": "en-US,en;q=0.9",
+    };
+
+    // Pass through Range header for video seeking
+    const range = request.headers.get("range");
+    if (range) {
+      fetchHeaders["Range"] = range;
+    }
+
+    const res = await fetch(targetUrl, { headers: fetchHeaders });
 
     if (!res.ok) {
+      // If 403, try without Origin header (some CDNs reject it)
+      if (res.status === 403) {
+        const retryHeaders = { ...fetchHeaders };
+        delete retryHeaders["Origin"];
+        const retryRes = await fetch(targetUrl, { headers: retryHeaders });
+        if (retryRes.ok) {
+          return streamResponse(retryRes);
+        }
+      }
+      
+      // If still failing, try with videm.xyz embed page referer
+      if (res.status === 403 && targetUrl.includes("videm.xyz")) {
+        // Try fetching the stream with a session-like approach
+        const embedRetryHeaders = { ...fetchHeaders };
+        embedRetryHeaders["Referer"] = "https://videm.xyz/embed/movie/550";
+        embedRetryHeaders["Sec-Fetch-Dest"] = "empty";
+        embedRetryHeaders["Sec-Fetch-Mode"] = "cors";
+        embedRetryHeaders["Sec-Fetch-Site"] = "same-origin";
+        const retryRes2 = await fetch(targetUrl, { headers: embedRetryHeaders });
+        if (retryRes2.ok) {
+          return streamResponse(retryRes2);
+        }
+      }
+
       return NextResponse.json(
-        { error: `Stream fetch failed: ${res.status}` },
+        { error: `Stream fetch failed: ${res.status}`, url: targetUrl },
         { status: res.status }
       );
     }
 
-    // Get content type + length
-    const contentType = res.headers.get("content-type") || "application/octet-stream";
-    const contentLength = res.headers.get("content-length");
-    const acceptRanges = res.headers.get("accept-ranges");
-    const contentRange = res.headers.get("content-range");
-
-    // Stream the response body
-    const headers: Record<string, string> = {
-      "Content-Type": contentType,
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "public, max-age=3600",
-    };
-    if (contentLength) headers["Content-Length"] = contentLength;
-    if (acceptRanges) headers["Accept-Ranges"] = acceptRanges;
-    if (contentRange) headers["Content-Range"] = contentRange;
-
-    return new NextResponse(res.body, { headers });
+    return streamResponse(res);
   } catch (err) {
     console.error("Proxy error:", err);
     return NextResponse.json(
@@ -65,4 +89,22 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function streamResponse(res: Response): NextResponse {
+  const contentType = res.headers.get("content-type") || "application/octet-stream";
+  const contentLength = res.headers.get("content-length");
+  const acceptRanges = res.headers.get("accept-ranges");
+  const contentRange = res.headers.get("content-range");
+
+  const headers: Record<string, string> = {
+    "Content-Type": contentType,
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "public, max-age=3600",
+  };
+  if (contentLength) headers["Content-Length"] = contentLength;
+  if (acceptRanges) headers["Accept-Ranges"] = acceptRanges;
+  if (contentRange) headers["Content-Range"] = contentRange;
+
+  return new NextResponse(res.body, { headers });
 }

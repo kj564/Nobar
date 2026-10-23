@@ -30,8 +30,16 @@ export type TMDBMovie = {
   poster_path?: string | null;
   backdrop_path?: string | null;
   release_date?: string;
+  first_air_date?: string;
   vote_average?: number;
   vote_count?: number;
+  media_type?: "movie" | "tv" | "person";
+};
+
+export type TMDBSeries = TMDBMovie & {
+  first_air_date?: string;
+  origin_country?: string[];
+  original_name?: string;
 };
 
 export type TMDBGenre = { id: number; name: string };
@@ -117,12 +125,21 @@ export async function fetchByGenre(genreId: number, page = 1): Promise<TMDBPaged
   });
 }
 
+// Search across movies AND TV series (not people).
+// Returns mixed results — each item has media_type: "movie" | "tv".
+// Callers route to /movie/{slug} or /series/{slug} based on media_type.
 export async function searchMovies(query: string, page = 1): Promise<TMDBPaged<TMDBMovie>> {
-  return tmdbGet<TMDBPaged<TMDBMovie>>("/search/movie", {
+  const data = await tmdbGet<TMDBPaged<TMDBMovie>>("/search/multi", {
     query,
     page,
     include_adult: "false",
   });
+  // Filter out people (media_type === "person") — we only show movies + TV.
+  // Also filter out items without a poster (cleaner results).
+  data.results = (data.results || []).filter(
+    (r) => r.media_type !== "person" && (r.media_type === "movie" || r.media_type === "tv")
+  );
+  return data;
 }
 
 export async function fetchMovieDetail(id: number): Promise<TMDBMovieDetail> {

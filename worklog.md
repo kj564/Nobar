@@ -609,3 +609,42 @@ Stage Summary:
   retries on transient failures, caches appropriately (positive 5min, negative 1min)
 - 30+ movies + 8 TV series verified working — no regression
 - ::cue subtitle styling added (data layer works; visual rendering is browser-specific)
+
+---
+Task ID: nobar-search-multi-fix
+Agent: main
+Task: Fix search only returning movies — TV series (Breaking Bad, Stranger Things) not showing
+
+Work Log:
+- Bug: searchMovies() called TMDB /search/movie endpoint — only returns movies, NOT TV series
+  • User searched "breaking bad" → only El Camino movie + Breaking Bad Wolf (wrong year)
+  • User searched "stranger things" → only Stranger Things 2013 (wrong, should be 2016 TV)
+  • Actual TV series (Breaking Bad 2008, Stranger Things 2016) were missing entirely
+- FIX: Switch searchMovies() from /search/movie to /search/multi
+  • /search/multi returns movies + TV + people in mixed results
+  • Each item has media_type: "movie" | "tv" | "person"
+  • Filter out people (media_type === "person") — we only show movies + TV
+  • Also filter to only movie/tv (defensive — reject unexpected types)
+- Update TMDBMovie type: add optional media_type + first_air_date fields
+  (TMDBMovie now serves as union type for both movies and TV search results)
+- Update SearchPage to render SeriesCard for TV results (not MovieCard)
+  • Check m.media_type === "tv" → render SeriesCard (shows TV badge + routes to /series/)
+  • Else → render MovieCard (routes to /movie/)
+  • Key prefix tv-/mv- to avoid React key collisions when same ID exists in both
+
+VERIFICATION:
+- Breaking Bad search: 15 results, first = "Breaking Bad (2008) [tv]" ✓
+  (was: only movies, Breaking Bad series missing)
+- Stranger Things search: 14 results, first = "Stranger Things (2016) [tv]" ✓
+  (was: only Stranger Things 2013 movie, wrong year)
+- Game of Thrones search: 19 results, first = "Game of Thrones (2011) [tv]" ✓
+- Spider search: 20 results, mixed movie + TV (Spider-Man 1994 TV, Spider-Noir 2026 TV, etc.) ✓
+- Browser: Breaking Bad card shows "TV" badge, click routes to /series/breaking-bad-2008-1396 ✓
+- Title: "Breaking Bad (Series) — Nobar" ✓
+
+Stage Summary:
+- Search now returns BOTH movies AND TV series (was movies-only)
+- Breaking Bad, Stranger Things, Game of Thrones all appear in search results
+- TV results render with SeriesCard (TV badge + /series/ routing)
+- Movie results still render with MovieCard (/movie/ routing)
+- Click flow verified: Breaking Bad → /series/breaking-bad-2008-1396 with correct title

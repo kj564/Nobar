@@ -6,11 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Search, X, Film, Tv, Star, ArrowLeft } from "lucide-react";
 import {
   buildMovieSlug,
+  buildSeriesSlug,
   type TMDBMovie,
+  type TMDBSeries,
   type TMDBPaged,
 } from "@/lib/tmdb";
 import { Navbar } from "@/components/Navbar";
-import { MovieCard } from "@/components/MovieCard";
+import { MovieCard, SeriesCard } from "@/components/MovieCard";
 
 function SearchContent() {
   const router = useRouter();
@@ -146,9 +148,13 @@ function SearchContent() {
         ) : results.length > 0 ? (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {results.map((m) => (
-                <MovieCard key={m.id} movie={m} />
-              ))}
+              {results.map((m) =>
+                m.media_type === "tv" ? (
+                  <SeriesCard key={`tv-${m.id}`} series={m as TMDBSeries} />
+                ) : (
+                  <MovieCard key={`mv-${m.id}`} movie={m} />
+                )
+              )}
             </div>
             {page < totalPages && (
               <div className="flex justify-center mt-8">

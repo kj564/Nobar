@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { fetchMovieDetail } from "@/lib/tmdb";
+import { fetchMovieDetail, fetchTVDetail } from "@/lib/tmdb";
 
-// GET /api/stream/[id]
+// GET /api/stream/[id]?kind=movie|tv&season=1&episode=1
 // Fetches direct stream URLs + subtitles from vidlink.pro + mzfi.me
-// Returns JSON: { sources: [{quality, url, provider}], subtitles: [{language, url}] }
+// Also proxies subtitle SRT → VTT conversion for CORS
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -17,13 +17,24 @@ export async function GET(
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
   }
 
-  // Get movie info from TMDB (for title+year matching with mzfi)
-  let movieTitle = "";
-  let movieYear = "";
+  const url = new URL(request.url);
+  const kind = (url.searchParams.get("kind") || "movie") as "movie" | "tv";
+  const season = url.searchParams.get("season") ? Number(url.searchParams.get("season")) : undefined;
+  const episode = url.searchParams.get("episode") ? Number(url.searchParams.get("episode")) : undefined;
+
+  // Get movie/series info from TMDB (for title+year matching with mzfi)
+  let title = "";
+  let year = "";
   try {
-    const detail = await fetchMovieDetail(tmdbId);
-    movieTitle = detail.title || detail.name || "";
-    movieYear = detail.release_date ? String(detail.release_date).slice(0, 4) : "";
+    const detail = kind === "tv" ? await fetchTVDetail(tmdbId) : await fetchMovieDetail(tmdbId);
+    title = detail.title || detail.name || "";
+    if (kind === "tv") {
+      const tvDetail = detail as any;
+      year = tvDetail.first_air_date ? String(tvDetail.first_air_date).slice(0, 4) : "";
+    } else {
+      const movieDetail = detail as any;
+      year = movieDetail.release_date ? String(movieDetail.release_date).slice(0, 4) : "";
+    }
   } catch {}
 
   const result: {
@@ -33,25 +44,28 @@ export async function GET(
 
   // ─── Source 1: vidlink.pro ───
   try {
-    const vidlinkData = await fetchVidlinkStream(tmdbId);
+    const vidlinkData = await fetchVidlinkStream(tmdbId, kind, season, episode);
     if (vidlinkData) {
-      for (const [quality, info] of Object.entries(vidlinkData.stream?.qualities || {})) {
-        const q = info as { url: string; type: string };
-        if (q.url) {
+      const qualities = vidlinkData.stream?.qualities || {};
+      // Sort by quality (360 → 720)
+      const sortedKeys = Object.keys(qualities).sort((a, b) => Number(a) - Number(b));
+      for (const quality of sortedKeys) {
+        const info = qualities[quality];
+        if (info?.url) {
           result.sources.push({
             quality: `${quality}p`,
-            url: q.url,
+            url: info.url,
             provider: "vidlink.pro",
-            type: q.type || "mp4",
+            type: info.type || "mp4",
           });
         }
       }
-      // Subtitles
+      // Subtitles — proxy through our API for CORS + SRT→VTT conversion
       for (const cap of vidlinkData.stream?.captions || []) {
         if (cap.url) {
           result.subtitles.push({
             language: cap.language || "Unknown",
-            url: cap.url,
+            url: `/api/subtitle?url=${encodeURIComponent(cap.url)}`,
           });
         }
       }
@@ -60,10 +74,10 @@ export async function GET(
     console.error("VidLink fetch failed:", err);
   }
 
-  // ─── Source 2: mzfi.me (fallback if vidlink has no sources) ───
+  // ─── Source 2: mzfi.me (fallback) ───
   if (result.sources.length === 0) {
     try {
-      const mzfiData = await fetchMzfiStream(movieTitle, movieYear);
+      const mzfiData = await fetchMzfiStream(title, year);
       if (mzfiData) {
         for (const stream of mzfiData.streams || []) {
           if (stream.url && !stream.vipLocked) {
@@ -75,7 +89,6 @@ export async function GET(
             });
           }
         }
-        // mzfi subtitles (from API response — need to fetch separately)
       }
     } catch (err) {
       console.error("Mzfi fetch failed:", err);
@@ -95,14 +108,18 @@ export async function GET(
 }
 
 // ─── VidLink.pro fetcher ──────────────────────────────────────────
-// 1. Fetch vidlink.pro/movie/{tmdbId} HTML
-// 2. Extract encoded ID from script tags
-// 3. Call /api/b/movie/{encodedId}?multiLang=0
-// 4. Return stream data
 
-async function fetchVidlinkStream(tmdbId: number): Promise<any | null> {
-  // Step 1: Fetch page HTML to get encoded ID
-  const pageUrl = `https://vidlink.pro/movie/${tmdbId}`;
+async function fetchVidlinkStream(
+  tmdbId: number,
+  kind: "movie" | "tv",
+  season?: number,
+  episode?: number
+): Promise<any | null> {
+  const path = kind === "tv" && season && episode
+    ? `/tv/${tmdbId}/${season}/${episode}`
+    : `/movie/${tmdbId}`;
+
+  const pageUrl = `https://vidlink.pro${path}`;
   const pageRes = await fetch(pageUrl, {
     headers: {
       "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
@@ -113,14 +130,13 @@ async function fetchVidlinkStream(tmdbId: number): Promise<any | null> {
   if (!pageRes.ok) return null;
   const html = await pageRes.text();
 
-  // Step 2: Extract encoded ID from HTML
-  // Pattern: /api/b/movie/{ENCODED_ID}
-  const match = html.match(/api\/b\/movie\/([A-Za-z0-9]+)/);
+  // Extract encoded ID
+  const match = html.match(/api\/b\/(?:movie|tv)\/([A-Za-z0-9]+)/);
   if (!match) return null;
   const encodedId = match[1];
 
-  // Step 3: Call API
-  const apiUrl = `https://vidlink.pro/api/b/movie/${encodedId}?multiLang=0`;
+  // Call API
+  const apiUrl = `https://vidlink.pro/api/b/${kind === "tv" ? "tv" : "movie"}/${encodedId}?multiLang=0`;
   const apiRes = await fetch(apiUrl, {
     headers: {
       "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
@@ -134,29 +150,23 @@ async function fetchVidlinkStream(tmdbId: number): Promise<any | null> {
 }
 
 // ─── mzfi.me fetcher ──────────────────────────────────────────────
-// 1. Get guest token from mzfi.me
-// 2. Search home API for movie by title+year
-// 3. Call /wefeed-h5api-bff/subject/play with subjectId
 
 async function fetchMzfiStream(title: string, year: string): Promise<any | null> {
   if (!title) return null;
 
-  // Step 1: Get guest token
+  // Get guest token
   const tokenRes = await fetch("https://mzfi.me/", {
     headers: {
       "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
     },
   });
 
-  // Extract token from Set-Cookie header
   const setCookie = tokenRes.headers.get("set-cookie") || "";
   const tokenMatch = setCookie.match(/mb_guest_token=([^;]+)/);
   if (!tokenMatch) return null;
-  let token = tokenMatch[1];
-  // Clean token (remove URL encoding + quotes)
-  token = token.replace(/%22/g, "").replace(/^"|"$/g, "");
+  let token = tokenMatch[1].replace(/%22/g, "").replace(/^"|"$/g, "");
 
-  // Step 2: Search home API for movie by title+year
+  // Search home API
   const homeRes = await fetch("https://mzfi.me/wefeed-h5api-bff/home?page=1", {
     headers: {
       "Authorization": `Bearer ${token}`,
@@ -174,7 +184,6 @@ async function fetchMzfiStream(title: string, year: string): Promise<any | null>
   if (!homeRes.ok) return null;
   const homeData = await homeRes.json();
 
-  // Find movie by title+year in operatingList
   let subjectId: string | null = null;
   let detailPath: string | null = null;
   const titleLower = title.toLowerCase();
@@ -194,7 +203,6 @@ async function fetchMzfiStream(title: string, year: string): Promise<any | null>
 
   if (!subjectId || !detailPath) return null;
 
-  // Step 3: Call play API
   const playRes = await fetch(
     `https://mzfi.me/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=1&ep=1&detailPath=${detailPath}&streamSignType=1&supportCodecs[h264]=1`,
     {

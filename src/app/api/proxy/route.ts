@@ -67,10 +67,20 @@ export async function GET(request: Request) {
       fetchHeaders["Range"] = range;
     }
 
-    const res = await fetch(targetUrl, { headers: fetchHeaders });
+    const res = await fetch(targetUrl, { headers: fetchHeaders, redirect: "follow" });
 
     if (!res.ok) {
-      // If 403, try without Origin header (some CDNs reject it)
+      // bcdn.hakunaymatata.com (vidlink.pro CDN) rejects most headers.
+      // Retry with MINIMAL headers (just Range, nothing else).
+      if (res.status === 428 || res.status === 429) {
+        const minimalHeaders: Record<string, string> = {};
+        if (range) minimalHeaders["Range"] = range;
+        const retryRes = await fetch(targetUrl, { headers: minimalHeaders, redirect: "follow" });
+        if (retryRes.ok) {
+          return streamResponse(retryRes);
+        }
+      }
+      // If 403, try without Origin header
       if (res.status === 403) {
         const retryHeaders = { ...fetchHeaders };
         delete retryHeaders["Origin"];

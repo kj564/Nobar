@@ -114,10 +114,8 @@ export async function fetchTVDetailEnglish(id: number): Promise<TMDBSeriesDetail
 
 export async function fetchTrending(page = 1): Promise<TMDBPaged<TMDBMovie>> {
   const data = await tmdbGet<TMDBPaged<TMDBMovie>>("/trending/movie/week", { page });
-  // Filter out fake/spam movies: no poster, no overview, or 0 votes
-  data.results = (data.results || []).filter(
-    (m) => m.poster_path && m.vote_count && m.vote_count > 0
-  );
+  // Filter out fake/spam movies: no poster (real movies always have poster)
+  data.results = (data.results || []).filter((m) => m.poster_path);
   return data;
 }
 

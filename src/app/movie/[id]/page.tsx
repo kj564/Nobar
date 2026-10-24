@@ -92,8 +92,9 @@ export default async function MovieDetailPage({ params }: PageProps) {
     return notFound();
   }
 
-  // Block fake/spam movies: no poster + no overview + 0 votes
-  if (!detail.poster_path && !detail.overview && (!detail.vote_count || detail.vote_count === 0)) {
+  // Block fake/spam movies: no poster AND no votes
+  // (real movies always have poster + at least a few votes)
+  if (!detail.poster_path && (!detail.vote_count || detail.vote_count === 0)) {
     return notFound();
   }
 

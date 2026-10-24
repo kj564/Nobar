@@ -89,8 +89,8 @@ export default async function SeriesDetailPage({ params }: PageProps) {
     return notFound();
   }
 
-  // Block fake/spam entries: no poster + no overview + 0 votes
-  if (!detail.poster_path && !detail.overview && (!detail.vote_count || detail.vote_count === 0)) {
+  // Block fake/spam entries: no poster AND no votes
+  if (!detail.poster_path && (!detail.vote_count || detail.vote_count === 0)) {
     return notFound();
   }
 

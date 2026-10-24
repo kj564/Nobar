@@ -21,20 +21,30 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Determine Referer + Origin based on stream URL domain
+    // Determine Referer + Origin based on stream URL domain.
+    // Both mzfi and vidlink use hakunaymatata.com CDN, but different
+    // subdomains require different Referer headers:
+    //   bcdnxw.hakunaymatata.com → mzfi.me (mzfi streams)
+    //   bcdn.hakunaymatata.com   → vidlink.pro (vidlink streams)
     let referer = "https://videm.xyz/embed/";
     let origin = "https://videm.xyz";
     
     if (targetUrl.includes("vidlink.pro")) {
       referer = "https://vidlink.pro/";
       origin = "https://vidlink.pro";
+    } else if (targetUrl.includes("bcdnxw.hakunaymatata.com")) {
+      // mzfi.me streams use bcdnxw subdomain
+      referer = "https://mzfi.me/";
+      origin = "https://mzfi.me";
+    } else if (targetUrl.includes("bcdn.hakunaymatata.com")) {
+      // vidlink.pro streams use bcdn subdomain (different from mzfi!)
+      referer = "https://vidlink.pro/";
+      origin = "https://vidlink.pro";
     } else if (targetUrl.includes("hakunaymatata.com")) {
+      // Default for other hakunaymatata subdomains
       referer = "https://mzfi.me/";
       origin = "https://mzfi.me";
     } else if (targetUrl.includes("videm.xyz")) {
-      // For videm.xyz, extract the embed URL as referer
-      // Stream URL: https://videm.xyz/_stream?id=xxx
-      // Referer should be: https://videm.xyz/embed/movie/{tmdbId}
       referer = "https://videm.xyz/embed/";
       origin = "https://videm.xyz";
     }

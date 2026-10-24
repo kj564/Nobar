@@ -165,8 +165,13 @@ export async function GET(
     }
   }
 
+  // CRITICAL: Do NOT cache at edge — mzfi stream URLs expire after ~10min.
+  // If we cache the API response, users get stale URLs → "Playback failed".
+  // Browser cache is OK for instant re-loads, but edge/CDN cache must be off.
   return NextResponse.json(result, {
-    headers: { "Cache-Control": "public, max-age=300" },
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+    },
   });
 }
 

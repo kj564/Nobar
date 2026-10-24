@@ -101,7 +101,13 @@ export async function GET(
     }>;
     subtitles: Array<{ language: string; url: string }>;
     embedUrl: string | null;
-  } = { sources: [], subtitles: [], embedUrl: null };
+    dashSource: {
+      url: string;
+      provider: string;
+      maxBitrate: string;
+      codec: string;
+    } | null;
+  } = { sources: [], subtitles: [], embedUrl: null, dashSource: null };
 
   // Wait for TMDB before mzfi search (need title for search keyword)
   await tmdbPromise;
@@ -114,6 +120,19 @@ export async function GET(
      tmdbStatus === "Planned" ||
      tmdbStatus === "In Production" ||
      tmdbStatus === "Post Production");
+
+  // ─── Adaptive (DASH) source ───────────────────────────────────────
+  // HEVC adaptive bitrate (1080/720/480 in one MPD) — buttery smooth
+  // playback: client auto-switches quality based on bandwidth, no
+  // buffering on slow connections, no manual quality picker needed.
+  // Requires X-MB-Token header on every CDN request → proxy injects
+  // it when URL is on sbcdnw.hakunaymatata.com.
+  let dashSource: {
+    url: string;          // proxied MPD URL (/api/proxy?url=...&mbtoken=...)
+    provider: string;
+    maxBitrate: string;    // "1080", "720", etc. for display only
+    codec: string;         // "hevc" / "h264" — for compatibility check
+  } | null = null;
 
   if (!isUnreleased) {
   try {
@@ -142,6 +161,32 @@ export async function GET(
           provider: "mzfi.me",
           type: "mp4",
         });
+      }
+
+      // ─── Extract DASH adaptive source ──────────────────────────
+      // mzfiData.dash[] has multi-bitrate HEVC MPD manifests.
+      // Pick the highest-resolution DASH variant (better ABR range).
+      // The signCookie (X-MB-Token) is required by sbcdnw CDN.
+      const dashArr = (mzfiData as any).dash || [];
+      const playableDash = dashArr.filter(
+        (d: any) => d?.url && d?.signCookie && d?.signHeaderKey === "X-MB-Token"
+      );
+      if (playableDash.length > 0) {
+        // Pick the one with highest resolutions string (e.g. "1080,720,480" > "720,480")
+        const best = playableDash.reduce((a: any, b: any) => {
+          const ar = Number(String(a.resolutions).split(",")[0]) || 0;
+          const br = Number(String(b.resolutions).split(",")[0]) || 0;
+          return ar >= br ? a : b;
+        });
+        const mpdUrl = `/api/proxy?url=${encodeURIComponent(best.url)}&mbtoken=${encodeURIComponent(best.signCookie)}`;
+        const maxRes = String(best.resolutions || "").split(",")[0] || "auto";
+        dashSource = {
+          url: mpdUrl,
+          provider: "mzfi.me (DASH)",
+          maxBitrate: `${maxRes}p`,
+          codec: best.codecName || "hevc",
+        };
+        console.log(`[stream] DASH adaptive: ${best.resolutions} (${best.codecName})`);
       }
 
       // Lazy subtitle fetch: return a placeholder URL that the client can
@@ -228,7 +273,7 @@ export async function GET(
 
   // Last resort: embed iframe (only if both mzfi + vidlink fail)
   // Try multiple embed providers: vidlink.pro → vidsrc.me → 2embed.cc
-  if (result.sources.length === 0) {
+  if (result.sources.length === 0 && !dashSource) {
     // Use IMDB ID for providers that need it (vidsrc.me, 2embed)
     const embedId = imdbId || String(tmdbId);
     result.embedUrl =
@@ -236,6 +281,10 @@ export async function GET(
         ? `https://vidsrc.me/embed/tv/${embedId}/${season}/${episode}`
         : `https://vidsrc.me/embed/movie/${embedId}`;
   }
+
+  // Attach DASH source to response (Shaka player picks this up first;
+  // falls back to MP4 sources if DASH unavailable or browser lacks HEVC).
+  result.dashSource = dashSource;
 
   // CRITICAL: Do NOT cache at edge — mzfi stream URLs expire after ~10min.
   // If we cache the API response, users get stale URLs → "Playback failed".

@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 
-// GET /api/proxy?url={encoded_url}
+// GET /api/proxy?url={encoded_url}&mbtoken={encoded_token}
 // Streams video content through our server with proper headers.
 // For videm.xyz: fetches embed page first to get session cookie, then proxies stream.
+//
+// DASH support: when URL is on sbcdnw.hakunaymatata.com (the DASH CDN),
+// the X-MB-Token header (= signCookie from play response) is required
+// for every chunk request. Pass it via ?mbtoken=... and we inject it.
 //
 // Vercel: must use Node.js runtime (not edge) for large video streaming.
 // Edge runtime truncates large responses; Node.js runtime streams properly.
@@ -15,6 +19,8 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const targetUrl = url.searchParams.get("url");
+  // Optional X-MB-Token for DASH CDN (sbcdnw.hakunaymatata.com)
+  const mbToken = url.searchParams.get("mbtoken");
 
   if (!targetUrl) {
     return NextResponse.json({ error: "url parameter required" }, { status: 400 });
@@ -24,12 +30,22 @@ export async function GET(request: Request) {
     // Determine Referer + Origin based on stream URL domain.
     // Both mzfi and vidlink use hakunaymatata.com CDN, but different
     // subdomains require different Referer headers:
-    //   bcdnxw.hakunaymatata.com → mzfi.me (mzfi streams)
-    //   bcdn.hakunaymatata.com   → vidlink.pro (vidlink streams)
+    //   bcdnxw.hakunaymatata.com → mzfi.me (mzfi MP4 streams)
+    //   bcdn.hakunaymatata.com   → vidlink.pro (vidlink MP4 streams — NO Referer!)
+    //   sbcdnw.hakunaymatata.com → DASH adaptive (X-MB-Token header required)
+    //   cacdn.hakunaymatata.com  → subtitle SRT files
     let referer = "https://videm.xyz/embed/";
     let origin = "https://videm.xyz";
-    
-    if (targetUrl.includes("vidlink.pro")) {
+    let needsMbToken = false;
+
+    if (targetUrl.includes("sbcdnw.hakunaymatata.com")) {
+      // DASH CDN — requires X-MB-Token header AND Referer (per RE report).
+      // Bare request → 429; Referer only → 403; X-MB-Token + Referer → 200.
+      // movieboxhd.net and mzfi.me are both accepted Referer values.
+      referer = "https://movieboxhd.net/";
+      origin = "https://movieboxhd.net";
+      needsMbToken = true;
+    } else if (targetUrl.includes("vidlink.pro")) {
       referer = "https://vidlink.pro/";
       origin = "https://vidlink.pro";
     } else if (targetUrl.includes("bcdnxw.hakunaymatata.com")) {
@@ -46,13 +62,17 @@ export async function GET(request: Request) {
       // Default for other hakunaymatata subdomains
       referer = "https://mzfi.me/";
       origin = "https://mzfi.me";
+    } else if (targetUrl.includes("cacdn.")) {
+      // Subtitle CDN — typically uses signed URL params, no Referer needed
+      referer = "";
+      origin = "";
     } else if (targetUrl.includes("videm.xyz")) {
       referer = "https://videm.xyz/embed/";
       origin = "https://videm.xyz";
     }
 
     // Build headers — only include Referer/Origin if non-empty
-    // (bcdn.hakunaymatata.com REJECTS requests with Referer header → 429)
+    // (bcdn/sbcdn subdomains REJECT requests with Referer → 429/403)
     const fetchHeaders: Record<string, string> = {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       "Accept": "*/*",
@@ -60,6 +80,10 @@ export async function GET(request: Request) {
     };
     if (referer) fetchHeaders["Referer"] = referer;
     if (origin) fetchHeaders["Origin"] = origin;
+    // DASH CDN: inject X-MB-Token header (the signCookie from play response)
+    if (needsMbToken && mbToken) {
+      fetchHeaders["X-MB-Token"] = mbToken;
+    }
 
     // Pass through Range header for video seeking
     const range = request.headers.get("range");
@@ -70,12 +94,20 @@ export async function GET(request: Request) {
     const res = await fetch(targetUrl, { headers: fetchHeaders, redirect: "follow" });
 
     if (!res.ok) {
-      // bcdn.hakunaymatata.com (vidlink.pro CDN) rejects most headers.
-      // Retry with MINIMAL headers (just Range, nothing else).
+      // 429 on DASH CDN — retry with full headers (Referer + X-MB-Token + Range).
+      // The CDN rate-limits bare requests; including all required headers
+      // typically resolves it.
       if (res.status === 428 || res.status === 429) {
-        const minimalHeaders: Record<string, string> = {};
-        if (range) minimalHeaders["Range"] = range;
-        const retryRes = await fetch(targetUrl, { headers: minimalHeaders, redirect: "follow" });
+        const retryHeaders: Record<string, string> = {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "*/*",
+          "Accept-Language": "en-US,en;q=0.9",
+        };
+        if (range) retryHeaders["Range"] = range;
+        if (needsMbToken && mbToken) retryHeaders["X-MB-Token"] = mbToken;
+        if (referer) retryHeaders["Referer"] = referer;
+        if (origin) retryHeaders["Origin"] = origin;
+        const retryRes = await fetch(targetUrl, { headers: retryHeaders, redirect: "follow" });
         if (retryRes.ok) {
           return streamResponse(retryRes);
         }

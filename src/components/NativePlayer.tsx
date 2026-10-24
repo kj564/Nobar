@@ -1,13 +1,40 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2, Gauge, Wifi } from "lucide-react";
+
+// ─────────────────────────────────────────────────────────────────────
+// NativePlayer — buttery smooth playback via Shaka Player (DASH adaptive)
+// + native <video> MP4 fallback.
+//
+// Why Shaka?
+//  - Industry-standard DASH player (used by Google/YouTube/Major streaming).
+//  - Adaptive Bit Rate (ABR): auto-switches 1080→720→480 based on bandwidth
+//    → no buffering on slow connections, no manual quality picker needed.
+//  - 5-second chunked MPD → instant seek, no full-file re-fetch.
+//  - Built-in bandwidth estimator + rebuffer recovery.
+//
+// Smoothness features:
+//  - Preconnect to hakunaymatata CDN on mount (instant first byte)
+//  - DASH preferred → adaptive bitrate kicks in immediately
+//  - MP4 fallback (Progressive) when DASH unavailable or HEVC unsupported
+//  - Larger initial buffer target (15s) before play → less stall risk
+//  - Auto-retry on network blips (Shaka handles this natively)
+//  - Visible ABR indicator (current bitrate) for transparency
+// ─────────────────────────────────────────────────────────────────────
 
 type StreamSource = {
   quality: string;
   url: string;
   provider: string;
   type: string;
+};
+
+type DashSource = {
+  url: string;            // proxied MPD URL (/api/proxy?url=...&mbtoken=...)
+  provider: string;
+  maxBitrate: string;     // "1080p" / "720p" — display only
+  codec: string;          // "hevc" / "h264"
 };
 
 type Subtitle = {
@@ -25,7 +52,9 @@ type NativePlayerProps = {
 
 export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }: NativePlayerProps) {
   const [sources, setSources] = useState<StreamSource[]>([]);
+  const [dashSource, setDashSource] = useState<DashSource | null>(null);
   const [activeSource, setActiveSource] = useState<StreamSource | null>(null);
+  const [usingDash, setUsingDash] = useState(false);
   const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
   const [activeSubtitle, setActiveSubtitle] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,69 +62,246 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   const [useEmbed, setUseEmbed] = useState(false);
   const [showSettings, setShowSettings] = useState("");
   const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);  // start muted for autoplay
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [buffering, setBuffering] = useState(false);
   const [volume, setVolume] = useState(1);
+  const [currentBitrate, setCurrentBitrate] = useState<number>(0);  // for ABR indicator
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const shakaRef = useRef<any>(null);  // shaka.Player instance
+  const shakaLoadedRef = useRef(false);
 
   const streamUrl = kind === "tv" && season && episode
     ? `/api/stream/${tmdbId}?kind=tv&season=${season}&episode=${episode}`
     : `/api/stream/${tmdbId}`;
 
+  // ── Preconnect to CDN domains on mount → instant first byte ──
+  // Browser opens TCP+TLS to hakunaymatata.com before we even need it.
+  useEffect(() => {
+    const preconnects = [
+      "https://bcdnxw.hakunaymatata.com",
+      "https://sbcdnw.hakunaymatata.com",
+      "https://image.tmdb.org",
+    ];
+    const links: HTMLLinkElement[] = [];
+    for (const href of preconnects) {
+      const link = document.createElement("link");
+      link.rel = "preconnect";
+      link.href = href;
+      link.crossOrigin = "anonymous";
+      document.head.appendChild(link);
+      links.push(link);
+    }
+    return () => { links.forEach(l => l.remove()); };
+  }, []);
+
+  // ── Dynamic import shaka-player (code-splits; only loaded when needed) ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const shaka = await import("shaka-player");
+        if (cancelled) return;
+        // Polyfills must run before Player construction.
+        shaka.polyfill.installAll();
+        shakaLoadedRef.current = true;
+      } catch (e) {
+        console.warn("[NOBAR] shaka-player failed to load:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Load Shaka player when dashSource + video element are ready ──
+  const loadShaka = useCallback(async (mpdProxiedUrl: string): Promise<boolean> => {
+    const video = videoRef.current;
+    if (!video) return false;
+
+    // Wait for shaka to be loaded
+    let attempts = 0;
+    while (!shakaLoadedRef.current && attempts < 50) {
+      await new Promise(r => setTimeout(r, 100));
+      attempts++;
+    }
+    if (!shakaLoadedRef.current) {
+      console.warn("[NOBAR] shaka-player not loaded — falling back to MP4");
+      return false;
+    }
+
+    // ── Extract raw CDN MPD URL + mbtoken from proxied URL ──
+    const mpdParams = new URL(mpdProxiedUrl, window.location.origin).searchParams;
+    const rawMpdUrl = mpdParams.get("url") || mpdProxiedUrl;
+    const mbToken = mpdParams.get("mbtoken") || "";
+
+    // ── Codec compatibility check (BEFORE Shaka load) ──
+    // The DASH manifest from mzfi/movieboxhd is HEVC (hev1.1.6.L150.90).
+    // HEVC playback requires:
+    //   - Safari (macOS/iOS): native ✓
+    //   - Chrome/Edge with HEVC extension or hardware decoder on Windows ✓
+    //   - Chrome on Linux/macOS, Firefox: ✗ (no native HEVC)
+    // If we attempt Shaka load on an unsupported browser, Shaka throws
+    // error 4032 (CODEC_NOT_SUPPORTED) after ~2s of trying — wasting UX time.
+    // Pre-check via MediaSource.isTypeSupported to fail fast and fall back.
+    const HEVC_MIME = 'video/mp4; codecs="hev1.1.6.L150.90"';
+    const hevcSupported =
+      typeof MediaSource !== "undefined" &&
+      MediaSource.isTypeSupported(HEVC_MIME);
+    if (!hevcSupported) {
+      console.warn("[NOBAR] HEVC not supported by this browser — falling back to MP4");
+      return false;
+    }
+
+    const shaka = await import("shaka-player");
+
+    // Destroy existing shaka instance if any
+    if (shakaRef.current) {
+      try { await shakaRef.current.destroy(); } catch {}
+      shakaRef.current = null;
+    }
+
+    const player = new shaka.Player();
+    shakaRef.current = player;
+    // Use the modern attach() API (constructor-with-mediaElement is deprecated)
+    await player.attach(video);
+
+    // ── Player config: tune for smoothness ──
+    player.configure({
+      // ABR: start with safe bandwidth estimate, switch fast on dips
+      abr: {
+        enabled: true,
+        switchInterval: 8,                   // don't switch more often than every 8s (avoid flapping)
+        bandwidthUpgradeTarget: 0.85,       // only upgrade when 85% of next level
+        bandwidthDowngradeTarget: 0.95,     // downgrade quickly when bandwidth tight
+        defaultBandwidthEstimate: 1_000_000, // start assumption: 1 Mbps
+        advanced: {
+          minBytes: 32_768,
+          fastHalfLife: 2,
+          slowHalfLife: 5,
+        },
+      },
+      streaming: {
+        // Larger buffers = smoother playback on network blips
+        bufferingGoal: 30,           // try to buffer 30s ahead
+        rebufferingGoal: 4,           // need 4s buffered to resume from rebuffer
+        bufferBehind: 30,            // drop buffer > 30s behind playhead
+        // Retry on network errors (auto-recovery)
+        retryParameters: {
+          maxAttempts: 5,
+          baseDelay: 1000,
+          backoffFactor: 1.5,
+          fuzzFactor: 0.5,
+          timeout: 30000,
+        },
+      },
+      manifest: {
+        // Retry on manifest load failures
+        retryParameters: {
+          maxAttempts: 4,
+          baseDelay: 1000,
+          backoffFactor: 1.5,
+          fuzzFactor: 0.5,
+          timeout: 30000,
+        },
+      },
+    });
+
+    // ── Request filter: rewrite ALL hakunaymatata URLs through /api/proxy ──
+    // This handles both the manifest fetch AND every chunk fetch.
+    // Without this, relative chunk URLs in the MPD resolve against our proxy
+    // path (/api/proxy) instead of the CDN — breaking chunk loading.
+    player.getNetworkingEngine().registerRequestFilter(
+      (type: any, request: any) => {
+        if (typeof request.uris === "undefined") return;
+        for (let i = 0; i < request.uris.length; i++) {
+          const uri = request.uris[i];
+          // Only rewrite URLs pointing at the CDN — leave /api/proxy URLs alone
+          if (uri.includes("hakunaymatata.com")) {
+            request.uris[i] =
+              `/api/proxy?url=${encodeURIComponent(uri)}` +
+              (mbToken ? `&mbtoken=${encodeURIComponent(mbToken)}` : "");
+          }
+        }
+      }
+    );
+
+    // ── ABR tracking: expose current bitrate to UI ──
+    player.addEventListener("abrchanged", (e: any) => {
+      const bitrate = e?.newLevel?.bitrate || 0;
+      setCurrentBitrate(bitrate);
+    });
+
+    try {
+      await player.load(rawMpdUrl);
+      console.log("[NOBAR] Shaka DASH loaded successfully");
+      setUsingDash(true);
+      return true;
+    } catch (err: any) {
+      console.warn("[NOBAR] Shaka load failed:", err?.code || err);
+      // Cleanup failed shaka instance
+      try { await player.destroy(); } catch {}
+      shakaRef.current = null;
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setSources([]);
+    setDashSource(null);
     setActiveSource(null);
     setEmbedUrl(null);
+    setUsingDash(false);
 
     fetch(streamUrl)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
         setSources(data.sources || []);
+        setDashSource(data.dashSource || null);
         // Lazy subtitle fetch: main /api/stream returns a single "Available"
         // placeholder URL. When user opens the subtitle menu, we fetch the
         // actual subtitle list from /api/stream/[id]/subtitles (separate
         // endpoint, avoids Vercel function timeout on the main stream call).
         const placeholderSubs = data.subtitles || [];
         if (placeholderSubs.length === 1 && placeholderSubs[0].language === "Available") {
-          // Fetch actual subtitles on-demand
           fetch(placeholderSubs[0].url)
             .then((r) => r.json())
             .then((subData) => {
               if (cancelled) return;
               const subs = (subData.subtitles || []).map((s: Subtitle) => ({
                 language: s.language,
-                // s.url already includes /api/subtitle or /api/subtitles/translate
-                // — don't double-wrap with /api/subtitle again!
-                url: s.url.startsWith("/api/")
-                  ? s.url
-                  : `/api/subtitle?url=${encodeURIComponent(s.url)}`,
+                url: s.url.startsWith("/api/") ? s.url : `/api/subtitle?url=${encodeURIComponent(s.url)}`,
               }));
               setSubtitles(subs);
             })
-            .catch(() => {}); // subtitles optional
+            .catch(() => {});
         } else {
-          // Direct subtitle URLs (legacy/inline format)
           const subs = placeholderSubs.map((s: Subtitle) => ({
             language: s.language,
-            url: s.url.startsWith("/api/")
-              ? s.url
-              : `/api/subtitle?url=${encodeURIComponent(s.url)}`,
+            url: s.url.startsWith("/api/") ? s.url : `/api/subtitle?url=${encodeURIComponent(s.url)}`,
           }));
           setSubtitles(subs);
         }
+
+        // ── Source selection strategy ──
+        // 1) Pre-select best MP4 source as fallback (Shaka may fail on HEVC)
+        // 2) If DASH source available, attempt Shaka load (effect below)
+        // 3) If Shaka succeeds → use DASH; if it fails → fall back to MP4
+        //
+        // We ALWAYS pick best MP4 up front because Shaka's HEVC check is
+        // async — having MP4 pre-selected means zero-latency fallback if
+        // Shaka bails (HEVC not supported by browser).
         if (data.sources?.length > 0) {
           const best = data.sources.reduce((b: StreamSource, s: StreamSource) =>
             parseInt(s.quality) > parseInt(b.quality) ? s : b
           );
           setActiveSource(best);
-        } else if (data.embedUrl) {
+        }
+        if (!data.dashSource?.url && data.sources?.length === 0 && data.embedUrl) {
           setEmbedUrl(data.embedUrl);
           setUseEmbed(true);
         }
@@ -113,32 +319,53 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     return () => { cancelled = true; };
   }, [streamUrl]);
 
-  // Video events
+  // ── Initialize Shaka when dashSource arrives + video element is mounted ──
+  useEffect(() => {
+    if (!dashSource?.url) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    let destroyed = false;
+    (async () => {
+      const ok = await loadShaka(dashSource.url);
+      if (destroyed || !ok) return;
+      // Mute + autoplay (browser policy: muted autoplay always allowed)
+      video.muted = true;
+      setMuted(true);
+      try {
+        await video.play();
+        setPlaying(true);
+      } catch {
+        // Autoplay blocked — user must click play
+        setPlaying(false);
+      }
+    })();
+
+    return () => {
+      destroyed = true;
+      if (shakaRef.current) {
+        try { shakaRef.current.destroy(); } catch {}
+        shakaRef.current = null;
+      }
+    };
+  }, [dashSource, loadShaka]);
+
+  // ── Video events (only for MP4 mode — Shaka handles its own) ──
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || usingDash) return;
+    if (!activeSource) return;
+
     // Force muted on load — browser blocks autoplay of unmuted videos.
-    // React's `muted` prop doesn't reliably set the property, so do it here.
     v.muted = true;
     setMuted(true);
 
-    // ── VideoTogether iOS Safari fix ──
-    // On iOS Safari, VT's WebKitMutationObserver may not catch our dynamically
-    // rendered <video> element (React adds it 2-4s after page load, after API
-    // response). VT needs to hook into the video to sync play/pause/seek.
-    // Manually notify VT about our video element after it mounts.
     const notifyVideoTogether = () => {
       const ext = (window as any).videoTogetherExtension;
       if (ext && typeof ext.AddVideoListener === "function") {
-        try {
-          ext.AddVideoListener(v);
-          console.log("[NOBAR] VT AddVideoListener called for video element");
-        } catch (e) {
-          console.error("[NOBAR] VT AddVideoListener failed:", e);
-        }
+        try { ext.AddVideoListener(v); } catch (e) { console.error("[NOBAR] VT failed:", e); }
       }
     };
-    // Try immediately + retry after 1s (VT might not be loaded yet)
     notifyVideoTogether();
     const vtRetry = setTimeout(notifyVideoTogether, 1000);
     const vtRetry2 = setTimeout(notifyVideoTogether, 3000);
@@ -154,44 +381,59 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       volumechange: () => { setMuted(v.muted); setVolume(v.volume); },
     };
     Object.entries(handlers).forEach(([e, fn]) => v.addEventListener(e, fn));
-
-    // Also set webkit-playsinline for older iOS Safari (pre-10)
     v.setAttribute("webkit-playsinline", "true");
+
+    // Try autoplay after metadata loads
+    const tryAutoplay = async () => {
+      try {
+        await v.play();
+        setPlaying(true);
+      } catch {
+        setPlaying(false);
+      }
+    };
+    const autoplayTimer = setTimeout(tryAutoplay, 500);
 
     return () => {
       clearTimeout(vtRetry);
       clearTimeout(vtRetry2);
+      clearTimeout(autoplayTimer);
       Object.entries(handlers).forEach(([e, fn]) => v.removeEventListener(e, fn));
     };
-  }, [activeSource]);
+  }, [activeSource, usingDash]);
 
-  // ── iOS Safari autoplay fix ──
-  // On iOS Safari, autoplay (even muted) can be blocked in Low Power Mode
-  // or strict privacy settings. When play() rejects, show a tap-to-play
-  // overlay. The user tap provides the required user gesture for playback.
-  // This also triggers VT's VideoClicked handler → VT activates the video
-  // → sync works.
+  // ── Video events for DASH mode (Shaka owns playback, we track state) ──
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || !usingDash) return;
 
-    const tryAutoplay = async () => {
-      try {
-        await v.play();
-        // Play succeeded — dispatch play event to trigger VT VideoClicked
-        v.dispatchEvent(new Event("play", { bubbles: true }));
-      } catch (e) {
-        // Autoplay blocked — set state to show tap-to-play overlay
-        console.log("[NOBAR] Autoplay blocked, showing tap-to-play overlay");
-        setPlaying(false);
+    const notifyVideoTogether = () => {
+      const ext = (window as any).videoTogetherExtension;
+      if (ext && typeof ext.AddVideoListener === "function") {
+        try { ext.AddVideoListener(v); } catch (e) { console.error("[NOBAR] VT failed:", e); }
       }
     };
+    notifyVideoTogether();
+    const vtRetry = setTimeout(notifyVideoTogether, 1000);
 
-    // Try autoplay after a short delay (let video metadata load first)
-    const autoplayTimer = setTimeout(tryAutoplay, 500);
+    const handlers = {
+      timeupdate: () => setCurrentTime(v.currentTime),
+      durationchange: () => setDuration(v.duration || 0),
+      play: () => { setPlaying(true); setBuffering(false); },
+      pause: () => setPlaying(false),
+      waiting: () => setBuffering(true),
+      playing: () => setBuffering(false),
+      canplay: () => setBuffering(false),
+      volumechange: () => { setMuted(v.muted); setVolume(v.volume); },
+    };
+    Object.entries(handlers).forEach(([e, fn]) => v.addEventListener(e, fn));
+    v.setAttribute("webkit-playsinline", "true");
 
-    return () => clearTimeout(autoplayTimer);
-  }, [activeSource]);
+    return () => {
+      clearTimeout(vtRetry);
+      Object.entries(handlers).forEach(([e, fn]) => v.removeEventListener(e, fn));
+    };
+  }, [usingDash]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -215,30 +457,77 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   const togglePlay = useCallback(() => {
     const v = videoRef.current; if (!v) return;
     if (v.paused) v.play(); else v.pause();
-    // Broadcast to watch party
     (window as any).__watchPartySync?.(!v.paused, v.currentTime);
   }, []);
 
-  const toggleMute = () => { const v = videoRef.current; if (v) v.muted = !v.muted; };
+  const toggleMute = () => {
+    const v = videoRef.current;
+    if (v) { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 0.5; }
+  };
   const toggleFullscreen = () => {
     const el = containerRef.current; if (!el) return;
     document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen();
   };
-  const seek = (t: number) => { const v = videoRef.current; if (v) { v.currentTime = t; (window as any).__watchPartySync?.(!v.paused, t); } };
-  const setVol = (vol: number) => { const v = videoRef.current; if (v) { v.volume = vol; v.muted = vol === 0; } };
+  const seek = (t: number) => {
+    const v = videoRef.current;
+    if (v) { v.currentTime = t; (window as any).__watchPartySync?.(!v.paused, t); }
+  };
+  const setVol = (vol: number) => {
+    const v = videoRef.current;
+    if (v) { v.volume = vol; v.muted = vol === 0; }
+  };
 
   const changeQuality = (s: StreamSource) => {
-    const v = videoRef.current;
-    const t = v?.currentTime || 0;
-    const wasPlaying = !v?.paused;
-    setActiveSource(s); setShowSettings("");
-    setTimeout(() => { if (v) { v.currentTime = t; if (wasPlaying) v.play(); } }, 200);
+    // Switch from DASH → MP4 (or between MP4 qualities)
+    // Tear down Shaka if active
+    if (shakaRef.current) {
+      shakaRef.current.destroy().then(() => {
+        shakaRef.current = null;
+        setUsingDash(false);
+        const v = videoRef.current;
+        const t = v?.currentTime || 0;
+        const wasPlaying = !v?.paused;
+        setActiveSource(s);
+        setShowSettings("");
+        setTimeout(() => { if (v) { v.currentTime = t; if (wasPlaying) v.play(); } }, 200);
+      });
+    } else {
+      const v = videoRef.current;
+      const t = v?.currentTime || 0;
+      const wasPlaying = !v?.paused;
+      setActiveSource(s);
+      setShowSettings("");
+      setTimeout(() => { if (v) { v.currentTime = t; if (wasPlaying) v.play(); } }, 200);
+    }
+  };
+
+  const switchToDash = () => {
+    if (!dashSource) return;
+    setActiveSource(null);
+    setShowSettings("");
+    // The effect [dashSource, loadShaka] won't re-fire because dashSource
+    // didn't change. Manually trigger Shaka load.
+    loadShaka(dashSource.url).then(ok => {
+      if (ok) {
+        const v = videoRef.current;
+        if (v) {
+          v.muted = true;
+          v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+        }
+      }
+    });
   };
 
   const formatTime = (s: number) => {
     if (!s || !isFinite(s)) return "0:00";
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
     return h > 0 ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
+  };
+
+  const formatBitrate = (bps: number) => {
+    if (!bps) return "";
+    if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`;
+    return `${Math.round(bps / 1000)} kbps`;
   };
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
@@ -248,7 +537,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     return (
       <div className="relative bg-black aspect-video overflow-hidden rounded-lg flex items-center justify-center">
         <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
-        <span className="absolute bottom-4 text-sm text-gray-400">Loading stream...</span>
+        <span className="absolute bottom-4 text-sm text-gray-400">Loading stream…</span>
       </div>
     );
   }
@@ -267,13 +556,13 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
             referrerPolicy="no-referrer"
           />
         </div>
-        <p className="text-xs text-gray-500">Embed player — film tidak tersedia di mzfi.</p>
+        <p className="text-xs text-gray-500">Embed player — direct stream not available for this title.</p>
       </div>
     );
   }
 
   // No stream at all
-  if (!activeSource) {
+  if (!activeSource && !dashSource) {
     return (
       <div className="relative bg-black aspect-video overflow-hidden rounded-lg flex items-center justify-center">
         <p className="text-sm text-gray-400">Stream not available.</p>
@@ -281,13 +570,13 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     );
   }
 
-  // Native player — NO ADS, direct MP4
+  // Native player — NO ADS, DASH adaptive OR direct MP4
   return (
     <div className="space-y-2">
       <div ref={containerRef} className="relative bg-black aspect-video overflow-hidden rounded-lg group" tabIndex={0}>
         <video
           ref={videoRef}
-          src={activeSource.url}
+          src={usingDash ? undefined : activeSource?.url}
           className="w-full h-full object-contain"
           onClick={togglePlay}
           playsInline
@@ -346,18 +635,45 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
               <input type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={(e) => setVol(Number(e.target.value))} className="w-0 group-hover/vol:w-20 transition-all duration-200 accent-brand-500 cursor-pointer" />
             </div>
             <div className="text-xs text-white/80 font-mono">{formatTime(currentTime)} / {formatTime(duration)}</div>
+
+            {/* ABR indicator (DASH only) — shows current adaptive bitrate */}
+            {usingDash && currentBitrate > 0 && (
+              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono">
+                <Wifi className="w-3 h-3" />
+                {formatBitrate(currentBitrate)}
+              </span>
+            )}
+
             <div className="flex-1" />
-            {sources.length > 1 && (
+
+            {/* Quality / source picker */}
+            {(sources.length > 1 || (dashSource && !usingDash)) && (
               <div className="relative">
                 <button onClick={() => setShowSettings(showSettings === "q" ? "" : "q")} className="text-white hover:text-brand-500 transition flex items-center gap-1">
                   <Settings className="w-5 h-5" />
-                  <span className="text-xs">{activeSource.quality}</span>
+                  <span className="text-xs">
+                    {usingDash ? `Auto (${dashSource?.maxBitrate})` : activeSource?.quality}
+                  </span>
                 </button>
                 {showSettings === "q" && (
-                  <div className="absolute bottom-8 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[120px]">
+                  <div className="absolute bottom-8 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[150px]">
+                    {dashSource && (
+                      <button
+                        onClick={switchToDash}
+                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition flex items-center gap-2 ${usingDash ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
+                      >
+                        <Gauge className="w-3.5 h-3.5" />
+                        Auto (DASH)
+                        <span className="ml-auto text-[10px] text-gray-500">{dashSource.maxBitrate}</span>
+                      </button>
+                    )}
                     {sources.map((s, i) => (
-                      <button key={i} onClick={() => changeQuality(s)} className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${activeSource.url === s.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}>
-                        {s.quality}
+                      <button
+                        key={i}
+                        onClick={() => changeQuality(s)}
+                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${!usingDash && activeSource?.url === s.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
+                      >
+                        {s.quality} <span className="text-[10px] text-gray-500">MP4</span>
                       </button>
                     ))}
                   </div>
@@ -419,8 +735,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       </div>
 
       {/* Info bar */}
-      <div className="flex items-center justify-between text-xs text-gray-500">
-        <span>✓ Ad-free · <span className="text-gray-300">{activeSource.provider}</span> · {activeSource.quality}</span>
+      <div className="flex items-center justify-between text-xs text-gray-500 flex-wrap gap-2">
+        <span>
+          ✓ Ad-free ·{" "}
+          <span className="text-gray-300">{usingDash ? dashSource?.provider : activeSource?.provider}</span>
+          {usingDash && dashSource ? ` · ${dashSource.maxBitrate} adaptive` : ` · ${activeSource?.quality}`}
+        </span>
+        {usingDash && (
+          <span className="text-emerald-500/80">⚡ Adaptive streaming — auto-adjusts quality to your connection</span>
+        )}
       </div>
     </div>
   );

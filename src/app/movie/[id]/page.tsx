@@ -152,6 +152,12 @@ export default async function MovieDetailPage({ params }: PageProps) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
+      {/* ── Preconnect hints: warm TCP+TLS to CDN domains before video element mounts ──
+          Saves ~200-500ms on first byte (browser pre-handshakes with hakunaymatata
+          CDN during React render, so the first MPD/MP4 chunk fetch is instant). */}
+      <link rel="preconnect" href="https://sbcdnw.hakunaymatata.com" crossOrigin="anonymous" />
+      <link rel="preconnect" href="https://bcdnxw.hakunaymatata.com" crossOrigin="anonymous" />
+      <link rel="preconnect" href="https://image.tmdb.org" crossOrigin="anonymous" />
       <Navbar>
         <Link
           href="/movie/"

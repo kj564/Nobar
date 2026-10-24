@@ -92,6 +92,11 @@ export default async function MovieDetailPage({ params }: PageProps) {
     return notFound();
   }
 
+  // Block fake/spam movies: no poster + no overview + 0 votes
+  if (!detail.poster_path && !detail.overview && (!detail.vote_count || detail.vote_count === 0)) {
+    return notFound();
+  }
+
   // Redirect to canonical slug if URL doesn't match (SEO + clean URLs)
   const canonicalSlug = buildMovieSlug(detail);
   if (slug !== canonicalSlug) {

@@ -113,7 +113,12 @@ export async function fetchTVDetailEnglish(id: number): Promise<TMDBSeriesDetail
 }
 
 export async function fetchTrending(page = 1): Promise<TMDBPaged<TMDBMovie>> {
-  return tmdbGet<TMDBPaged<TMDBMovie>>("/trending/movie/week", { page });
+  const data = await tmdbGet<TMDBPaged<TMDBMovie>>("/trending/movie/week", { page });
+  // Filter out fake/spam movies: no poster, no overview, or 0 votes
+  data.results = (data.results || []).filter(
+    (m) => m.poster_path && m.vote_count && m.vote_count > 0
+  );
+  return data;
 }
 
 export async function fetchByGenre(genreId: number, page = 1): Promise<TMDBPaged<TMDBMovie>> {
@@ -134,10 +139,12 @@ export async function searchMovies(query: string, page = 1): Promise<TMDBPaged<T
     page,
     include_adult: "false",
   });
-  // Filter out people (media_type === "person") — we only show movies + TV.
-  // Also filter out items without a poster (cleaner results).
+  // Filter out people + fake movies (no poster or 0 votes)
   data.results = (data.results || []).filter(
-    (r) => r.media_type !== "person" && (r.media_type === "movie" || r.media_type === "tv")
+    (r) =>
+      r.media_type !== "person" &&
+      (r.media_type === "movie" || r.media_type === "tv") &&
+      r.poster_path
   );
   return data;
 }
@@ -710,7 +717,10 @@ export type TMDBSeriesDetail = TMDBSeries & {
 };
 
 export async function fetchTrendingTV(page = 1): Promise<TMDBPaged<TMDBSeries>> {
-  return tmdbGet<TMDBPaged<TMDBSeries>>("/trending/tv/week", { page });
+  const data = await tmdbGet<TMDBPaged<TMDBSeries>>("/trending/tv/week", { page });
+  // Filter out fake/spam entries: no poster
+  data.results = (data.results || []).filter((s) => s.poster_path);
+  return data;
 }
 
 export async function fetchTVDetail(id: number): Promise<TMDBSeriesDetail> {

@@ -162,6 +162,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       shakaRef.current = null;
     }
 
+    // ── Clear the MP4 src before Shaka takes over ──
+    // The MP4 effect sets video.src = activeSource.url. Shaka's attach()
+    // doesn't clear this — we must do it manually to prevent a conflict
+    // between the MP4 progressive download and Shaka's MSE (MediaSource
+    // Extensions) setup. Without this, the video can get stuck loading.
+    video.pause();
+    video.removeAttribute("src");
+    video.load(); // reset to empty state
+
     const player = new shaka.Player();
     shakaRef.current = player;
     // Use the modern attach() API (constructor-with-mediaElement is deprecated)
@@ -326,18 +335,28 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     if (!video) return;
 
     let destroyed = false;
+    // Show buffering spinner while Shaka loads — avoids black screen gap
+    // between MP4 src being cleared and Shaka's MSE blob URL being set.
+    setBuffering(true);
+
     (async () => {
       const ok = await loadShaka(dashSource.url);
-      if (destroyed || !ok) return;
+      if (destroyed || !ok) {
+        // Shaka failed — MP4 effect will re-fire and restore playback
+        setBuffering(false);
+        return;
+      }
       // Mute + autoplay (browser policy: muted autoplay always allowed)
       video.muted = true;
       setMuted(true);
       try {
         await video.play();
         setPlaying(true);
+        setBuffering(false);
       } catch {
         // Autoplay blocked — user must click play
         setPlaying(false);
+        setBuffering(false);
       }
     })();
 
@@ -355,6 +374,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     const v = videoRef.current;
     if (!v || usingDash) return;
     if (!activeSource) return;
+
+    // Set src directly on the DOM element (NOT via React's src prop).
+    // This prevents React from overwriting Shaka's MSE blob: URL when
+    // usingDash flips to true. React doesn't manage this attribute,
+    // so Shaka can freely set video.src = blob:... without React clobbering it.
+    if (v.src !== activeSource.url) {
+      v.src = activeSource.url;
+      v.load(); // force reload with new src
+    }
 
     // Force muted on load — browser blocks autoplay of unmuted videos.
     v.muted = true;
@@ -576,7 +604,6 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       <div ref={containerRef} className="relative bg-black aspect-video overflow-hidden rounded-lg group" tabIndex={0}>
         <video
           ref={videoRef}
-          src={usingDash ? undefined : activeSource?.url}
           className="w-full h-full object-contain"
           onClick={togglePlay}
           playsInline

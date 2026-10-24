@@ -37,9 +37,11 @@ export async function GET(request: Request) {
       referer = "https://mzfi.me/";
       origin = "https://mzfi.me";
     } else if (targetUrl.includes("bcdn.hakunaymatata.com")) {
-      // vidlink.pro streams use bcdn subdomain (different from mzfi!)
-      referer = "https://vidlink.pro/";
-      origin = "https://vidlink.pro";
+      // vidlink.pro streams use bcdn subdomain — CDN REJECTS Referer header!
+      // Returns 429 if any Referer is sent, 206 without Referer.
+      // Do NOT send Referer/Origin for bcdn subdomain.
+      referer = "";
+      origin = "";
     } else if (targetUrl.includes("hakunaymatata.com")) {
       // Default for other hakunaymatata subdomains
       referer = "https://mzfi.me/";
@@ -49,14 +51,15 @@ export async function GET(request: Request) {
       origin = "https://videm.xyz";
     }
 
-    // Build headers
+    // Build headers — only include Referer/Origin if non-empty
+    // (bcdn.hakunaymatata.com REJECTS requests with Referer header → 429)
     const fetchHeaders: Record<string, string> = {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       "Accept": "*/*",
-      "Referer": referer,
-      "Origin": origin,
       "Accept-Language": "en-US,en;q=0.9",
     };
+    if (referer) fetchHeaders["Referer"] = referer;
+    if (origin) fetchHeaders["Origin"] = origin;
 
     // Pass through Range header for video seeking
     const range = request.headers.get("range");

@@ -791,3 +791,57 @@ VERIFICATION:
 - Browser movie detail: pull-up overlap, hero CTA, polished ✓
 - 0 console errors ✓
 - VLM: "high level of polish... professional and cohesive"
+
+---
+Task ID: nobar-re-vidlink-pro-breakthrough
+Agent: main
+Task: RE vidlink.pro lebih keras — extract direct MP4 URLs
+
+FULL RE RESULTS:
+
+1. Page JS chunk found: /_next/static/chunks/app/movie/[id]/page-*.js
+   - Module 20162: fetch('/api/b/movie/{TOKEN}?multiLang=0', {headers:{[i.Zt]:a}})
+   - Module 67127: header name = "X-Playback-Environment"
+   - Module 5196: decrypt function D (surge.flooderrr.store proxy rewriter)
+
+2. Auth token generation:
+   - /script.js defines globalThis.Dm (Go syscall/js bridge)
+   - /fu.wasm = 2.4MB Go binary compiled to WASM
+   - Go exports getAdv(movieId) → returns auth token
+   - Token = base64 encoded, includes movieId + timestamp + libsodium signature
+   - Token changes per call, unique per movie ID
+
+3. BREAKTHROUGH: API URL pattern is /api/b/movie/{TOKEN} (NOT /api/b/movie/{id})
+   - Token goes IN THE URL PATH, not as header
+   - Server-side Node.js CAN run fu.wasm (with libsodium-wrappers + browser stubs)
+   - API returns JSON with direct MP4 URLs!
+
+4. API Response:
+   {
+     "sourceId": "mwVault",
+     "stream": {
+       "type": "file",
+       "deliveryType": "file",
+       "qualities": {
+         "360": { "type":"mp4", "url":"https://bcdn.hakunaymatata.com/resource/h265/...mp4?sign=...&t=..." },
+         "480": { ... },
+         "720": { ... },
+         "1080": { ... }
+       }
+     }
+   }
+
+5. CDN = hakunaymatata.com (SAME as mzfi!)
+   - Same CDN, different paths (resource/h265/ vs resource/)
+   - requiresProxy: true → needs surge.flooderrr.store proxy OR our /api/proxy
+
+6. Server-side implementation:
+   - Node.js runs fu.wasm via Dm bridge (Go WASM)
+   - libsodium-wrappers provides sodium
+   - Browser stubs: window, document, navigator
+   - getAdv(movieId) → token → fetch API → JSON → direct MP4 URLs
+   - NO browser needed, NO Cloudflare block
+
+This means: vidlink.pro can be a SECOND direct MP4 provider alongside mzfi!
+Embed fallback movies can now get direct MP4 URLs → play in <video> →
+VT syncs natively → NO extension needed for ANY movie!

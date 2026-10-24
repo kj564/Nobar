@@ -148,26 +148,21 @@ export async function GET(
   }
 
   // Set embed fallback URL (only used if mzfi fails)
-  // Route through /api/embed/* (same-origin proxy with <base> tag).
-  // Returns a list of providers so the user can switch if one fails.
-  // VT can sync same-origin iframes without browser extension.
+  // Direct cross-origin embed — videm.xyz/vidlink.pro (sweet spot).
+  // Native MP4 movies (90%+) work with VT without extension.
+  // Embed movies need VT browser extension for sync (cross-origin iframe).
   if (result.sources.length === 0) {
-    const isTv = kind === "tv";
-    const providers = [
-      { id: "videm", name: "VidEm", url: isTv
-        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}&provider=videm`
-        : `/api/embed/${tmdbId}?kind=movie&provider=videm` },
-      { id: "vidlink", name: "VidLink", url: isTv
-        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}&provider=vidlink`
-        : `/api/embed/${tmdbId}?kind=movie&provider=vidlink` },
-      { id: "2embed", name: "2Embed", url: isTv
-        ? `/api/embed/${tmdbId}?kind=tv&season=${season}&episode=${episode}&provider=2embed`
-        : `/api/embed/${tmdbId}?kind=movie&provider=2embed` },
-    ];
-    // Default to first provider
-    result.embedUrl = providers[0].url;
-    // Include full list for provider switching in UI
-    (result as any).embedProviders = providers;
+    if (imdbId) {
+      result.embedUrl =
+        kind === "tv"
+          ? `https://videm.xyz/embed/tv/${imdbId}/${season}/${episode}`
+          : `https://videm.xyz/embed/movie/${imdbId}`;
+    } else {
+      result.embedUrl =
+        kind === "tv"
+          ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
+          : `https://vidlink.pro/movie/${tmdbId}`;
+    }
   }
 
   return NextResponse.json(result, {

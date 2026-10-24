@@ -214,11 +214,14 @@ export async function GET(
   }
 
   // Last resort: embed iframe (only if both mzfi + vidlink fail)
+  // Try multiple embed providers: vidlink.pro → vidsrc.me → 2embed.cc
   if (result.sources.length === 0) {
+    // Use IMDB ID for providers that need it (vidsrc.me, 2embed)
+    const embedId = imdbId || String(tmdbId);
     result.embedUrl =
       kind === "tv"
-        ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
-        : `https://vidlink.pro/movie/${tmdbId}`;
+        ? `https://vidsrc.me/embed/tv/${embedId}/${season}/${episode}`
+        : `https://vidsrc.me/embed/movie/${embedId}`;
   }
 
   // CRITICAL: Do NOT cache at edge — mzfi stream URLs expire after ~10min.

@@ -114,7 +114,7 @@ export default async function SeriesDetailPage({ params }: PageProps) {
     .filter((s) => s.poster_path)
     .slice(0, 12);
   const genres = detail.genres || [];
-  const backdrop = backdropUrl(detail.backdrop_path, "original");
+  const backdrop = backdropUrl(detail.backdrop_path, "w1280");
   const seasons = detail.number_of_seasons;
   const episodes = detail.number_of_episodes;
   const status = detail.status;
@@ -165,6 +165,7 @@ export default async function SeriesDetailPage({ params }: PageProps) {
             src={backdrop}
             alt={title}
             fetchPriority="high"
+            loading="eager"
             className="absolute inset-0 w-full h-full object-cover opacity-90"
           />
         ) : (

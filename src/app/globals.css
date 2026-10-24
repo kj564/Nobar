@@ -358,3 +358,11 @@ video::cue(b) {
     color: var(--color-brand-400);
   }
 }
+
+/* Card poster image — lazy loaded with hover zoom */
+.card-thumb-img {
+  transition: transform var(--motion-dur-slow, 0.32s) var(--motion-ease-standard, ease);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

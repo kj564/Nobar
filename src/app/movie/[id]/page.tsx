@@ -121,7 +121,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
     .filter((m) => m.poster_path)
     .slice(0, 12);
   const genres = detail.genres || [];
-  const backdrop = backdropUrl(detail.backdrop_path, "original");
+  const backdrop = backdropUrl(detail.backdrop_path, "w1280");
   const trailerKey = detail.videos?.results?.find(
     (v) => v.type === "Trailer" && v.site === "YouTube"
   )?.key;
@@ -170,6 +170,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
             src={backdrop}
             alt={title}
             fetchPriority="high"
+            loading="eager"
             className="absolute inset-0 w-full h-full object-cover opacity-90"
           />
         ) : (

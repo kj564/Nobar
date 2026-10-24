@@ -18,8 +18,8 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 type CacheEntry = { at: number; data: unknown };
 const cache = new Map<string, CacheEntry>();
 
-export const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
-export const TMDB_IMG_LG = "https://image.tmdb.org/t/p/w780";
+export const TMDB_IMG = "https://image.tmdb.org/t/p/w342";
+export const TMDB_IMG_LG = "https://image.tmdb.org/t/p/w500";
 export const TMDB_IMG_ORIG = "https://image.tmdb.org/t/p/original";
 
 export type TMDBMovie = {

@@ -28,13 +28,17 @@ export function MovieCard({
         featured ? "flex-none w-40 md:w-48 snap-start" : ""
       }`}
     >
-      <div className="card-thumb relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-500/50 transition-all"
-        style={
-          movie.poster_path
-            ? { backgroundImage: `url(${posterUrl(movie.poster_path)})`, backgroundSize: "cover", backgroundPosition: "center" }
-            : undefined
-        }
-      >
+      <div className="card-thumb relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-500/50 transition-all">
+        {movie.poster_path ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={posterUrl(movie.poster_path)}
+            alt={title}
+            loading="lazy"
+            className="w-full h-full object-cover card-thumb-img"
+          />
+        ) : null}
+
         {/* Rank number (idlixku stroke italic style) */}
         {rank !== undefined && (
           <span
@@ -98,13 +102,17 @@ export function SeriesCard({
         featured ? "flex-none w-40 md:w-48 snap-start" : ""
       }`}
     >
-      <div className="card-thumb relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-500/50 transition-all"
-        style={
-          series.poster_path
-            ? { backgroundImage: `url(${posterUrl(series.poster_path)})`, backgroundSize: "cover", backgroundPosition: "center" }
-            : undefined
-        }
-      >
+      <div className="card-thumb relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-500/50 transition-all">
+        {series.poster_path ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={posterUrl(series.poster_path)}
+            alt={title}
+            loading="lazy"
+            className="w-full h-full object-cover card-thumb-img"
+          />
+        ) : null}
+
         {/* Rank number */}
         {rank !== undefined && (
           <span

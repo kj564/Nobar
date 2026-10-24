@@ -96,7 +96,7 @@ export function HeroBanner({ movies }: HeroBannerProps) {
 
   const movie = movies[activeIndex];
   const title = movie.title || movie.name || "Untitled";
-  const backdrop = backdropUrl(movie.backdrop_path, "original");
+  const backdrop = backdropUrl(movie.backdrop_path, "w1280");
   const isMovie = Boolean(movie.title);
   const mediaTypeLabel = isMovie ? "Film" : "TV Series";
   const href = isMovie ? `/movie/${buildMovieSlug(movie)}` : `/series/${buildSeriesSlug(movie)}`;

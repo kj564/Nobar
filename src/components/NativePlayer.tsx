@@ -71,7 +71,11 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
               if (cancelled) return;
               const subs = (subData.subtitles || []).map((s: Subtitle) => ({
                 language: s.language,
-                url: `/api/subtitle?url=${encodeURIComponent(s.url)}`,
+                // s.url already includes /api/subtitle or /api/subtitles/translate
+                // — don't double-wrap with /api/subtitle again!
+                url: s.url.startsWith("/api/")
+                  ? s.url
+                  : `/api/subtitle?url=${encodeURIComponent(s.url)}`,
               }));
               setSubtitles(subs);
             })
@@ -80,7 +84,9 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
           // Direct subtitle URLs (legacy/inline format)
           const subs = placeholderSubs.map((s: Subtitle) => ({
             language: s.language,
-            url: `/api/subtitle?url=${encodeURIComponent(s.url)}`,
+            url: s.url.startsWith("/api/")
+              ? s.url
+              : `/api/subtitle?url=${encodeURIComponent(s.url)}`,
           }));
           setSubtitles(subs);
         }

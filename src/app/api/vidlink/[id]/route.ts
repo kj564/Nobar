@@ -21,12 +21,20 @@ async function initWasm() {
       "utf8"
     );
 
-    (globalThis as any).window = globalThis;
-    (globalThis as any).document = {
-      createElement: () => ({ style: {}, appendChild: () => {} }),
-      getElementById: () => null,
-      getElementsByTagName: () => [],
-    };
+    // Stub browser APIs for Node.js — only if not already set
+    // (avoid overwriting real document in dev mode Turbopack runtime)
+    if (!(globalThis as any).window) (globalThis as any).window = globalThis;
+    if (!(globalThis as any).document || typeof (globalThis as any).document.querySelector !== 'function') {
+      (globalThis as any).document = {
+        createElement: () => ({ style: {}, appendChild: () => {}, querySelector: () => null, querySelectorAll: () => [] }),
+        getElementById: () => null,
+        getElementsByTagName: () => [],
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        body: { appendChild: () => {} },
+        head: { appendChild: () => {} },
+      };
+    }
     // navigator is read-only in Next.js runtime — use Object.defineProperty
     try {
       Object.defineProperty(globalThis, 'navigator', {

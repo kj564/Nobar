@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2, Gauge, Wifi } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2, Gauge, Wifi, Users, Zap } from "lucide-react";
+import { useP2PStreaming } from "@/hooks/useP2PStreaming";
+import { getP2PEngine, destroyP2PEngine, resetStats } from "@/lib/p2p-engine";
 
 // ─────────────────────────────────────────────────────────────────────
 // NativePlayer — buttery smooth playback via Shaka Player (DASH adaptive)
-// + native <video> MP4 fallback.
+// + native <video> MP4 fallback + optional Hybrid P2P-CDN layer.
 //
 // Why Shaka?
 //  - Industry-standard DASH player (used by Google/YouTube/Major streaming).
@@ -21,7 +23,15 @@ import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2, 
 //  - Larger initial buffer target (15s) before play → less stall risk
 //  - Auto-retry on network blips (Shaka handles this natively)
 //  - Visible ABR indicator (current bitrate) for transparency
+//
+// P2P-CDN Hybrid layer (toggleable, OFF by default):
+//  - When ON: ShakaP2PEngine hooks Shaka's networking engine
+//  - Critical zone (next 15s): always HTTP/CDN (zero stall risk)
+//  - Swarm zone (15-21s ahead): P2P via WebRTC DataChannel
+//  - Auto-fallback to CDN on P2P failure (no visible disruption)
+//  - Stats tracked: peers connected, bytes P2P vs HTTP, ratio
 // ─────────────────────────────────────────────────────────────────────
+
 
 type StreamSource = {
   quality: string;
@@ -65,9 +75,35 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   const [muted, setMuted] = useState(true);  // start muted for autoplay
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+
+  // ── P2P streaming toggle + stats ──
+  // Toggle is persisted in localStorage (nobar:p2p-enabled).
+  // When ON, ShakaP2PEngine is created during Shaka load and binds to the
+  // player's networking engine — intercepting segment requests to route
+  // through WebRTC peers when available (with CDN fallback).
+  const { enabled: p2pEnabled, stats: p2pStats, toggle: toggleP2P } = useP2PStreaming();
   const [buffering, setBuffering] = useState(false);
   const [volume, setVolume] = useState(1);
   const [currentBitrate, setCurrentBitrate] = useState<number>(0);  // for ABR indicator
+
+  // P2P reload nonce — bumped when the user toggles P2P on/off mid-playback,
+  // triggering the stream-fetch effect to re-initialize Shaka with the new
+  // P2P engine state. Declared here (above the consuming effect) so the
+  // dependency array is valid.
+  const [p2pReloadNonce, setP2pReloadNonce] = useState(0);
+  const prevP2pEnabled = useRef(p2pEnabled);
+  useEffect(() => {
+    if (prevP2pEnabled.current !== p2pEnabled) {
+      prevP2pEnabled.current = p2pEnabled;
+      console.log(`[NOBAR-P2P] Toggle changed → ${p2pEnabled ? "ON" : "OFF"}, reloading player`);
+      // Trigger reload of the stream effect (re-fetch + re-init Shaka)
+      setP2pReloadNonce((n) => n + 1);
+      if (!p2pEnabled) {
+        // If toggled OFF, also explicitly destroy any lingering engine
+        destroyP2PEngine();
+      }
+    }
+  }, [p2pEnabled]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -166,6 +202,30 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     shakaRef.current = player;
     // Use the modern attach() API (constructor-with-mediaElement is deprecated)
     await player.attach(video);
+
+    // ── Hybrid P2P-CDN integration ──
+    // If the user has toggled P2P ON (persisted in localStorage), instantiate
+    // the ShakaP2PEngine. This hooks Shaka's networking engine to intercept
+    // segment requests:
+    //   - Critical zone (next 15s): always HTTP/CDN — zero stall risk
+    //   - Swarm zone (15-21s ahead): try P2P via WebRTC, fallback to CDN
+    // The engine connects to our self-hosted tracker (port 3003) AND public
+    // WebTorrent trackers as fallback. Stats events flow back via the
+    // useP2PStreaming hook (peers, p2pBytes, httpBytes, p2pRatio).
+    let p2pEngine: any = null;
+    if (p2pEnabled) {
+      // Reset stats for fresh session
+      resetStats();
+      p2pEngine = await getP2PEngine(shaka);
+      if (p2pEngine) {
+        // bindShakaPlayer hooks the networking engine + registers event handlers.
+        // Must be called BEFORE player.configure() so P2P overrides take effect.
+        p2pEngine.bindShakaPlayer(player);
+        console.log("[NOBAR-P2P] Engine bound to Shaka player — peers will be discovered via tracker");
+      } else {
+        console.warn("[NOBAR-P2P] Engine creation failed — falling back to CDN-only");
+      }
+    }
 
     // ── Player config: tune for smoothness ──
     player.configure({
@@ -317,7 +377,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [streamUrl]);
+  }, [streamUrl, p2pReloadNonce]);
 
   // ── Initialize Shaka when dashSource arrives + video element is mounted ──
   useEffect(() => {
@@ -347,8 +407,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         try { shakaRef.current.destroy(); } catch {}
         shakaRef.current = null;
       }
+      // Tear down P2P engine when video unmounts or stream changes
+      destroyP2PEngine();
     };
   }, [dashSource, loadShaka]);
+
+  // (P2P toggle handler is declared near the top of the component —
+  //  see `p2pReloadNonce` state, which triggers the stream-fetch effect
+  //  to re-initialize Shaka with the new P2P engine state when toggled.)
+
 
   // ── Video events (only for MP4 mode — Shaka handles its own) ──
   useEffect(() => {
@@ -530,6 +597,14 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     return `${Math.round(bps / 1000)} kbps`;
   };
 
+  const formatBytes = (bytes: number) => {
+    if (!bytes || bytes < 1) return "0 B";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
   // Loading
@@ -644,7 +719,111 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
               </span>
             )}
 
+            {/* P2P-CDN status pill (only when enabled) — shows live peer count + offload ratio */}
+            {p2pEnabled && (
+              <span
+                className={`hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+                  p2pStats.peers > 0
+                    ? "text-fuchsia-300/90 bg-fuchsia-500/10 border-fuchsia-500/30"
+                    : "text-amber-300/80 bg-amber-500/10 border-amber-500/30"
+                }`}
+                title={
+                  p2pStats.peers > 0
+                    ? `${p2pStats.peers} peer(s) connected · ${(p2pStats.p2pRatio * 100).toFixed(0)}% bandwidth offloaded from CDN`
+                    : "P2P engine active — searching for peers via tracker"
+                }
+              >
+                <Users className="w-3 h-3" />
+                {p2pStats.peers > 0 ? `${p2pStats.peers}p · ${(p2pStats.p2pRatio * 100).toFixed(0)}%` : "searching"}
+              </span>
+            )}
+
             <div className="flex-1" />
+
+            {/* P2P toggle button — opens settings panel with P2P controls */}
+            <div className="relative">
+              <button
+                onClick={() => setShowSettings(showSettings === "p2p" ? "" : "p2p")}
+                className={`transition flex items-center gap-1 ${
+                  p2pEnabled
+                    ? "text-fuchsia-400 hover:text-fuchsia-300"
+                    : "text-white hover:text-brand-500"
+                }`}
+                aria-label="P2P Settings"
+                title="Hybrid P2P-CDN streaming"
+              >
+                <Zap className={`w-5 h-5 ${p2pEnabled ? "fill-fuchsia-400/30" : ""}`} />
+              </button>
+              {showSettings === "p2p" && (
+                <div className="absolute bottom-8 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-3 min-w-[240px] z-20">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-fuchsia-400" />
+                      P2P-CDN Streaming
+                    </span>
+                    <button
+                      onClick={toggleP2P}
+                      className={`relative w-9 h-5 rounded-full transition-colors ${
+                        p2pEnabled ? "bg-fuchsia-500" : "bg-white/15"
+                      }`}
+                      role="switch"
+                      aria-checked={p2pEnabled}
+                      aria-label="Toggle P2P streaming"
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                          p2pEnabled ? "translate-x-4" : ""
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-400 leading-snug mb-2">
+                    Hybrid peer-to-peer delivery: critical segments from CDN,
+                    future segments from peers via WebRTC. Saves bandwidth on
+                    high-traffic titles.
+                  </p>
+                  <div className="space-y-1 text-[11px] font-mono border-t border-white/5 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 flex items-center gap-1">
+                        <Users className="w-3 h-3" /> Peers
+                      </span>
+                      <span className={p2pStats.peers > 0 ? "text-fuchsia-300" : "text-gray-500"}>
+                        {p2pStats.peers}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400">P2P downloaded</span>
+                      <span className="text-fuchsia-300">{formatBytes(p2pStats.p2pBytes)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400">CDN downloaded</span>
+                      <span className="text-gray-300">{formatBytes(p2pStats.httpBytes)}</span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-white/5 pt-1 mt-1">
+                      <span className="text-gray-300">Offload ratio</span>
+                      <span className={p2pStats.p2pRatio > 0 ? "text-emerald-400" : "text-gray-500"}>
+                        {(p2pStats.p2pRatio * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    {p2pStats.lastError && (
+                      <div className="text-amber-400 text-[10px] mt-1 leading-tight">
+                        ⚠ {p2pStats.lastError.slice(0, 80)}
+                      </div>
+                    )}
+                    {!p2pEnabled && (
+                      <div className="text-[10px] text-gray-500 mt-1">
+                        Toggle ON to activate P2P engine.
+                      </div>
+                    )}
+                    {p2pEnabled && p2pStats.peers === 0 && !p2pStats.lastError && (
+                      <div className="text-[10px] text-amber-300/80 mt-1">
+                        Connecting to tracker… no peers yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Quality / source picker */}
             {(sources.length > 1 || (dashSource && !usingDash)) && (

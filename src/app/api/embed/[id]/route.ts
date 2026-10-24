@@ -99,9 +99,8 @@ export async function GET(
   const baseTag = `<base href="${upstreamOrigin}/">`;
 
   // CRITICAL: Override fetch + XHR inside the iframe so AJAX calls
-  // (e.g. videm.xyz's /playerswish.php) route through our /api/proxy.
-  // Without this, cross-origin AJAX from our origin is blocked by CORS.
-  // Video/CSS/JS loading works via <base> tag, but fetch/XHR need this.
+  // route through our /api/proxy. Without this, cross-origin AJAX is
+  // blocked by CORS.
   const fetchInterceptor = `<script>
     (function() {
       var upstreamOrigin = "${upstreamOrigin}";
@@ -135,12 +134,24 @@ export async function GET(
     })();
   </script>`;
 
+  // BREAKTHROUGH: Inject VT script directly into embed HTML.
+  // VT runs INSIDE the iframe → finds <video> → hooks play/pause/seek.
+  // Since iframe is same-origin, parent VT communicates with iframe VT
+  // via postMessage → sync works WITHOUT browser extension!
+  //
+  // VT's built-in iframe injection (setInterval in bootstrap) is unreliable
+  // (timing issues, MutationObserver race). Forcing VT into the HTML
+  // guarantees it loads + hooks the video.
+  const vtInjection = `<script src="https://fastly.jsdelivr.net/gh/VideoTogether/VideoTogether@latest/release/vt.en-us.website.js" async></script>`;
+
+  const injectedHead = `${baseTag}${fetchInterceptor}${vtInjection}`;
+
   if (html.includes("<head>")) {
-    html = html.replace("<head>", `<head>${baseTag}${fetchInterceptor}`);
+    html = html.replace("<head>", `<head>${injectedHead}`);
   } else if (html.includes("<html>")) {
-    html = html.replace("<html>", `<html><head>${baseTag}${fetchInterceptor}</head>`);
+    html = html.replace("<html>", `<html><head>${injectedHead}</head>`);
   } else {
-    html = baseTag + fetchInterceptor + html;
+    html = injectedHead + html;
   }
 
   return new NextResponse(html, {

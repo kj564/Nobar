@@ -59,6 +59,7 @@ export type TMDBMovieDetail = TMDBMovie & {
   tagline?: string;
   status?: string;
   imdb_id?: string;
+  popularity?: number;
   genres?: TMDBGenre[];
   credits?: {
     cast: TMDBCastMember[];
@@ -66,6 +67,12 @@ export type TMDBMovieDetail = TMDBMovie & {
   };
   similar?: { results: TMDBMovie[] };
   videos?: { results: Array<{ id: string; key: string; site: string; type: string; name: string }> };
+  external_ids?: {
+    imdb_id?: string | null;
+    facebook_id?: string | null;
+    instagram_id?: string | null;
+    twitter_id?: string | null;
+  };
 };
 
 export type TMDBPaged<T> = {
@@ -149,17 +156,17 @@ export async function searchMovies(query: string, page = 1): Promise<TMDBPaged<T
 
 export async function fetchMovieDetail(id: number): Promise<TMDBMovieDetail> {
   const data = await tmdbGet<TMDBMovieDetail>(`/movie/${id}`, {
-    append_to_response: "videos,credits,similar",
+    append_to_response: "videos,credits,similar,external_ids",
   }, "id-ID");
   // Fallback: if id-ID overview is empty, fetch English overview.
-  // Many movies (especially older/classic) lack id-ID translations.
   if (!data.overview || data.overview.trim() === "") {
     try {
-      const en = await tmdbGet<TMDBMovieDetail>(`/movie/${id}`, {}, "en-US");
+      const en = await tmdbGet<TMDBMovieDetail>(`/movie/${id}`, {
+        append_to_response: "external_ids",
+      }, "en-US");
       if (en.overview) data.overview = en.overview;
-    } catch {
-      // English fetch failed — keep empty overview, UI shows fallback text
-    }
+      if (en.external_ids) data.external_ids = en.external_ids;
+    } catch {}
   }
   return data;
 }
@@ -703,6 +710,7 @@ export type TMDBSeriesDetail = TMDBSeries & {
   status?: string;
   tagline?: string;
   imdb_id?: string;
+  popularity?: number;
   genres?: TMDBGenre[];
   created_by?: Array<{ id: number; name: string; profile_path?: string | null }>;
   seasons?: TMDBSeasonSummary[];
@@ -712,6 +720,13 @@ export type TMDBSeriesDetail = TMDBSeries & {
   };
   similar?: { results: TMDBSeries[] };
   videos?: { results: Array<{ id: string; key: string; site: string; type: string; name: string }> };
+  external_ids?: {
+    imdb_id?: string | null;
+    tvdb_id?: string | null;
+    facebook_id?: string | null;
+    instagram_id?: string | null;
+    twitter_id?: string | null;
+  };
 };
 
 export async function fetchTrendingTV(page = 1): Promise<TMDBPaged<TMDBSeries>> {
@@ -723,16 +738,16 @@ export async function fetchTrendingTV(page = 1): Promise<TMDBPaged<TMDBSeries>> 
 
 export async function fetchTVDetail(id: number): Promise<TMDBSeriesDetail> {
   const data = await tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {
-    append_to_response: "videos,credits,similar",
+    append_to_response: "videos,credits,similar,external_ids",
   }, "id-ID");
-  // Fallback: if id-ID overview is empty, fetch English overview.
   if (!data.overview || data.overview.trim() === "") {
     try {
-      const en = await tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {}, "en-US");
+      const en = await tmdbGet<TMDBSeriesDetail>(`/tv/${id}`, {
+        append_to_response: "external_ids",
+      }, "en-US");
       if (en.overview) data.overview = en.overview;
-    } catch {
-      // English fetch failed — keep empty overview
-    }
+      if (en.external_ids) data.external_ids = en.external_ids;
+    } catch {}
   }
   return data;
 }

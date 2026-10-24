@@ -89,8 +89,15 @@ export default async function SeriesDetailPage({ params }: PageProps) {
     return notFound();
   }
 
-  // Block fake/spam entries: no poster AND no votes
-  if (!detail.poster_path && (!detail.vote_count || detail.vote_count === 0)) {
+  // ── Anti-Fake Filter (same as movie) ──
+  const imdbId = detail.external_ids?.imdb_id || (detail as any).imdb_id;
+  const popularity = (detail as any).popularity || 0;
+  const isFake =
+    (detail.status === "Released" &&
+      (!detail.number_of_episodes || detail.number_of_episodes === 0) &&
+      !imdbId)
+    || (!imdbId && !detail.poster_path && popularity < 2);
+  if (isFake) {
     return notFound();
   }
 

@@ -92,9 +92,18 @@ export default async function MovieDetailPage({ params }: PageProps) {
     return notFound();
   }
 
-  // Block fake/spam movies: no poster AND no votes
-  // (real movies always have poster + at least a few votes)
-  if (!detail.poster_path && (!detail.vote_count || detail.vote_count === 0)) {
+  // ── Anti-Fake Movie Filter (Lightweight 100% Absolute Filter v3.0) ──
+  // Step 1: Fast Pass — valid if has IMDB ID OR popularity > 2
+  // Step 2: Anomaly Check — FAKE if status=Released AND runtime=0 AND no IMDB ID
+  // Step 3: Fallback — if neither, check poster_path
+  const imdbId = detail.external_ids?.imdb_id || detail.imdb_id;
+  const popularity = (detail as any).popularity || 0;
+  const isFakeMovie =
+    // Step 2: Released + runtime=0 + no IMDB → 100% fake
+    (detail.status === "Released" && (detail.runtime === 0 || detail.runtime == null) && !imdbId)
+    // Additional: no IMDB ID + no poster + low popularity → fake
+    || (!imdbId && !detail.poster_path && popularity < 2);
+  if (isFakeMovie) {
     return notFound();
   }
 

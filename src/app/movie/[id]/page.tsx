@@ -116,7 +116,10 @@ export default async function MovieDetailPage({ params }: PageProps) {
   const title = detail.title || detail.name || "Untitled";
   const director = detail.credits?.crew?.find((p) => p.job === "Director")?.name;
   const cast = (detail.credits?.cast || []).slice(0, 12);
-  const similar = (detail.similar?.results || []).slice(0, 12);
+  // Filter fake movies from similar list (no poster = likely spam)
+  const similar = (detail.similar?.results || [])
+    .filter((m) => m.poster_path)
+    .slice(0, 12);
   const genres = detail.genres || [];
   const backdrop = backdropUrl(detail.backdrop_path, "original");
   const trailerKey = detail.videos?.results?.find(

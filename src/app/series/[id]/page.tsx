@@ -110,7 +110,9 @@ export default async function SeriesDetailPage({ params }: PageProps) {
   const title = detail.name || detail.title || "Untitled";
   const creator = detail.created_by?.[0]?.name;
   const cast = (detail.credits?.cast || []).slice(0, 12);
-  const similar = (detail.similar?.results || []).slice(0, 12);
+  const similar = (detail.similar?.results || [])
+    .filter((s) => s.poster_path)
+    .slice(0, 12);
   const genres = detail.genres || [];
   const backdrop = backdropUrl(detail.backdrop_path, "original");
   const seasons = detail.number_of_seasons;

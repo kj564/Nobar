@@ -102,7 +102,12 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   }, []);
 
   // ── Dynamic import shaka-player (code-splits; only loaded when needed) ──
+  // DASH is currently disabled — skip loading shaka entirely to save bundle.
+  // When DASH is re-enabled, uncomment the body below.
   useEffect(() => {
+    // DASH disabled — don't load shaka-player
+    return;
+    /* eslint-disable no-unreachable */
     let cancelled = false;
     (async () => {
       try {
@@ -326,13 +331,22 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         }
 
         // ── Source selection strategy ──
-        // 1) Pre-select best MP4 source as fallback (Shaka may fail on HEVC)
-        // 2) If DASH source available, attempt Shaka load (effect below)
-        // 3) If Shaka succeeds → use DASH; if it fails → fall back to MP4
+        // DASH adaptive streaming is currently DISABLED — it has transition
+        // bugs (DASH→MP4 fallback) and ABR tuning issues. Until fixed,
+        // always use MP4 progressive. DASH source is still returned by the
+        // API for future use, but we don't activate it here.
         //
-        // We ALWAYS pick best MP4 up front because Shaka's HEVC check is
-        // async — having MP4 pre-selected means zero-latency fallback if
-        // Shaka bails (HEVC not supported by browser).
+        // To re-enable: uncomment the HEVC check + DASH branch below.
+        /*
+        const HEVC_MIME = 'video/mp4; codecs="hev1.1.6.L150.90"';
+        const hevcSupported =
+          typeof MediaSource !== "undefined" &&
+          MediaSource.isTypeSupported(HEVC_MIME);
+        if (hevcSupported && data.dashSource?.url) {
+          // DASH will be loaded by the dedicated effect below (after videoRef mounts)
+          // No need to set activeSource — Shaka owns the video element.
+        } else if (data.sources?.length > 0) {
+        */
         if (data.sources?.length > 0) {
           const best = data.sources.reduce((b: StreamSource, s: StreamSource) =>
             parseInt(s.quality) > parseInt(b.quality) ? s : b
@@ -358,8 +372,16 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   }, [streamUrl]);
 
   // ── Initialize Shaka when dashSource arrives + video element is mounted ──
+  // DASH is currently DISABLED (see source selection strategy above).
+  // This effect is a no-op until DASH is re-enabled.
   useEffect(() => {
     if (!dashSource?.url) return;
+    // DASH disabled — skip Shaka load entirely
+    // (kept for future re-enable; just uncomment the code below)
+    return;
+    /* eslint-disable no-unreachable */
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const ds = dashSource; // captured for future re-enable
     const video = videoRef.current;
     if (!video) return;
 
@@ -369,8 +391,8 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     setBuffering(true);
 
     (async () => {
-      const ok = await loadShaka(dashSource.url);
-      if (destroyed || !ok) {
+      const ok = await loadShaka(ds!.url);
+      if (destroyed || !ok || !video) {
         // Shaka failed — MP4 effect will re-fire and restore playback
         setBuffering(false);
         return;

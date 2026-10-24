@@ -74,10 +74,16 @@ export async function GET(request: Request) {
     // Build headers — only include Referer/Origin if non-empty
     // (bcdn/sbcdn subdomains REJECT requests with Referer → 429/403)
     const fetchHeaders: Record<string, string> = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       "Accept": "*/*",
       "Accept-Language": "en-US,en;q=0.9",
     };
+    // vidlink CDN (bcdn.hakunaymatata.com) REJECTS browser User-Agent —
+    // returns 428 (Precondition Required) when UA matches Mozilla/Chrome/etc.
+    // Only mzfi CDN (bcdnxw) needs browser UA + Referer.
+    // vidlink CDN: send NO User-Agent at all (or non-browser UA) → 206 OK.
+    if (!targetUrl.includes("bcdn.hakunaymatata.com")) {
+      fetchHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    }
     if (referer) fetchHeaders["Referer"] = referer;
     if (origin) fetchHeaders["Origin"] = origin;
     // DASH CDN: inject X-MB-Token header (the signCookie from play response)

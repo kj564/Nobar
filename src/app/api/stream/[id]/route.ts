@@ -119,29 +119,22 @@ export async function GET(
   try {
     const mzfiData = await fetchMzfiStream(title, year, kind, season, episode);
     if (mzfiData?.hasResource && Array.isArray(mzfiData.streams)) {
-      // Sort by quality (360 → 480 → 720 → 1080)
+      // Trailer detection: use mzfi 'size' field (bytes) instead of HEAD request
+      // Trailers are < 50MB, full movies are > 100MB
+      // mzfi returns size as number (bytes) — check it directly (no HTTP roundtrip!)
       const sorted = mzfiData.streams
         .filter((s: any) => s.url && !s.vipLocked && s.format === "MP4")
+        .filter((s: any) => {
+          const size = Number(s.size) || 0;
+          if (size > 0 && size < 50_000_000) {
+            console.log(`[stream] Skipping trailer: ${s.resolutions}p = ${(size/1e6).toFixed(1)}MB`);
+            return false;
+          }
+          return true;
+        })
         .sort((a: any, b: any) => Number(a.resolutions) - Number(b.resolutions));
 
-      // Trailer detection: check file size via HEAD request
-      // Trailers are typically < 50MB, full movies are > 100MB
       for (const stream of sorted) {
-        // Quick HEAD check for file size (skip if too small = trailer)
-        try {
-          const headRes = await fetch(stream.url, {
-            method: "HEAD",
-            headers: { ...COMMON_HEADERS, Referer: "https://mzfi.me/" },
-          });
-          const contentLength = parseInt(headRes.headers.get("content-length") || "0", 10);
-          // Skip if file < 50MB (likely trailer)
-          if (contentLength > 0 && contentLength < 50_000_000) {
-            console.log(`[stream] Skipping trailer: ${stream.resolutions}p = ${(contentLength/1e6).toFixed(1)}MB`);
-            continue;
-          }
-        } catch {
-          // HEAD failed — include stream anyway
-        }
         const proxyUrl = `/api/proxy?url=${encodeURIComponent(stream.url)}`;
         result.sources.push({
           quality: `${stream.resolutions}p`,
@@ -170,28 +163,48 @@ export async function GET(
 
   // ─── vidlink.pro fallback (direct MP4 via WASM token) ───
   // Only try vidlink.pro if mzfi returned no sources.
-  // vidlink.pro API cracked: fu.wasm generates auth token → API returns
-  // direct MP4 URLs from same hakunaymatata.com CDN.
+  // Inline the logic (no internal HTTP fetch — saves ~200ms)
   if (result.sources.length === 0) {
     try {
-      const vidlinkUrl =
-        kind === "tv"
-          ? `/api/vidlink/${tmdbId}?kind=tv&season=${season}&episode=${episode}`
-          : `/api/vidlink/${tmdbId}?kind=movie`;
-      const vidlinkRes = await fetch(
-        new URL(vidlinkUrl, request.url).toString()
-      );
-      if (vidlinkRes.ok) {
-        const vidlinkData = await vidlinkRes.json();
-        if (vidlinkData.sources?.length > 0) {
-          for (const src of vidlinkData.sources) {
-            result.sources.push(src);
+      // Initialize WASM (cached across requests)
+      await initVidlinkWasm();
+      const token = (globalThis as any).getAdv?.(String(tmdbId));
+      if (token) {
+        const apiPath = kind === "tv"
+          ? `/api/b/tv/${tmdbId}/${season}/${episode}/${token}`
+          : `/api/b/movie/${token}`;
+        const apiUrl = `https://vidlink.pro${apiPath}?multiLang=1`;
+        const vlRes = await fetch(apiUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            Accept: "application/json",
+            Referer: `https://vidlink.pro/${kind}/${tmdbId}`,
+          },
+        });
+        const vlText = await vlRes.text();
+        if (vlText !== "null" && vlText.length > 10) {
+          const vlJson = JSON.parse(vlText);
+          const qualities = vlJson?.stream?.qualities || {};
+          for (const [quality, data] of Object.entries(qualities)) {
+            const qData = data as any;
+            if (qData?.url && qData?.type === "mp4") {
+              // Trailer detection via size field
+              const size = Number(qData.size) || 0;
+              if (size > 0 && size < 50_000_000) continue;
+              result.sources.push({
+                quality: `${quality}p`,
+                url: `/api/proxy?url=${encodeURIComponent(qData.url)}`,
+                provider: "vidlink.pro",
+                type: "mp4",
+              });
+            }
           }
-          // Use vidlink.pro captions as subtitles (they're built-in, same source)
-          if (vidlinkData.subtitles?.length > 0) {
-            result.subtitles = vidlinkData.subtitles.map((s: any) => ({
-              language: s.language,
-              url: s.url, // already proxied via /api/subtitle
+          // Extract vidlink built-in captions
+          const captions = vlJson?.stream?.captions || [];
+          if (captions.length > 0) {
+            result.subtitles = captions.map((c: any) => ({
+              language: c.language || "Unknown",
+              url: `/api/subtitle?url=${encodeURIComponent(c.url)}`,
             }));
           }
         }
@@ -542,4 +555,47 @@ async function fetchMzfiSubtitles(
     language: c.lanName || c.lan || "Unknown",
     url: c.url,
   }));
+}
+
+// ─── vidlink.pro WASM initialization (cached across requests) ───
+let wasmInitPromise: Promise<void> | null = null;
+
+async function initVidlinkWasm(): Promise<void> {
+  if (wasmInitPromise) return wasmInitPromise;
+  wasmInitPromise = (async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const bridgeCode = fs.readFileSync(
+      path.join(process.cwd(), "lib/vidlink-wasm/wasm-bridge.js"),
+      "utf8"
+    );
+    (globalThis as any).window = globalThis;
+    if (!(globalThis as any).document || typeof (globalThis as any).document.querySelector !== 'function') {
+      (globalThis as any).document = {
+        createElement: () => ({ style: {}, appendChild: () => {}, querySelector: () => null, querySelectorAll: () => [] }),
+        getElementById: () => null, getElementsByTagName: () => [],
+        querySelector: () => null, querySelectorAll: () => [],
+        body: { appendChild: () => {} }, head: { appendChild: () => {} },
+      };
+    }
+    try {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { userAgent: 'node', plugins: { namedItem: () => null } },
+        writable: true, configurable: true,
+      });
+    } catch {}
+    if (!(globalThis as any).location) {
+      (globalThis as any).location = { protocol: 'https:', hostname: 'localhost', origin: 'https://localhost', href: 'https://localhost/', pathname: '/', search: '', hash: '' };
+    }
+    eval(bridgeCode);
+    const sodium = (await import("libsodium-wrappers")).default;
+    await sodium.ready;
+    (globalThis as any).sodium = sodium;
+    const wasmBuffer = fs.readFileSync(path.join(process.cwd(), "lib/vidlink-wasm/fu.wasm"));
+    const dm = new (globalThis as any).Dm();
+    const { instance } = await WebAssembly.instantiate(wasmBuffer, dm.importObject);
+    dm.run(instance);
+    await new Promise((r) => setTimeout(r, 2000));
+  })();
+  return wasmInitPromise;
 }

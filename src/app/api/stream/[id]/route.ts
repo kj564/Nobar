@@ -121,6 +121,7 @@ export async function GET(
   const episode = url.searchParams.get("episode")
     ? Number(url.searchParams.get("episode"))
     : 1;
+  const debug = url.searchParams.get("debug") === "1";
 
   // Get title + year from TMDB (ENGLISH locale — mzfi catalog uses English
   // titles, e.g. "Thor: Love and Thunder" not the id-ID "Thor: Cinta dan Guntur").
@@ -198,6 +199,24 @@ export async function GET(
   if (!isUnreleased) {
   try {
     const mzfiData = await fetchMzfiStream(title, year, kind, season, episode);
+    if (debug && mzfiData) {
+      console.log("[stream] raw mzfi keys:", Object.keys(mzfiData));
+      console.log("[stream] raw mzfi dash:", JSON.stringify((mzfiData as any).dash || []).slice(0, 300));
+      console.log("[stream] raw mzfi streams[0]:", JSON.stringify((mzfiData as any).streams?.[0] || {}).slice(0, 200));
+      // Include debug info in response for client-side diagnosis
+      (result as any)._debug = {
+        mzfiKeys: Object.keys(mzfiData),
+        mzfiDashCount: (mzfiData as any).dash?.length || 0,
+        mzfiStreamsCount: (mzfiData as any).streams?.length || 0,
+        mzfiHasResource: (mzfiData as any).hasResource,
+        mzfiDashSample: (mzfiData as any).dash?.[0] ? {
+          url: (mzfiData as any).dash[0].url,
+          resolutions: (mzfiData as any).dash[0].resolutions,
+          codecName: (mzfiData as any).dash[0].codecName,
+          hasSignCookie: !!(mzfiData as any).dash[0].signCookie,
+        } : null,
+      };
+    }
     if (mzfiData?.hasResource && Array.isArray(mzfiData.streams)) {
       // Trailer detection: use mzfi 'size' field (bytes) instead of HEAD request
       // Trailers are < 50MB, full movies are > 100MB
@@ -229,6 +248,7 @@ export async function GET(
       // Pick the highest-resolution DASH variant (better ABR range).
       // The signCookie (X-MB-Token) is required by sbcdnw CDN.
       const dashArr = (mzfiData as any).dash || [];
+      console.log(`[stream] mzfi play response: streams=${(mzfiData as any).streams?.length || 0} dash=${dashArr.length} hls=${(mzfiData as any).hls?.length || 0} hasResource=${(mzfiData as any).hasResource}`);
       const playableDash = dashArr.filter(
         (d: any) => d?.url && d?.signCookie && d?.signHeaderKey === "X-MB-Token"
       );

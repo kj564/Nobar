@@ -126,22 +126,17 @@ export async function GET(
         });
       }
 
-      // Lazy subtitle fetch: return a subtitle URL that the client can
+      // Lazy subtitle fetch: return a placeholder URL that the client can
       // call on-demand (separate /api/stream/[id]/subtitles endpoint).
-      // This saves ~340ms latency on the main stream response — critical
-      // for Vercel function timeout. Subtitles are only fetched when the
-      // user actually opens the subtitle menu.
-      if (mzfiData.streams[0]?.id && mzfiData._subjectId && mzfiData._detailPath) {
-        // Build a subtitle API URL that includes all the context needed
-        // (subjectId, detailPath, streamId, token) so the client can fetch
-        // subtitles independently without re-doing the search/play chain.
-        result.subtitles = [
-          {
-            language: "Available",
-            url: `/api/stream/${tmdbId}/subtitles?kind=${kind}&season=${season}&episode=${episode}&_=${Date.now()}`,
-          },
-        ];
-      }
+      // This saves latency on the main stream response — critical for
+      // Vercel function timeout. Subtitles fetched when user opens the menu.
+      // ALWAYS include placeholder (subtitles route tries mzfi → subtitlecat fallback).
+      result.subtitles = [
+        {
+          language: "Available",
+          url: `/api/stream/${tmdbId}/subtitles?kind=${kind}&season=${season}&episode=${episode}&_=${Date.now()}`,
+        },
+      ];
     }
   } catch (err) {
     console.error("[stream] mzfi fetch failed:", err);
@@ -171,6 +166,17 @@ export async function GET(
     } catch (err) {
       console.error("[stream] vidlink fetch failed:", err);
     }
+  }
+
+  // Always include subtitle placeholder (even for vidlink/embed sources).
+  // The subtitles route will try mzfi captions first, then subtitlecat.com.
+  if (result.subtitles.length === 0) {
+    result.subtitles = [
+      {
+        language: "Available",
+        url: `/api/stream/${tmdbId}/subtitles?kind=${kind}&season=${season}&episode=${episode}&_=${Date.now()}`,
+      },
+    ];
   }
 
   // Last resort: embed iframe (only if both mzfi + vidlink fail)

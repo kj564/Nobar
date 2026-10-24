@@ -1006,3 +1006,151 @@ Stage Summary:
 - Biggest wins: token cache (2.5x), prefetch on hover (5x), parallel TMDB (2x)
 - No new dependencies added (removed 4 P2P deps)
 - No disruption to existing smooth playback
+
+---
+Task ID: RE-mzfi-vidlink-harder
+Agent: main + RE subagent (mzfi)
+Task: RE lebih keras mzfi.me dan vidlink.pro untuk bypass server proxy
+
+Work Log:
+
+1. RE mzfi-harder (delegated to subagent, COMPLETE):
+   - Report at research/mzfi-deep-re.md (751 lines)
+   - Tested 15 Referer values + 10 subdomain/prefix/suffix attacks
+   - Strict exact-apex-host allowlist of 6 domains:
+     mzfi.me, movieboxhd.net, netfilm.world, moviebox.ph, movie-box.co, themoviebox.xyz
+   - Subdomains REJECTED (nobar.mzfi.me → 429)
+   - Sign parameter: MD5 with unknown server secret (7 samples × 1000+ formulas × 44 secrets = 0 matches)
+   - X-MB-Token: Aliyun edge-auth with unknown secret (cannot forge)
+   - CORS: DASH CDN strips ACO on GET (browser fetch fails)
+   - peerOrigins: hardcoded list, cannot register our domain
+   - HTTP/3, ?origin=, ?referer= params, Cookie form of X-MB-Token: ALL rejected
+   - **NEW BYPASS FOUND**: mzfi.me has NO X-Frame-Options → iframe embed works!
+     <iframe src="https://mzfi.me/spa/videoPlayPage/movies/{path}?id={sid}">
+     mzfi SPA handles everything → ZERO server bandwidth
+
+2. RE vidlink-harder (manual, COMPLETE):
+   - Got fresh stream URL via fu.wasm bridge (135397 = Jurassic World 1080p)
+   - URL: https://bcdn.hakunaymatata.com/resource/h265/cb7272c6d651ffd27f8e80555f5fc4ec.mp4
+   - Header matrix test results:
+     | Request style                          | Status |
+     |----------------------------------------|--------|
+     | Bare curl (default UA "curl/8.x")      | 200    |
+     | + Range only                           | 206 ✓  |
+     | Browser UA + Range (no Referer)        | 428 ✗  |
+     | Browser UA + Referer:vidlink.pro       | 429 ✗  |
+     | Browser UA + Referer:mzfi.me           | 429 ✗  |
+     | Browser UA + Referer:movieboxhd.net    | 429 ✗  |
+     | Browser UA + Referer:nobar.vercel.app  | 429 ✗  |
+     | Empty Referer                          | 206 ✓  |
+     | No User-Agent header                   | 206 ✓  |
+     | Empty User-Agent string               | 206 ✓  |
+     | Wget UA                                | 206 ✓  |
+     | Sec-Fetch-Site: cross-site only        | 206 ✓  |
+     | Browser UA + Sec-Fetch-Dest=video      | 428 ✗  |
+   - CDN logic: if UA matches /Mozilla|Chrome|Safari|Firefox|Edge/ → require Referer or 428
+   - Browser ALWAYS sends browser UA — cannot be stripped client-side
+   - Conclusion: vidlink CDN NOT bypassable from browser (UA gate)
+   - **IFRAME BYPASS FOUND**: vidlink.pro has NO X-Frame-Options
+   - Verified: <iframe src="https://vidlink.pro/movie/135397"> loads vidlink SPA
+   - VLM confirmed: iframe shows Jurassic World video frame
+   - Video bytes flow: Browser → bcdn.hakunaymatata.com DIRECT (zero server bandwidth)
+
+3. Comparison: both CDNs use OPPOSITE auth models:
+   - mzfi CDN: REQUIRES Referer (allowlist of 6 domains)
+   - vidlink CDN: REJECTS Referer (any non-empty Referer = 429), requires non-browser UA
+   - Both CDNs: NOT bypassable for direct browser fetch
+   - Both providers: iframe embed WORKS (no X-Frame-Options)
+
+Stage Summary:
+- Two bypass methods found, both via iframe embed:
+  1. mzfi: <iframe src="https://mzfi.me/spa/videoPlayPage/movies/{path}?id={sid}">
+  2. vidlink: <iframe src="https://vidlink.pro/movie/{tmdbId}">
+- Both eliminate 100% of server video bandwidth (CDN → browser direct)
+- Trade-off: shows provider's UI + ads (mzfi has evadav/trafficstars/richads)
+- For zero-bandwidth + native Nobar UI: Cloudflare Worker remains the only option
+- For zero-bandwidth + zero-cost + zero-setup: iframe embed is the answer
+
+---
+Task ID: nobar-vidstack-migration
+Agent: main
+Task: Migrate NativePlayer to vidstack.js
+
+Work Log:
+
+1. Installed packages:
+   - vidstack@1.15.7 (core framework)
+   - @vidstack/react@1.15.7 (React components)
+   - hls.js@1.7.3 (HLS provider, for future HLS support)
+
+2. Restructured player into 2 files:
+   - src/components/NativePlayer.tsx (32 lines) — wrapper using next/dynamic
+     with ssr:false. vidstack accesses screen.orientation during module
+     init, which fails on SSR. Wrapper keeps API compatible (same props)
+     so SeriesNativePlayer and movie/series pages don't need changes.
+   - src/components/VidstackPlayerClient.tsx (370 lines) — actual vidstack
+     implementation, loaded client-side only.
+
+3. VidstackPlayerClient implementation:
+   - <MediaPlayer> with src=activeSrc, autoPlay, muted (autoplay policy),
+     load='visible' (lazy), streamType='on-demand', keyTarget='player'
+   - <MediaProvider> wraps source, holds <Track> elements for subtitles
+   - <DefaultVideoLayout icons={defaultLayoutIcons}> — vidstack's polished
+     UI with all controls built-in (Play, Mute, Captions, Settings,
+     AirPlay, Google Cast, PiP, Fullscreen, time display, seek bar,
+     volume slider, settings menu)
+   - Imports base.css + default/theme.css + default/layouts/video.css
+     from @vidstack/react/player/styles/
+
+4. Source selection (preserved from prior implementation):
+   - Pre-check HEVC codec via MediaSource.isTypeSupported
+   - If HEVC supported + DASH source available → use DASH (vidstack handles
+     ABR natively via its DASH provider)
+   - Else → use best MP4 source (highest quality)
+   - Else → embed iframe fallback
+
+5. Features preserved:
+   - Stream API fetching (/api/stream/{id}) with parallel TMDB + token mint
+   - Lazy subtitle fetch (separate endpoint, avoids Vercel timeout)
+   - VideoTogether extension hook (AddVideoListener on <video> element)
+     with retry timer (1.5s, 4s) for late-loaded extension
+   - Preconnect to hakunaymatata CDN + image.tmdb.org
+   - Watch party sync broadcast (__watchPartySync global hook)
+     on play/pause/seek events
+   - Embed iframe fallback (vidlink.pro/vidsrc.me)
+
+6. Features delegated to vidstack (code eliminated):
+   - Manual control bar (play/pause/volume/seek/fullscreen/subtitles/settings)
+   - ABR indicator (vidstack shows current quality in settings menu)
+   - Keyboard shortcuts handler (vidstack built-in: space/k, arrows, m, f)
+   - Quality picker dropdown (vidstack built-in menu)
+   - Subtitle picker dropdown (vidstack built-in menu)
+   - Buffering spinner (vidstack built-in)
+   - Loading state during source switch
+   - Mobile gesture handling (vidstack built-in)
+
+Code reduction: 927 lines → 402 lines (-57%)
+
+VERIFICATION (Agent Browser):
+- /movie/jurassic-world-2015-135397:
+  * Page loads 200, vidstack dynamic-imports (~2s on first load, cached after)
+  * Video plays: readyState=4, currentTime=8s advancing, duration=7450s
+  * Seek test: 62s → 3600s in 5s, paused=false, readyState=4
+  * Time display: "1:00:48 / 2:04:09" (vidstack formatted)
+  * All 8 controls visible on hover: Play, Mute, Captions, Settings,
+    AirPlay, Google Cast, PiP, Fullscreen
+  * VLM: "polished modern streaming player" (Netflix/Disney+ aesthetic)
+- /series/link-click-2021-123542:
+  * Video plays: readyState=4, currentTime=9s, duration=1366s
+  * Console: clean (no errors, only info logs)
+- SSR safe (next/dynamic ssr:false — vidstack not loaded on server)
+
+Stage Summary:
+- NativePlayer migrated to vidstack.js (industry-standard player framework)
+- 57% code reduction (vidstack handles UI/UX natively)
+- All existing features preserved (stream fetching, VT hook, watch party,
+  embed fallback, preconnect)
+- New capabilities added free: AirPlay, Google Cast, PiP, mobile gestures,
+  playback speed menu, polished buffering spinner
+- Subtitle menu + quality menu now built-in (no custom code)
+- Works on both movie and TV series pages

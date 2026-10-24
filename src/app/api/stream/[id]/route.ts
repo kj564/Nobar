@@ -147,8 +147,33 @@ export async function GET(
     console.error("[stream] mzfi fetch failed:", err);
   }
 
-  // Set embed fallback URL (only used if mzfi fails)
-  // vidlink.pro — TMDB ID based, still working (videm.xyz is down)
+  // ─── vidlink.pro fallback (direct MP4 via WASM token) ───
+  // Only try vidlink.pro if mzfi returned no sources.
+  // vidlink.pro API cracked: fu.wasm generates auth token → API returns
+  // direct MP4 URLs from same hakunaymatata.com CDN.
+  if (result.sources.length === 0) {
+    try {
+      const vidlinkUrl =
+        kind === "tv"
+          ? `/api/vidlink/${tmdbId}?kind=tv&season=${season}&episode=${episode}`
+          : `/api/vidlink/${tmdbId}?kind=movie`;
+      const vidlinkRes = await fetch(
+        new URL(vidlinkUrl, request.url).toString()
+      );
+      if (vidlinkRes.ok) {
+        const vidlinkData = await vidlinkRes.json();
+        if (vidlinkData.sources?.length > 0) {
+          for (const src of vidlinkData.sources) {
+            result.sources.push(src);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[stream] vidlink fetch failed:", err);
+    }
+  }
+
+  // Last resort: embed iframe (only if both mzfi + vidlink fail)
   if (result.sources.length === 0) {
     result.embedUrl =
       kind === "tv"

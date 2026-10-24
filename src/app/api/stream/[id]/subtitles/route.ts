@@ -52,10 +52,53 @@ export async function GET(
         String(mzfiData.streams[0].id),
         mzfiData._token!
       );
-      return NextResponse.json({ subtitles: subs });
+      if (subs.length > 0) {
+        return NextResponse.json({ subtitles: subs });
+      }
     }
   } catch (err) {
-    console.error("[subtitles] fetch failed:", err);
+    console.error("[subtitles] mzfi fetch failed:", err);
+  }
+
+  // ── Fallback: subtitlecat.com ──
+  // If mzfi has no subtitles, search subtitlecat.com (subscene is closed).
+  try {
+    const searchQuery = year ? `${title} ${year}` : title;
+    const searchUrl = `https://www.subtitlecat.com/index.php?search=${encodeURIComponent(searchQuery)}`;
+    const searchRes = await fetch(searchUrl, {
+      headers: { "User-Agent": COMMON_HEADERS["User-Agent"] },
+    });
+    const searchHtml = await searchRes.text();
+
+    const pageMatches = searchHtml.match(/href="(subs\/\d+\/[^"]*\.html)"/g) || [];
+    const pageUrls = pageMatches
+      .map((m) => m.match(/href="([^"]*)"/)?.[1])
+      .filter(Boolean)
+      .slice(0, 3);
+
+    if (pageUrls.length > 0) {
+      const subRes = await fetch(`https://www.subtitlecat.com/${pageUrls[0]}`, {
+        headers: { "User-Agent": COMMON_HEADERS["User-Agent"], Referer: searchUrl },
+      });
+      const subHtml = await subRes.text();
+
+      const srtRegex = /href="(\/subs\/[^"]*\.srt)"/g;
+      const subs: Array<{ language: string; url: string }> = [];
+      let match: RegExpExecArray | null;
+      while ((match = srtRegex.exec(subHtml)) !== null) {
+        const srtPath = match[1];
+        const langCode = srtPath.split("-").pop()?.replace(".srt", "") || "unknown";
+        subs.push({
+          language: langCodeToName(langCode),
+          url: `/api/subtitle?url=${encodeURIComponent("https://www.subtitlecat.com" + srtPath)}`,
+        });
+      }
+      if (subs.length > 0) {
+        return NextResponse.json({ subtitles: subs });
+      }
+    }
+  } catch (err) {
+    console.error("[subtitles] subtitlecat fetch failed:", err);
   }
 
   return NextResponse.json({ subtitles: [] });
@@ -260,4 +303,19 @@ async function fetchMzfiSubtitles(
     language: c.lanName || c.lan || "Unknown",
     url: c.url,
   }));
+}
+
+function langCodeToName(code: string): string {
+  const map: Record<string, string> = {
+    en: "English", id: "Indonesian", es: "Spanish", fr: "French",
+    de: "German", it: "Italian", pt: "Portuguese", nl: "Dutch",
+    ru: "Russian", ar: "Arabic", ja: "Japanese", ko: "Korean",
+    zh: "Chinese", hi: "Hindi", th: "Thai", vi: "Vietnamese",
+    tr: "Turkish", pl: "Polish", sv: "Swedish", da: "Danish",
+    fi: "Finnish", no: "Norwegian", cs: "Czech", he: "Hebrew",
+    ro: "Romanian", el: "Greek", ms: "Malay", si: "Sinhala",
+    sq: "Albanian", bs: "Bosnian", iw: "Hebrew", ckb: "Kurdish",
+    br: "Breton",
+  };
+  return map[code] || code.toUpperCase();
 }

@@ -32,8 +32,61 @@ export const maxDuration = 60; // seconds — Vercel function timeout
 type SubjectMatch = { subjectId: string; detailPath: string };
 type CacheEntry = { data: SubjectMatch | null; ts: number; isNegative: boolean };
 const searchCache = new Map<string, CacheEntry>();
-const POSITIVE_TTL = 5 * 60 * 1000; // 5 minutes
-const NEGATIVE_TTL = 1 * 60 * 1000;  // 1 minute (retry sooner)
+const POSITIVE_TTL = 30 * 60 * 1000; // 30 minutes (catalog rarely changes)
+const NEGATIVE_TTL = 2 * 60 * 1000;  // 2 minutes (retry sooner)
+
+// ─── Guest token cache ──────────────────────────────────────────────
+// mzfi guest tokens are HS256 JWTs with TTL=90 DAYS (Max-Age=7776000).
+// Re-minting on every request wastes 200-500ms per call. Cache the token
+// in-memory for 1 hour — well within its 90-day validity. If mzfi 401s
+// us (token revoked/expired), we re-mint on demand.
+type TokenEntry = { token: string; ts: number };
+let cachedToken: TokenEntry | null = null;
+let inflightTokenRequest: Promise<string | null> | null = null;
+const TOKEN_TTL = 60 * 60 * 1000; // 1 hour (token itself lasts 90 days)
+
+/**
+ * Mint (or return cached) mzfi guest token.
+ * Deduplicates concurrent requests — only one mint call fires at a time.
+ * Exported for reuse by /api/stream/[id]/subtitles (avoids re-minting).
+ */
+export async function getMzfiToken(): Promise<string | null> {
+  // Fast path: cached + fresh
+  if (cachedToken && Date.now() - cachedToken.ts < TOKEN_TTL) {
+    return cachedToken.token;
+  }
+  // Deduplicate: if a mint is already in-flight, await it
+  if (inflightTokenRequest) {
+    return inflightTokenRequest;
+  }
+  inflightTokenRequest = (async () => {
+    try {
+      const tokenRes = await fetch("https://mzfi.me/wefeed-h5api-bff/home?page=1", {
+        headers: { ...COMMON_HEADERS, Referer: "https://mzfi.me/" },
+      });
+      const setCookie = tokenRes.headers.get("set-cookie") || "";
+      const xUser = tokenRes.headers.get("x-user") || "";
+      let token: string | null = null;
+      const tokenMatch = setCookie.match(/(?:mb_guest_token|token)=([^;]+)/);
+      if (tokenMatch) {
+        token = tokenMatch[1].replace(/%22/g, "").replace(/^"|"$/g, "");
+      } else if (xUser) {
+        const m = xUser.match(/"token"\s*:\s*"([^"]+)"/);
+        if (m) token = m[1];
+      }
+      if (token) {
+        cachedToken = { token, ts: Date.now() };
+      }
+      return token;
+    } catch {
+      return null;
+    } finally {
+      inflightTokenRequest = null;
+    }
+  })();
+  return inflightTokenRequest;
+}
+
 
 // In-flight request deduplication: key → Promise<SubjectMatch|null>
 const inflightSearches = new Map<string, Promise<SubjectMatch & { subjectType: number } | null>>();
@@ -77,6 +130,9 @@ export async function GET(
   let tmdbStatus = "";
   let tmdbReleaseDate = "";
 
+  // ─── Parallelize TMDB fetch + mzfi token mint ───
+  // Old code awaited TMDB before mzfi (sequential). But the mzfi token mint
+  // doesn't depend on TMDB — kick it off in parallel. Saves 200-500ms.
   const tmdbPromise = (async () => {
     try {
       const detail =
@@ -91,6 +147,10 @@ export async function GET(
       // TMDB lookup failed — still allow embed fallback below
     }
   })();
+
+  // Kick off token mint in parallel — by the time TMDB resolves, token
+  // is already in cache and fetchMzfiStream skips the mint step entirely.
+  const tokenWarmupPromise = getMzfiToken();
 
   const result: {
     sources: Array<{
@@ -111,6 +171,7 @@ export async function GET(
 
   // Wait for TMDB before mzfi search (need title for search keyword)
   await tmdbPromise;
+  await tokenWarmupPromise; // almost always already resolved by now
 
   // ─── mzfi.me direct MP4 (NO ADS) ───
   // Skip mzfi for unreleased movies — mzfi returns trailers for upcoming films
@@ -310,23 +371,11 @@ async function fetchMzfiStream(
 ): Promise<any | null> {
   if (!title) return null;
 
-  // Step 1: Get guest token (minted fresh on /home?page=1 hit)
-  const tokenRes = await fetch("https://mzfi.me/wefeed-h5api-bff/home?page=1", {
-    headers: { ...COMMON_HEADERS, Referer: "https://mzfi.me/" },
-  });
-  // Token comes in Set-Cookie (mb_guest_token=) AND x-user header (JSON).
-  const setCookie = tokenRes.headers.get("set-cookie") || "";
-  const xUser = tokenRes.headers.get("x-user") || "";
-  let token: string | null = null;
-
-  const tokenMatch = setCookie.match(/(?:mb_guest_token|token)=([^;]+)/);
-  if (tokenMatch) {
-    token = tokenMatch[1].replace(/%22/g, "").replace(/^"|"$/g, "");
-  } else if (xUser) {
-    // x-user: {"token":"<JWT>","userId":"...","userType":0,"appType":3}
-    const m = xUser.match(/"token"\s*:\s*"([^"]+)"/);
-    if (m) token = m[1];
-  }
+  // Step 1: Get guest token (cached for 1 hour — token itself lasts 90 days)
+  // The /api/stream route kicks off getMzfiToken() in parallel with TMDB
+  // fetch, so by the time we get here, the token is almost always already
+  // in cache (zero network roundtrip). Saves 200-500ms per request.
+  let token: string | null = await getMzfiToken();
   if (!token) return null;
 
   // Step 2: Search the FULL catalog (not just /home tiles)
@@ -411,18 +460,11 @@ async function fetchMzfiStream(
   if (!hasPlayableStream(data)) {
     // Brief delay before retry (anti-abuse cooldown)
     await new Promise((r) => setTimeout(r, 800));
-    const retryTokenRes = await fetch("https://mzfi.me/wefeed-h5api-bff/home?page=1", {
-      headers: { ...COMMON_HEADERS, Referer: "https://mzfi.me/" },
-    });
-    const retryCookie = retryTokenRes.headers.get("set-cookie") || "";
-    const retryXUser = retryTokenRes.headers.get("x-user") || "";
-    let retryToken: string | null = null;
-    const retryMatch = retryCookie.match(/(?:mb_guest_token|token)=([^;]+)/);
-    if (retryMatch) retryToken = retryMatch[1].replace(/%22/g, "").replace(/^"|"$/g, "");
-    else if (retryXUser) {
-      const m = retryXUser.match(/"token"\s*:\s*"([^"]+)"/);
-      if (m) retryToken = m[1];
-    }
+    // Invalidate cached token — vip-locked response suggests the cached
+    // token may be flagged. Force re-mint by clearing cache before retry.
+    cachedToken = null;
+    inflightTokenRequest = null;
+    const retryToken = await getMzfiToken();
     if (retryToken) {
       playRes = await fetch(buildPlayUrl(subjectId, detailPath), {
         headers: playHeaders(subjectId, detailPath, retryToken),

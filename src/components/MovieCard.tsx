@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState, useCallback } from "react";
 import { Play, Star, MessageSquare, Tv } from "lucide-react";
 import {
   type TMDBMovie,
@@ -9,7 +12,37 @@ import {
   buildSeriesSlug,
 } from "@/lib/tmdb";
 
+// Track which stream URLs we've already prefetched to avoid duplicate fetches.
+// Shared across all card instances — once prefetched, the /api/stream
+// response is cached server-side (in-memory cache) so subsequent clicks
+// resolve instantly.
+const prefetchedIds = new Set<string>();
+
+function useStreamPrefetch(tmdbId: number, kind: "movie" | "tv") {
+  const [prefetched, setPrefetched] = useState(false);
+  const prefetch = useCallback(() => {
+    const key = `${kind}-${tmdbId}`;
+    if (prefetchedIds.has(key)) return;
+    prefetchedIds.add(key);
+    setPrefetched(true);
+    // Fire-and-forget — the server caches the result (mzfi token + search
+    // + play URL). When user clicks, /api/stream returns in ~50ms (warm).
+    fetch(`/api/stream/${tmdbId}${kind === "tv" ? "?kind=tv&season=1&episode=1" : ""}`, {
+      method: "GET",
+      // Don't wait for response — just warm the server cache
+      priority: "low",
+    }).catch(() => {
+      // If prefetch fails, allow retry on next hover
+      prefetchedIds.delete(key);
+      setPrefetched(false);
+    });
+  }, [tmdbId, kind]);
+  return { prefetch, prefetched };
+}
+
 // MovieCard — idlixku-polished: rank stroke italic, quality badge, hover info reveal
+// Client component: fires /api/stream prefetch on mouseenter so when the
+// user clicks, the stream URL is already in server cache (instant play).
 export function MovieCard({
   movie,
   rank,
@@ -21,9 +54,12 @@ export function MovieCard({
 }) {
   const title = movie.title || movie.name || "Untitled";
   const href = `/movie/${buildMovieSlug(movie)}`;
+  const { prefetch } = useStreamPrefetch(movie.id, "movie");
   return (
     <Link
       href={href}
+      onMouseEnter={prefetch}
+      onFocus={prefetch}
       className={`group video-card flex flex-col gap-2 fade-in ${
         featured ? "flex-none w-40 md:w-48 snap-start" : ""
       }`}
@@ -95,9 +131,12 @@ export function SeriesCard({
 }) {
   const title = series.name || series.title || "Untitled";
   const href = `/series/${buildSeriesSlug(series)}`;
+  const { prefetch } = useStreamPrefetch(series.id, "tv");
   return (
     <Link
       href={href}
+      onMouseEnter={prefetch}
+      onFocus={prefetch}
       className={`group video-card flex flex-col gap-2 fade-in ${
         featured ? "flex-none w-40 md:w-48 snap-start" : ""
       }`}

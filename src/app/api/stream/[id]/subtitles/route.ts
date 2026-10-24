@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchMovieDetailEnglish, fetchTVDetailEnglish } from "@/lib/tmdb";
+import { getMzfiToken } from "../route";
 
 // GET /api/stream/[id]/subtitles?kind=movie|tv&season=1&episode=1
 // Lazy subtitle fetch — separate from main /api/stream/[id] to avoid
@@ -184,19 +185,9 @@ async function fetchMzfiStreamForSubs(
 ): Promise<any> {
   if (!title) return null;
 
-  // Mint token
-  const tokenRes = await fetch("https://mzfi.me/wefeed-h5api-bff/home?page=1", {
-    headers: { ...COMMON_HEADERS, Referer: "https://mzfi.me/" },
-  });
-  const setCookie = tokenRes.headers.get("set-cookie") || "";
-  const xUser = tokenRes.headers.get("x-user") || "";
-  let token: string | null = null;
-  const m1 = setCookie.match(/(?:mb_guest_token|token)=([^;]+)/);
-  if (m1) token = m1[1].replace(/%22/g, "").replace(/^"|"$/g, "");
-  else if (xUser) {
-    const m2 = xUser.match(/"token"\s*:\s*"([^"]+)"/);
-    if (m2) token = m2[1];
-  }
+  // Reuse cached token from main stream route (1-hour TTL, token lasts 90 days)
+  // Saves 200-500ms per subtitle fetch by skipping the /home?page=1 mint call.
+  let token: string | null = await getMzfiToken();
   if (!token) return null;
 
   // Search (with cache + dedup)

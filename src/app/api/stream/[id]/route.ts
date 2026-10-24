@@ -187,6 +187,13 @@ export async function GET(
           for (const src of vidlinkData.sources) {
             result.sources.push(src);
           }
+          // Use vidlink.pro captions as subtitles (they're built-in, same source)
+          if (vidlinkData.subtitles?.length > 0) {
+            result.subtitles = vidlinkData.subtitles.map((s: any) => ({
+              language: s.language,
+              url: s.url, // already proxied via /api/subtitle
+            }));
+          }
         }
       }
     } catch (err) {
@@ -195,7 +202,8 @@ export async function GET(
   }
 
   // Always include subtitle placeholder (even for vidlink/embed sources).
-  // The subtitles route will try mzfi captions first, then subtitlecat.com.
+  // BUT: if vidlink.pro already returned subtitles, keep those (they're
+  // built-in, same source, timing matches perfectly).
   if (result.subtitles.length === 0) {
     result.subtitles = [
       {

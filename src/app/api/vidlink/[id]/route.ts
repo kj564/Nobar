@@ -106,7 +106,7 @@ export async function GET(
       kind === "tv"
         ? `/api/b/tv/${tmdbId}/${season}/${episode}/${token}`
         : `/api/b/movie/${token}`;
-    const apiUrl = `https://vidlink.pro${apiPath}?multiLang=0`;
+    const apiUrl = `https://vidlink.pro${apiPath}?multiLang=1`; // multiLang=1 for captions
 
     const res = await fetch(apiUrl, {
       headers: {
@@ -153,7 +153,14 @@ export async function GET(
       });
     }
 
-    return NextResponse.json({ sources });
+    // Extract captions (subtitles) from vidlink.pro response
+    const captions = json?.stream?.captions || [];
+    const subtitles: Array<{ language: string; url: string }> = captions.map((c: any) => ({
+      language: c.language || "Unknown",
+      url: `/api/subtitle?url=${encodeURIComponent(c.url)}`,
+    }));
+
+    return NextResponse.json({ sources, subtitles });
   } catch (err) {
     console.error("[vidlink] error:", err);
     return NextResponse.json({ sources: [] });

@@ -71,11 +71,11 @@ export async function GET(
 
   // Get title + year from TMDB (ENGLISH locale — mzfi catalog uses English
   // titles, e.g. "Thor: Love and Thunder" not the id-ID "Thor: Cinta dan Guntur").
-  // Run TMDB fetch in parallel with mzfi token mint to save ~500ms latency
-  // (critical for Vercel function timeout — workspace is 2-4s, Vercel 5-10s).
   let title = "";
   let year = "";
   let imdbId: string | null = null;
+  let tmdbStatus = "";
+  let tmdbReleaseDate = "";
 
   const tmdbPromise = (async () => {
     try {
@@ -83,9 +83,10 @@ export async function GET(
         kind === "tv" ? await fetchTVDetailEnglish(tmdbId) : await fetchMovieDetailEnglish(tmdbId);
       title = detail.title || detail.name || "";
       imdbId = (detail as any).imdb_id || null;
+      tmdbStatus = (detail as any).status || "";
       const dateField = kind === "tv" ? "first_air_date" : "release_date";
-      const dateVal = (detail as any)[dateField];
-      year = dateVal ? String(dateVal).slice(0, 4) : "";
+      tmdbReleaseDate = (detail as any)[dateField] || "";
+      year = tmdbReleaseDate ? String(tmdbReleaseDate).slice(0, 4) : "";
     } catch {
       // TMDB lookup failed — still allow embed fallback below
     }
@@ -106,6 +107,15 @@ export async function GET(
   await tmdbPromise;
 
   // ─── mzfi.me direct MP4 (NO ADS) ───
+  // Skip mzfi for unreleased movies — mzfi returns trailers for upcoming films
+  const isUnreleased =
+    kind === "movie" &&
+    (tmdbStatus === "Rumored" ||
+     tmdbStatus === "Planned" ||
+     tmdbStatus === "In Production" ||
+     tmdbStatus === "Post Production");
+
+  if (!isUnreleased) {
   try {
     const mzfiData = await fetchMzfiStream(title, year, kind, season, episode);
     if (mzfiData?.hasResource && Array.isArray(mzfiData.streams)) {
@@ -114,9 +124,24 @@ export async function GET(
         .filter((s: any) => s.url && !s.vipLocked && s.format === "MP4")
         .sort((a: any, b: any) => Number(a.resolutions) - Number(b.resolutions));
 
+      // Trailer detection: check file size via HEAD request
+      // Trailers are typically < 50MB, full movies are > 100MB
       for (const stream of sorted) {
-        // Proxy through our API to bypass CORS + inject Referer
-        // (CDN requires Referer: https://mzfi.me/ — see /api/proxy)
+        // Quick HEAD check for file size (skip if too small = trailer)
+        try {
+          const headRes = await fetch(stream.url, {
+            method: "HEAD",
+            headers: { ...COMMON_HEADERS, Referer: "https://mzfi.me/" },
+          });
+          const contentLength = parseInt(headRes.headers.get("content-length") || "0", 10);
+          // Skip if file < 50MB (likely trailer)
+          if (contentLength > 0 && contentLength < 50_000_000) {
+            console.log(`[stream] Skipping trailer: ${stream.resolutions}p = ${(contentLength/1e6).toFixed(1)}MB`);
+            continue;
+          }
+        } catch {
+          // HEAD failed — include stream anyway
+        }
         const proxyUrl = `/api/proxy?url=${encodeURIComponent(stream.url)}`;
         result.sources.push({
           quality: `${stream.resolutions}p`,
@@ -138,9 +163,10 @@ export async function GET(
         },
       ];
     }
-  } catch (err) {
+    } catch (err) {
     console.error("[stream] mzfi fetch failed:", err);
   }
+  } // end if (!isUnreleased)
 
   // ─── vidlink.pro fallback (direct MP4 via WASM token) ───
   // Only try vidlink.pro if mzfi returned no sources.

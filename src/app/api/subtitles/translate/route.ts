@@ -60,68 +60,38 @@ export async function GET(request: Request) {
     }
 
     // Step 3: Batch translate using Google Translate API
-    // Translate in batches of 20 lines (Google Translate rate limit)
-    const BATCH_SIZE = 20;
+    // Translate in batches of 15 lines with 500ms delay between batches
+    const BATCH_SIZE = 15;
     const translatedTexts: string[] = [];
     const allTexts = entries.map((e) => e.text || " ");
 
     for (let i = 0; i < allTexts.length; i += BATCH_SIZE) {
       const batch = allTexts.slice(i, i + BATCH_SIZE);
       try {
-        // Combine batch into single string with newlines for one API call
         const combined = batch.join("\n");
         const result = await translate(combined, { from: "en", to: "id" });
         const lines = result.text.split("\n");
-
-        // Map back to individual entries
         if (lines.length >= batch.length) {
           translatedTexts.push(...lines.slice(0, batch.length));
         } else {
-          // Fallback: translate individually if batch failed
-          for (const text of batch) {
-            try {
-              const r = await translate(text, { from: "en", to: "id" });
-              translatedTexts.push(r.text);
-            } catch {
-              translatedTexts.push(text); // Keep original on error
-            }
-          }
+          translatedTexts.push(...batch);
         }
       } catch {
-        // Batch failed — try individually
-        for (const text of batch) {
-          try {
-            const r = await translate(text, { from: "en", to: "id" });
-            translatedTexts.push(r.text);
-          } catch {
-            translatedTexts.push(text);
-          }
-        }
+        // Rate limited or error — use original English text as fallback
+        translatedTexts.push(...batch);
       }
-      // Small delay between batches to avoid rate limiting
-      if (i + BATCH_SIZE < allTexts.length) {
-        await new Promise((r) => setTimeout(r, 200));
-      }
+      // Delay between batches to avoid rate limiting (Google allows ~5 req/s)
+      await new Promise((r) => setTimeout(r, 300));
     }
 
-    // Step 4: Multi-source merge (if Spanish available)
-    // For lines where English translation seems off (too short, suspicious),
-    // try Spanish translation as alternative
-    if (esEntries && esEntries.length === entries.length) {
-      for (let i = 0; i < entries.length; i++) {
-        const enTrans = translatedTexts[i] || "";
-        // If English translation is very short or empty, try Spanish
-        if (enTrans.length < 3 && esEntries[i]?.text) {
-          try {
-            const esTrans = await translate(esEntries[i].text, { from: "es", to: "id" });
-            if (esTrans.text && esTrans.text.length > enTrans.length) {
-              translatedTexts[i] = esTrans.text;
-            }
-          } catch {
-            // Keep English translation
-          }
-        }
-      }
+    // Step 4: If all translations failed (rate limited), return English as-is
+    // The user still gets subtitle text, just in English instead of Indonesian
+    const translatedCount = translatedTexts.filter(
+      (t, i) => t !== allTexts[i]
+    ).length;
+
+    if (translatedCount === 0) {
+      console.warn("[translate] All batches failed (rate limited) — returning English");
     }
 
     // Step 5: Convert to WebVTT

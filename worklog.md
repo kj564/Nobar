@@ -1154,3 +1154,62 @@ Stage Summary:
   playback speed menu, polished buffering spinner
 - Subtitle menu + quality menu now built-in (no custom code)
 - Works on both movie and TV series pages
+
+---
+Task ID: RE-vidsrc-harder
+Agent: main
+Task: RE vidsrc.sh lebih keras — cari direct MP4 / bypass server proxy
+
+Work Log:
+1. Tested vidsrc.sh URL formats:
+   - /embed/movie/{tmdbId} → 200 (correct format)
+   - /movie/{tmdbId} → 404 (not valid)
+   - No X-Frame-Options → iframe embed works
+
+2. Found 3-layer architecture:
+   - Layer 1: vidsrc.sh/embed/movie/{id} (outer page)
+   - Layer 2: stellarconductornexus.com/embed/movie/{id}?vs={token} (player wrapper)
+   - Layer 3: stellarconductornexus.com/embed/player/movie/{id}?vs={token2} (inner player)
+
+3. API chain discovered:
+   - vs_src.php → returns {src: stellarconductornexus.com URL}
+   - Inner player CONFIG has apiToken (JWT with {exp, ip, n})
+   - data.vidsrc.sh/api.php?...&stream_urls (CORS: allow-origin=*)
+   - stream_urls field is ChaCha20-encrypted (WASM decryptor: vsdec.js)
+
+4. Server-side extraction attempt:
+   - Fetched all 3 layers successfully
+   - Extracted apiToken from inner player CONFIG
+   - Called data.vidsrc.sh with Bearer token → 403 "invalid api token"
+   - Root cause: Cloudflare Turnstile gate (turnstile:true in CONFIG)
+   - API requires BOTH apiToken AND Turnstile-verified session
+   - Turnstile is browser-only challenge → server-side impossible
+
+5. vsdec.js analysis:
+   - WASM-based ChaCha20 decryptor
+   - Per-5-minute-window key (delivered as .wasm module URL)
+   - stream_urls format: base64(nonce || ciphertext)
+   - Browser-only (requires WebAssembly + WASM URL from API response)
+
+6. Anti-devtools:
+   - disable-devtool.js kills video if devtools opened
+   - Redirects to about:blank
+
+7. iframe embed test:
+   - <iframe src="https://vidsrc.sh/embed/movie/{id}"> loads
+   - Shows movie poster + play button (user clicks to start)
+   - Turnstile solved invisibly by Cloudflare JS
+   - Video bytes go direct: browser → CDN (ZERO server bandwidth)
+   - No ads visible in test (histats tracker present but no video ads)
+
+8. Multi-domain comparison:
+   - Only vidsrc.sh works (200, no X-Frame-Options)
+   - vidsrc.xyz/to/cc/me → DNS fail / 403 / 301
+   - 2embed.cc → 301 redirect
+   - multiembed.mov → 404
+
+Stage Summary:
+- vidsrc.sh stream URLs are NOT extractable server-side (Turnstile + ChaCha20)
+- iframe embed works (zero server bandwidth, shows their UI)
+- No direct MP4 URLs available (all behind encryption + Turnstile)
+- Report at research/vidsrc-deep-re.md

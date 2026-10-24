@@ -103,7 +103,10 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     let cancelled = false;
     (async () => {
       try {
-        const shaka = await import("shaka-player");
+        // Cast to any — shaka-player's clutz-generated types are broken
+        // and cause "Property 'polyfill' does not exist" build errors.
+        // The runtime API is correct; only the .d.ts is wrong.
+        const shaka: any = await import("shaka-player");
         if (cancelled) return;
         // Polyfills must run before Player construction.
         shaka.polyfill.installAll();
@@ -154,7 +157,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       return false;
     }
 
-    const shaka = await import("shaka-player");
+    const shaka: any = await import("shaka-player");
 
     // Destroy existing shaka instance if any
     if (shakaRef.current) {

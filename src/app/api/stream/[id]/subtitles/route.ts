@@ -53,6 +53,27 @@ export async function GET(
         mzfiData._token!
       );
       if (subs.length > 0) {
+        // Check if Indonesian subtitle is available.
+        // If not, add auto-translated "Indonesian (Auto)" option.
+        const hasIndonesian = subs.some((s: any) =>
+          s.language?.toLowerCase().includes("indonesian") ||
+          s.language?.toLowerCase().includes("bahasa")
+        );
+        if (!hasIndonesian) {
+          const enSub = subs.find((s: any) =>
+            s.language?.toLowerCase().includes("english")
+          );
+          if (enSub) {
+            const proxyUrl = new URL(enSub.url, "http://localhost");
+            const rawSrtUrl = proxyUrl.searchParams.get("url") || "";
+            if (rawSrtUrl) {
+              subs.unshift({
+                language: "Indonesian (Auto)",
+                url: `/api/subtitles/translate?url=${encodeURIComponent(rawSrtUrl)}`,
+              });
+            }
+          }
+        }
         return NextResponse.json({ subtitles: subs });
       }
     }
@@ -94,6 +115,26 @@ export async function GET(
         });
       }
       if (subs.length > 0) {
+        // Add auto-translated Indonesian if not available
+        const hasIndonesian = subs.some((s: any) =>
+          s.language?.toLowerCase().includes("indonesian") ||
+          s.language?.toLowerCase().includes("bahasa")
+        );
+        if (!hasIndonesian) {
+          const enSub = subs.find((s: any) =>
+            s.language?.toLowerCase().includes("english")
+          );
+          if (enSub) {
+            const proxyUrl = new URL(enSub.url, "http://localhost");
+            const rawSrtUrl = proxyUrl.searchParams.get("url") || "";
+            if (rawSrtUrl) {
+              subs.unshift({
+                language: "Indonesian (Auto)",
+                url: `/api/subtitles/translate?url=${encodeURIComponent(rawSrtUrl)}`,
+              });
+            }
+          }
+        }
         return NextResponse.json({ subtitles: subs });
       }
     }

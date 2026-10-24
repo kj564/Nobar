@@ -68,6 +68,9 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   const [buffering, setBuffering] = useState(false);
   const [volume, setVolume] = useState(1);
   const [currentBitrate, setCurrentBitrate] = useState<number>(0);  // for ABR indicator
+  const [currentDashHeight, setCurrentDashHeight] = useState<number>(0); // current DASH resolution (e.g. 1080)
+  const [dashQualities, setDashQualities] = useState<Array<{id: number, height: number, bandwidth: number}>>([]); // available DASH tracks
+  const [abrEnabled, setAbrEnabled] = useState(true); // ABR auto-switch toggle
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -181,13 +184,14 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
 
     // ── Player config: tune for smoothness ──
     player.configure({
-      // ABR: start with safe bandwidth estimate, switch fast on dips
+      // ABR: start with high bandwidth estimate so we START at 1080p
+      // (was 1Mbps = starts at 480p, never upgrades fast enough through proxy)
       abr: {
         enabled: true,
-        switchInterval: 8,                   // don't switch more often than every 8s (avoid flapping)
-        bandwidthUpgradeTarget: 0.85,       // only upgrade when 85% of next level
-        bandwidthDowngradeTarget: 0.95,     // downgrade quickly when bandwidth tight
-        defaultBandwidthEstimate: 1_000_000, // start assumption: 1 Mbps
+        switchInterval: 4,                    // switch every 4s if needed (was 8s = too slow)
+        bandwidthUpgradeTarget: 0.9,         // upgrade when 90% of next level
+        bandwidthDowngradeTarget: 0.95,      // downgrade quickly when bandwidth tight
+        defaultBandwidthEstimate: 5_000_000, // start assumption: 5 Mbps (enough for 1080p)
         advanced: {
           minBytes: 32_768,
           fastHalfLife: 2,
@@ -239,11 +243,33 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       }
     );
 
-    // ── ABR tracking: expose current bitrate to UI ──
-    player.addEventListener("abrchanged", (e: any) => {
-      const bitrate = e?.newLevel?.bitrate || 0;
-      setCurrentBitrate(bitrate);
-    });
+    // ── ABR tracking: expose current bitrate + resolution to UI ──
+    // Shaka fires 'abrchanged' when ABR switches quality.
+    // Event payload: { newLevel: Variant } where Variant has:
+    //   - bandwidth (bits/sec) — NOT 'bitrate' (was the bug!)
+    //   - height (pixels, e.g. 1080, 720, 480)
+    //   - id (track ID for manual selection)
+    const updateCurrentTrack = () => {
+      try {
+        const tracks = player.getVariantTracks();
+        const active = tracks.find((t: any) => t.active);
+        if (active) {
+          setCurrentBitrate(active.bandwidth || 0);
+          setCurrentDashHeight(active.height || 0);
+        }
+        // Expose all available DASH qualities for manual selection
+        const qualities = tracks
+          .map((t: any) => ({ id: t.id, height: t.height, bandwidth: t.bandwidth }))
+          .sort((a: any, b: any) => b.height - a.height);
+        setDashQualities(qualities);
+      } catch {}
+    };
+
+    player.addEventListener("abrchanged", updateCurrentTrack);
+    // Also poll on timeupdate — covers initial load + manual switches
+    video.addEventListener("timeupdate", updateCurrentTrack);
+    // Initial fetch after manifest loads
+    setTimeout(updateCurrentTrack, 500);
 
     try {
       await player.load(rawMpdUrl);
@@ -538,6 +564,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     setShowSettings("");
     // The effect [dashSource, loadShaka] won't re-fire because dashSource
     // didn't change. Manually trigger Shaka load.
+    setAbrEnabled(true); // re-enable ABR when switching to Auto mode
     loadShaka(dashSource.url).then(ok => {
       if (ok) {
         const v = videoRef.current;
@@ -547,6 +574,43 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         }
       }
     });
+  };
+
+  // ── Manual DASH quality selection ──
+  // When user picks a specific resolution in DASH mode:
+  // 1. Disable ABR (so Shaka doesn't override the manual choice)
+  // 2. Select the specific variant track
+  // 3. Clear buffer to force immediate switch
+  const selectDashQuality = (trackId: number) => {
+    const player = shakaRef.current;
+    if (!player) return;
+    try {
+      player.configure("abr.enabled", false);
+      setAbrEnabled(false);
+      const tracks = player.getVariantTracks();
+      const track = tracks.find((t: any) => t.id === trackId);
+      if (track) {
+        player.selectVariantTrack(track, true); // clearBuffer=true
+        setCurrentDashHeight(track.height || 0);
+        setCurrentBitrate(track.bandwidth || 0);
+        console.log(`[NOBAR] Manual DASH quality: ${track.height}p (${track.bandwidth}bps)`);
+      }
+    } catch (err) {
+      console.warn("[NOBAR] Failed to select DASH quality:", err);
+    }
+    setShowSettings("");
+  };
+
+  // ── Re-enable ABR (switch back to Auto) ──
+  const enableAutoDash = () => {
+    const player = shakaRef.current;
+    if (!player) return;
+    try {
+      player.configure("abr.enabled", true);
+      setAbrEnabled(true);
+      console.log("[NOBAR] ABR re-enabled — auto resolution switching");
+    } catch {}
+    setShowSettings("");
   };
 
   const formatTime = (s: number) => {
@@ -666,42 +730,73 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
             </div>
             <div className="text-xs text-white/80 font-mono">{formatTime(currentTime)} / {formatTime(duration)}</div>
 
-            {/* ABR indicator (DASH only) — shows current adaptive bitrate */}
-            {usingDash && currentBitrate > 0 && (
+            {/* ABR indicator (DASH only) — shows current resolution + bitrate */}
+            {usingDash && currentDashHeight > 0 && (
               <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono">
                 <Wifi className="w-3 h-3" />
-                {formatBitrate(currentBitrate)}
+                {currentDashHeight}p{abrEnabled ? " · auto" : " · locked"}
+                {currentBitrate > 0 && ` · ${formatBitrate(currentBitrate)}`}
               </span>
             )}
 
             <div className="flex-1" />
 
-            {/* Quality / source picker */}
-            {(sources.length > 1 || (dashSource && !usingDash)) && (
+            {/* Quality / source picker — always show when there are choices */}
+            {(sources.length > 1 || dashSource) && (
               <div className="relative">
                 <button onClick={() => setShowSettings(showSettings === "q" ? "" : "q")} className="text-white hover:text-brand-500 transition flex items-center gap-1">
                   <Settings className="w-5 h-5" />
                   <span className="text-xs">
-                    {usingDash ? `Auto (${dashSource?.maxBitrate})` : activeSource?.quality}
+                    {usingDash
+                      ? (abrEnabled ? "Auto" : `${currentDashHeight}p`)
+                      : activeSource?.quality}
                   </span>
                 </button>
                 {showSettings === "q" && (
-                  <div className="absolute bottom-8 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[150px]">
+                  <div className="absolute bottom-8 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[160px] max-h-72 overflow-y-auto scroll-row">
+                    {/* DASH Auto option — ABR enabled */}
                     {dashSource && (
                       <button
-                        onClick={switchToDash}
-                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition flex items-center gap-2 ${usingDash ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
+                        onClick={usingDash && abrEnabled ? enableAutoDash : switchToDash}
+                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition flex items-center gap-2 ${
+                          usingDash && abrEnabled ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"
+                        }`}
                       >
                         <Gauge className="w-3.5 h-3.5" />
-                        Auto (DASH)
-                        <span className="ml-auto text-[10px] text-gray-500">{dashSource.maxBitrate}</span>
+                        Auto
+                        <span className="ml-auto text-[10px] text-gray-500">DASH</span>
                       </button>
                     )}
+                    {/* DASH manual quality options (only when DASH is active) */}
+                    {usingDash && dashQualities.map((q) => (
+                      <button
+                        key={q.id}
+                        onClick={() => selectDashQuality(q.id)}
+                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition flex items-center gap-2 ${
+                          !abrEnabled && currentDashHeight === q.height
+                            ? "bg-brand-500/20 text-brand-500"
+                            : "text-gray-300 hover:bg-white/5"
+                        }`}
+                      >
+                        <span className="w-3.5 h-3.5 flex items-center justify-center">
+                          {!abrEnabled && currentDashHeight === q.height ? "●" : ""}
+                        </span>
+                        {q.height}p
+                        <span className="ml-auto text-[10px] text-gray-500">{formatBitrate(q.bandwidth)}</span>
+                      </button>
+                    ))}
+                    {/* Divider between DASH and MP4 options */}
+                    {usingDash && sources.length > 0 && (
+                      <div className="border-t border-white/10 my-1" />
+                    )}
+                    {/* MP4 qualities */}
                     {sources.map((s, i) => (
                       <button
                         key={i}
                         onClick={() => changeQuality(s)}
-                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${!usingDash && activeSource?.url === s.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
+                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${
+                          !usingDash && activeSource?.url === s.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"
+                        }`}
                       >
                         {s.quality} <span className="text-[10px] text-gray-500">MP4</span>
                       </button>
@@ -769,10 +864,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         <span>
           ✓ Ad-free ·{" "}
           <span className="text-gray-300">{usingDash ? dashSource?.provider : activeSource?.provider}</span>
-          {usingDash && dashSource ? ` · ${dashSource.maxBitrate} adaptive` : ` · ${activeSource?.quality}`}
+          {usingDash && dashSource
+            ? ` · ${currentDashHeight > 0 ? currentDashHeight + 'p' : dashSource.maxBitrate}${abrEnabled ? ' (auto)' : ' (locked)'}`
+            : ` · ${activeSource?.quality}`}
         </span>
-        {usingDash && (
-          <span className="text-emerald-500/80">⚡ Adaptive streaming — auto-adjusts quality to your connection</span>
+        {usingDash && abrEnabled && (
+          <span className="text-emerald-500/80">⚡ Adaptive — auto-adjusts quality to your connection</span>
+        )}
+        {usingDash && !abrEnabled && (
+          <span className="text-amber-500/80">🔒 Quality locked — click Auto to re-enable adaptive</span>
         )}
       </div>
     </div>

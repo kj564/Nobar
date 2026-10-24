@@ -148,21 +148,12 @@ export async function GET(
   }
 
   // Set embed fallback URL (only used if mzfi fails)
-  // Direct cross-origin embed — videm.xyz/vidlink.pro (sweet spot).
-  // Native MP4 movies (90%+) work with VT without extension.
-  // Embed movies need VT browser extension for sync (cross-origin iframe).
+  // vidlink.pro — TMDB ID based, still working (videm.xyz is down)
   if (result.sources.length === 0) {
-    if (imdbId) {
-      result.embedUrl =
-        kind === "tv"
-          ? `https://videm.xyz/embed/tv/${imdbId}/${season}/${episode}`
-          : `https://videm.xyz/embed/movie/${imdbId}`;
-    } else {
-      result.embedUrl =
-        kind === "tv"
-          ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
-          : `https://vidlink.pro/movie/${tmdbId}`;
-    }
+    result.embedUrl =
+      kind === "tv"
+        ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
+        : `https://vidlink.pro/movie/${tmdbId}`;
   }
 
   // CRITICAL: Do NOT cache at edge — mzfi stream URLs expire after ~10min.

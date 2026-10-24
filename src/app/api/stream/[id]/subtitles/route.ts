@@ -95,25 +95,29 @@ export async function GET(
     const pageUrls = pageMatches
       .map((m) => m.match(/href="([^"]*)"/)?.[1])
       .filter(Boolean)
-      .slice(0, 3);
+      .slice(0, 5); // Try up to 5 subtitle pages to find best timing match
 
-    if (pageUrls.length > 0) {
-      const subRes = await fetch(`https://www.subtitlecat.com/${pageUrls[0]}`, {
+    // Fetch first subtitle page + get SRT links
+    for (const pageUrl of pageUrls) {
+      const subRes = await fetch(`https://www.subtitlecat.com/${pageUrl}`, {
         headers: { "User-Agent": COMMON_HEADERS["User-Agent"], Referer: searchUrl },
       });
       const subHtml = await subRes.text();
 
       const srtRegex = /href="(\/subs\/[^"]*\.srt)"/g;
-      const subs: Array<{ language: string; url: string }> = [];
+      const subs: Array<{ language: string; url: string; srtUrl: string }> = [];
       let match: RegExpExecArray | null;
       while ((match = srtRegex.exec(subHtml)) !== null) {
         const srtPath = match[1];
         const langCode = srtPath.split("-").pop()?.replace(".srt", "") || "unknown";
+        const fullUrl = "https://www.subtitlecat.com" + srtPath;
         subs.push({
           language: langCodeToName(langCode),
-          url: `/api/subtitle?url=${encodeURIComponent("https://www.subtitlecat.com" + srtPath)}`,
+          url: `/api/subtitle?url=${encodeURIComponent(fullUrl)}`,
+          srtUrl: fullUrl,
         });
       }
+
       if (subs.length > 0) {
         // Add auto-translated Indonesian if not available
         const hasIndonesian = subs.some((s: any) =>
@@ -124,18 +128,23 @@ export async function GET(
           const enSub = subs.find((s: any) =>
             s.language?.toLowerCase().includes("english")
           );
+          const esSub = subs.find((s: any) =>
+            s.language?.toLowerCase().includes("spanish")
+          );
           if (enSub) {
-            const proxyUrl = new URL(enSub.url, "http://localhost");
-            const rawSrtUrl = proxyUrl.searchParams.get("url") || "";
-            if (rawSrtUrl) {
-              subs.unshift({
-                language: "Indonesian (Auto)",
-                url: `/api/subtitles/translate?url=${encodeURIComponent(rawSrtUrl)}`,
-              });
-            }
+            const translateUrl = `/api/subtitles/translate?url=${encodeURIComponent(enSub.srtUrl)}` +
+              (esSub ? `&url2=${encodeURIComponent(esSub.srtUrl)}` : "");
+            subs.unshift({
+              language: "Indonesian (Auto)",
+              url: translateUrl,
+              srtUrl: "",
+            });
           }
         }
-        return NextResponse.json({ subtitles: subs });
+        // Return subtitles (strip internal srtUrl field)
+        return NextResponse.json({
+          subtitles: subs.map((s) => ({ language: s.language, url: s.url })),
+        });
       }
     }
   } catch (err) {

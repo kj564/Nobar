@@ -1741,3 +1741,71 @@ Stage Summary:
 - Implementation ready: fetchVidsrcBuzzStream() + HLS.js player
 - IP rate-limited after RE intensive testing
 - Vercel production (different IP) should work normally
+
+---
+Task ID: RE-keterikatan-deep
+Agent: main
+Task: RE keterikatan 3 provider — cari shared infrastructure + jalur baru
+
+Work Log:
+
+1. Infrastructure mapping (3 providers):
+   - mzfi.me: aoneroom.com (BFF) → hakunaymatata.com (CDN: bcdnxw/sbcdnw/cacdn)
+   - vidlink.pro: own API + WASM → hakunaymatata.com (CDN: bcdn) → surge.flooderrr.store (proxy)
+   - vidsrc.buzz: own API → videm.xyz (relay) → premilkyway.com (CDN)
+   
+   KETERIKATAN: mzfi + vidlink SHARE hakunaymatata.com CDN!
+   vidlink also has sacdn.hakunaymatata.com (HLS) — NEW subdomain!
+
+2. videm.xyz RE (mirror vidsrc.buzz):
+   - Same api.php as vidsrc.buzz (same Q config, token, endpoints)
+   - Server: Apache (NOT Cloudflare — different from vidsrc.buzz)
+   - NO X-Frame-Options → iframe embed possible
+   - Rate-limited same as vidsrc.buzz (same backend)
+
+3. premilkyway.com RE (vidsrc.buzz segment CDN):
+   - DNS: 94.131.217.58 (Hetzner Germany)
+   - All requests return 403 (CloudFront-signed or IP-gated)
+   - No direct access possible
+
+4. surge.flooderrr.store RE (vidlink's proxy):
+   - DNS: Cloudflare IPs
+   - X-Frame-Options: SAMEORIGIN (can't iframe)
+   - Cloudflare protected (403 for our IP)
+   - URL formula: surge/sacdn{cdn_path}?host={cdn_origin}&sc={base64url(cookie)}
+
+5. vidlink JS deobfuscation (9130b chunk):
+   - Function j(): main stream processor, checks requiresProxy flag
+   - Function m(): MP4 URL rewriter → surge/mp{path}?headers={}&host={origin}
+   - Function v(): HLS/DASH URL rewriter → surge/sacdn{path}?host={origin}&sc={base64url(cookie)}
+   - Function b(): base64url encoder (btoa + replace +/=)
+   - X-Playback-Environment detection:
+     * 'standard' (Chrome/Firefox no HEVC) → MP4 only
+     * 'dash-hevc' (Chrome with HEVC) → DASH + CloudFront cookies
+     * 'hls' (Safari) → HLS + CloudFront cookies
+     * 'webkit' (old Safari) → HLS
+
+6. MASSIVE BREAKTHROUGH: X-Playback-Environment: hls header!
+   - vidlink API with XPE=hls returns:
+     deliveryType: 'hls'
+     playlist: https://sacdn.hakunaymatata.com/hls/{id}/local.m3u8
+     playlistHeaders: {Cookie: 'CloudFront-Policy=...;Signature=...;Key-Pair-Id=...'}
+   - With cookies → sacdn returns HLS playlist (200 OK, #EXTM3U!)
+   - Without cookies → 403 Forbidden
+   - Segments: RELATIVE URLs (e.g., 3356-17136-1080P_00015.ts)
+   - 10-second segments
+
+7. aoneroom.com endpoints (public, no auth):
+   - /wefeed-h5api-bff/home?page=1 → token mint (public)
+   - /wefeed-h5api-bff/subject/trending → trending list
+   - /wefeed-h5api-bff/detail?subjectId=X&detailPath=Y → movie metadata
+   - /wefeed-h5api-bff/media-player/get-domain → returns 'https://mzfi.me/'
+   - /wefeed-h5api-bff/subject/recommend → recommendations
+
+Stage Summary:
+- 3 providers mapped: shared CDN (hakunaymatata.com), different subdomains
+- NEW: sacdn.hakunaymatata.com (HLS CDN, CloudFront-signed)
+- NEW: vidlink X-Playback-Environment: hls → HLS + CloudFront cookies
+- NEW: surge URL formula deobfuscated
+- NEW: vidlink HLS gives adaptive bitrate (like vidsrc.buzz but different CDN)
+- Implementation opportunity: force XPE=hls → get HLS from vidlink

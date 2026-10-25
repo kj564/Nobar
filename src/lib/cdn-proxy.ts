@@ -1,7 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────
-// lib/cdn-proxy.ts — Client-side CDN proxy configuration
-// ─────────────────────────────────────────────────────────────────────
-
 const CDN_PROXY_URL = process.env.NEXT_PUBLIC_CDN_PROXY_URL || "";
 const CDN_PROXY_PORT = "3003";
 const isStaticMode = typeof window !== "undefined" && (window.location.hostname.includes("github.io") || CDN_PROXY_URL.length > 0);
@@ -29,27 +25,14 @@ export async function resolveStream(
   const data = await res.json();
 
   const hasHls = data.sources?.some((s: any) => s.type === "hls-direct");
-  
-  // Wrap MP4 URLs through Worker's /mp4 proxy (bcdn blocks browser UA with 428)
-  // Browser → Worker /mp4?url={mp4_url} → Worker fetches from bcdn (no UA) → streams back
-  // This makes ALL movies playable ad-free — no iframe, no ads!
-  if (data.sources) {
-    for (const s of data.sources) {
-      if (s.type === "mp4" && s.url && s.url.startsWith("http")) {
-        const proxyBase = isStaticMode && CDN_PROXY_URL ? CDN_PROXY_URL : "";
-        const proxyPath = `/mp4?url=${encodeURIComponent(s.url)}`;
-        s.url = proxyBase ? `${proxyBase}${proxyPath}` : `${proxyPath}${proxyPath.includes("?") ? "&" : "?"}XTransformPort=${CDN_PROXY_PORT}`;
-      }
-    }
-  }
 
-  // For TV without HLS, use vidlink.pro embed
-  if (!hasHls && kind === "tv") {
-    return {
-      sources: [],
-      subtitles: [],
-      embedUrl: `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`,
-    };
+  if (!hasHls) {
+    // No HLS → MP4 URLs from bcdn are often expired/stale (vidlink.pro CDN cache issue)
+    // Use vidlink.pro embed iframe as fallback (plays video, has ads)
+    if (kind === "tv") {
+      return { sources: [], subtitles: [], embedUrl: `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}` };
+    }
+    return { sources: [], subtitles: [], embedUrl: `https://vidlink.pro/movie/${tmdbId}` };
   }
 
   return data;

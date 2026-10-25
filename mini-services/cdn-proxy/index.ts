@@ -279,6 +279,9 @@ async function handleRequestInner(req: Request): Promise<Response> {
     const mp4Headers: Record<string, string> = {
       "Accept": "*/*",
       "Accept-Language": "en-US,en;q=0.9",
+      // bcdn rejects browser UA (Mozilla/Chrome/etc → 428/427)
+      // Send a non-browser UA (Wget/curl pattern passes)
+      "User-Agent": "Wget/1.21",
     };
     const range = req.headers.get("range");
     if (range) mp4Headers["Range"] = range;

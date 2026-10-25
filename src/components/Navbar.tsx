@@ -87,12 +87,11 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src=`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/logo/nobar-horizontal-white.svg"
+                src={`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/logo/nobar-horizontal-white.svg`}
                 alt="Nobar"
                 className="h-5 lg:h-6 w-auto transition-transform group-hover:scale-105"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src =
-                    `${process.env.NEXT_PUBLIC_BASE_PATH || ""}/logo/nobar-horizontal-white.png";
+                  (e.currentTarget as HTMLImageElement).src = `${process.env.NEXT_PUBLIC_BASE_PATH || ""}/logo/nobar-horizontal-white.png`;
                 }}
               />
             </Link>

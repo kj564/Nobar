@@ -47,18 +47,12 @@ export function MovieListingClient({ categories }: MovieListingClientProps) {
       try {
         let data: TMDBPaged<TMDBMovie>;
         if (searching && query) {
-          const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&page=${targetPage}`);
-          if (!res.ok) throw new Error(`Search failed: ${res.status}`);
-          data = (await res.json()) as TMDBPaged<TMDBMovie>;
+          data = await searchMoviesClient(query, targetPage);
           // No filter needed — dynamic routes handle ANY TMDB movie ID.
         } else if (cat.tmdbGenreId === null) {
-          const res = await fetch(`/api/trending?page=${targetPage}`);
-          if (!res.ok) throw new Error(`Trending failed: ${res.status}`);
-          data = (await res.json()) as TMDBPaged<TMDBMovie>;
+          data = await fetchTrendingClient(targetPage);
         } else {
-          const res = await fetch(`/api/discover?genre=${cat.tmdbGenreId}&page=${targetPage}`);
-          if (!res.ok) throw new Error(`Discover failed: ${res.status}`);
-          data = (await res.json()) as TMDBPaged<TMDBMovie>;
+          data = await fetchByGenreClient(cat.tmdbGenreId, targetPage);
         }
         if (append) {
           setMovies((prev) => {

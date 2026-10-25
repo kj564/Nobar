@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+export const dynamic = "force-static";
 
 // ─── SEO: robots.txt ────────────────────────────────────────────────────────
 // Next.js surfaces this at /robots.txt automatically. Allow all crawlers
@@ -9,6 +10,6 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: "*",
       allow: "/",
     },
-    sitemap: "https://nobar-stream.vercel.app/sitemap.xml",
+    sitemap: `${process.env.NEXT_PUBLIC_SITE_URL || "https://nobar-stream.vercel.app"}/sitemap.xml`,
   };
 }

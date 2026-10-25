@@ -41,8 +41,7 @@ function useStreamPrefetch(tmdbId: number, kind: "movie" | "tv") {
 }
 
 // MovieCard — idlixku-polished: rank stroke italic, quality badge, hover info reveal
-// Client component: fires /api/stream prefetch on mouseenter so when the
-// user clicks, the stream URL is already in server cache (instant play).
+// Client component: renders movie card with hover effects.
 export function MovieCard({
   movie,
   rank,

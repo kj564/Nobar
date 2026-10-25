@@ -6,6 +6,7 @@ import {
   Play,
   X,
   Tv,
+  Flame,
 } from "lucide-react";
 import {
   type TMDBMovie,
@@ -16,6 +17,8 @@ import {
 import { MovieCard, SeriesCard } from "@/components/MovieCard";
 import { HeroBanner } from "@/components/HeroBanner";
 import { Navbar } from "@/components/Navbar";
+import { fetchMzfiCatalog } from "@/lib/cdn-proxy";
+import { fetchTrendingClient, fetchTVTrendingClient, searchMoviesClient, fetchByGenreClient } from "@/lib/tmdb-client";
 
 type HomeClientProps = {
   categories: Category[];
@@ -26,6 +29,15 @@ export function HomeClient({ categories }: HomeClientProps) {
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [featured, setFeatured] = useState<TMDBMovie[]>([]);
   const [tvSeries, setTvSeries] = useState<TMDBSeries[]>([]);
+  const [mzfiTrending, setMzfiTrending] = useState<Array<{
+    subjectId: string;
+    title: string;
+    year: string;
+    genre: string;
+    imdbRating: string;
+    posterUrl: string;
+    subjectType: number;
+  }>>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -40,12 +52,22 @@ export function HomeClient({ categories }: HomeClientProps) {
   // Server-side API route benefits from shared ISR cache + keeps TMDB API
   // key off the client.
   useEffect(() => {
-    fetch(`/api/tv-trending?page=1`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
+    fetchTVTrendingClient(1)
       .then((data: TMDBPaged<TMDBSeries>) => {
         setTvSeries((data.results || []).slice(0, 12));
       })
       .catch((e) => console.warn("TV trending fetch failed", e));
+  }, []);
+
+  // Fetch mzfi trending catalog — these titles are GUARANTEED to have
+  // playable streams on mzfi (vs TMDB trending which may not be in mzfi).
+  // Uses CDN proxy service (works in both dev + GitHub Pages static mode).
+  useEffect(() => {
+    fetchMzfiCatalog()
+      .then((data) => {
+        setMzfiTrending(data.trending || []);
+      })
+      .catch((e) => console.warn("mzfi catalog fetch failed", e));
   }, []);
 
   // loadCategory accepts explicit search override so callers that change
@@ -70,19 +92,13 @@ export function HomeClient({ categories }: HomeClientProps) {
       try {
         let data: TMDBPaged<TMDBMovie>;
         if (searching && query) {
-          const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&page=${targetPage}`);
-          if (!res.ok) throw new Error(`Search failed: ${res.status}`);
-          data = (await res.json()) as TMDBPaged<TMDBMovie>;
+          data = await searchMoviesClient(query, targetPage);
           // No filter needed — dynamic routes handle ANY TMDB movie ID.
           // Endless: all search results are accessible.
         } else if (cat.tmdbGenreId === null) {
-          const res = await fetch(`/api/trending?page=${targetPage}`);
-          if (!res.ok) throw new Error(`Trending failed: ${res.status}`);
-          data = (await res.json()) as TMDBPaged<TMDBMovie>;
+          data = await fetchTrendingClient(targetPage);
         } else {
-          const res = await fetch(`/api/discover?genre=${cat.tmdbGenreId}&page=${targetPage}`);
-          if (!res.ok) throw new Error(`Discover failed: ${res.status}`);
-          data = (await res.json()) as TMDBPaged<TMDBMovie>;
+          data = await fetchByGenreClient(cat.tmdbGenreId, targetPage);
         }
         if (append) {
           setMovies((prev) => {
@@ -232,6 +248,75 @@ export function HomeClient({ categories }: HomeClientProps) {
           )}
         </div>
       </section>
+
+      {/* Trending on mzfi (guaranteed playable — mzfi's own curated catalog) */}
+      {mzfiTrending.length > 0 && (
+        <section id="mzfi-trending" className="w-full bg-black px-3 sm:px-5 py-10 section-enter">
+          <div className="max-w-[1520px] mx-auto">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <h2 className="text-white text-2xl font-bold font-display flex items-center gap-3">
+                <span className="w-1 h-6 bg-brand-500 rounded-full"></span>
+                <Flame className="w-6 h-6 text-brand-500" />
+                Trending di mzfi
+              </h2>
+              <span className="text-xs text-gray-400">
+                {mzfiTrending.length} judul · dijamin dapat diputar
+              </span>
+            </div>
+            <div className="flex gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
+              {mzfiTrending.map((s, i) => (
+                <Link
+                  key={s.subjectId || i}
+                  href={`/search?q=${encodeURIComponent(s.title)}`}
+                  className="flex-none w-40 md:w-48 rounded-lg overflow-hidden border border-white/5 hover:border-brand-500/50 transition group"
+                >
+                  <div className="relative aspect-[2/3] bg-white/5">
+                    {s.posterUrl ? (
+                      <img
+                        src={s.posterUrl}
+                        alt={s.title}
+                        loading="lazy"
+                        className="w-full h-full object-cover group-hover:scale-105 transition"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-500">
+                        <Tv className="w-8 h-8" />
+                      </div>
+                    )}
+                    {/* Rank badge */}
+                    <div className="absolute top-2 left-2 bg-black/80 backdrop-blur text-white text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center">
+                      {i + 1}
+                    </div>
+                    {/* IMDb rating */}
+                    {s.imdbRating && (
+                      <div className="absolute top-2 right-2 bg-black/80 backdrop-blur text-yellow-400 text-xs font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                        <span>★</span>
+                        {s.imdbRating}
+                      </div>
+                    )}
+                    {/* Type badge */}
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-2">
+                      <div className="flex items-center gap-1 text-[10px] text-gray-300">
+                        {s.subjectType === 2 ? <Tv className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                        {s.subjectType === 2 ? "Series" : "Movie"}
+                        {s.year && <span className="ml-1">· {s.year}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-2">
+                    <h3 className="text-white text-sm font-medium line-clamp-2 group-hover:text-brand-400 transition">
+                      {s.title}
+                    </h3>
+                    {s.genre && (
+                      <p className="text-gray-500 text-xs mt-1 line-clamp-1">{s.genre}</p>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Movie Grid */}
       <main id="kategori" className="w-full bg-black px-3 sm:px-5 py-8 flex-1">

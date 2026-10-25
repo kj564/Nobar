@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+export const dynamic = "force-static";
 
 // ─── SEO: sitemap.xml ────────────────────────────────────────────────────────
 // Next.js will surface this at /sitemap.xml automatically. We expose the
@@ -7,7 +8,7 @@ import type { MetadataRoute } from "next";
 // Detail pages are linked from those listing pages and are discoverable by
 // crawlers via in-page links.
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = "https://nobar-stream.vercel.app";
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://nobar-stream.vercel.app";
   const lastModified = new Date();
 
   return [

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { fetchMovieDetailEnglish, fetchTVDetailEnglish } from "@/lib/tmdb";
+import {
+  callVidlinkApi,
+  extractCloudFrontAuth,
+  buildSignedUrl,
+} from "@/lib/vidlink/token";
 
 // GET /api/stream/[id]?kind=movie|tv&season=1&episode=1
 // mzfi.me direct MP4 — NO ADS, NO IFRAME, direct stream.
@@ -159,6 +164,15 @@ export async function GET(
       url: string;
       provider: string;
       type: string;
+      // For hls-direct sources: CloudFront auth values to inject into
+      // segment URLs via hls.js custom fLoader. Allows browser to fetch
+      // .ts segments DIRECTLY from sacdn.hakunaymatata.com (CORS-open)
+      // instead of proxying through Vercel. Zero egress!
+      auth?: {
+        policy: string;
+        signature: string;
+        keyPairId: string;
+      };
     }>;
     subtitles: Array<{ language: string; url: string }>;
     embedUrl: string | null;
@@ -287,52 +301,63 @@ export async function GET(
   }
   } // end if (!isUnreleased)
 
-  // ─── vidlink.pro fallback (direct MP4 via WASM token) ───
-  // Only try vidlink.pro if mzfi returned no sources.
-  // Inline the logic (no internal HTTP fetch — saves ~200ms)
-  if (result.sources.length === 0) {
+  // ─── vidlink.pro fallback (HLS direct path, ZERO Vercel egress) ───
+  // Pure-sodium token mint (<1ms) + X-Playback-Environment: hls → returns
+  // HLS playlist + CloudFront cookie. We convert the cookie to URL query
+  // params and pass them to the browser. hls.js custom fLoader injects
+  // auth into .ts segment URLs → browser fetches segments DIRECTLY from
+  // sacdn.hakunaymatata.com (CORS-open). NO /api/proxy needed.
+  //
+  // See research/vidlink-deep-re.md for the full reverse-engineering report.
+  if (result.sources.length === 0 && !dashSource) {
     try {
-      // Initialize WASM (cached across requests)
-      await initVidlinkWasm();
-      const token = (globalThis as any).getAdv?.(String(tmdbId));
-      if (token) {
-        const apiPath = kind === "tv"
-          ? `/api/b/tv/${tmdbId}/${season}/${episode}/${token}`
-          : `/api/b/movie/${token}`;
-        const apiUrl = `https://vidlink.pro${apiPath}?multiLang=1`;
-        const vlRes = await fetch(apiUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            Accept: "application/json",
-            Referer: `https://vidlink.pro/${kind}/${tmdbId}`,
-          },
-        });
-        const vlText = await vlRes.text();
-        if (vlText !== "null" && vlText.length > 10) {
-          const vlJson = JSON.parse(vlText);
-          const qualities = vlJson?.stream?.qualities || {};
-          for (const [quality, data] of Object.entries(qualities)) {
-            const qData = data as any;
-            if (qData?.url && qData?.type === "mp4") {
-              // Trailer detection via size field
-              const size = Number(qData.size) || 0;
-              if (size > 0 && size < 50_000_000) continue;
-              result.sources.push({
-                quality: `${quality}p`,
-                url: `/api/proxy?url=${encodeURIComponent(qData.url)}`,
-                provider: "vidlink.pro",
-                type: "mp4",
-              });
-            }
+      const vlJson = await callVidlinkApi(tmdbId, kind, season, episode, "hls");
+      if (vlJson?.stream) {
+        // ── Preferred path: HLS direct (zero egress) ──
+        const playlist = vlJson.stream.playlist;
+        const cookie = vlJson.stream.playlistHeaders?.Cookie;
+        if (playlist && cookie) {
+          const auth = extractCloudFrontAuth(cookie);
+          if (auth) {
+            const signedM3u8Url = buildSignedUrl(playlist, auth);
+            result.sources.push({
+              quality: "Auto",
+              url: signedM3u8Url,
+              provider: "vidlink.pro",
+              type: "hls-direct",
+              auth, // browser will inject into .ts URLs via hls.js fLoader
+            });
+            console.log("[stream] vidlink.pro HLS direct (zero-egress) added");
           }
-          // Extract vidlink built-in captions
-          const captions = vlJson?.stream?.captions || [];
-          if (captions.length > 0) {
-            result.subtitles = captions.map((c: any) => ({
-              language: c.language || "Unknown",
-              url: `/api/subtitle?url=${encodeURIComponent(c.url)}`,
-            }));
+        }
+
+        // ── Fallback: MP4 qualities (still requires /api/proxy) ──
+        // Only added if HLS direct path failed (no playlist or no cookie).
+        const qualities = vlJson.stream.qualities || {};
+        for (const [quality, data] of Object.entries(qualities)) {
+          const qData = data as any;
+          if (qData?.url && qData?.type === "mp4") {
+            const size = Number(qData.size) || 0;
+            if (size > 0 && size < 50_000_000) continue; // skip trailers
+            result.sources.push({
+              quality: `${quality}p`,
+              url: `/api/proxy?url=${encodeURIComponent(qData.url)}`,
+              provider: "vidlink.pro",
+              type: "mp4",
+            });
           }
+        }
+
+        // ── Subtitles: pass URLs directly (no /api/subtitle proxy) ──
+        // cacdn.hakunaymatata.com is CORS-open (ACAO:*) and the subtitle
+        // URLs already contain signed auth in the URL query (Policy/Signature/
+        // Key-Pair-Id). Browser can fetch directly — zero Vercel egress.
+        const captions = vlJson.stream.captions || [];
+        if (captions.length > 0) {
+          result.subtitles = captions.map((c: any) => ({
+            language: c.language || "Unknown",
+            url: c.url, // direct CDN URL — no proxy
+          }));
         }
       }
     } catch (err) {
@@ -377,8 +402,35 @@ export async function GET(
     }
   }
 
-  // Last resort: embed iframe (only if all direct sources fail)
-  if (result.sources.length === 0 && !dashSource) {
+  // ── Idlix fallback (vidhide.org iframe embed, ZERO Vercel egress) ──
+  // Uses the OLD Idlix WordPress backend (idlix.tv → direct IP 178.62.87.194)
+  // which has NO Cloudflare protection. Movie pages embed vidhide.org iframes
+  // which serve video directly from their CDN — zero egress through Vercel.
+  //
+  // Only triggered when ALL above providers fail (mzfi, vidlink, vidsrc.buzz).
+  // Catalog is limited (~107 movies, mostly 2022-2026) but covers popular titles.
+  //
+  // See research/re-idlix-hard-mode.md for the full reverse-engineering report.
+  if (result.sources.length === 0 && !dashSource && kind === "movie") {
+    try {
+      const idlixRes = await fetch(
+        `http://localhost:3000/api/idlix/resolve?id=${tmdbId}&kind=movie`,
+        { signal: AbortSignal.timeout(15000) }
+      );
+      if (idlixRes.ok) {
+        const idlixData = await idlixRes.json();
+        if (idlixData.embedUrl) {
+          result.embedUrl = idlixData.embedUrl;
+          console.log("[stream] Idlix vidhide embed added:", idlixData.slug);
+        }
+      }
+    } catch (err) {
+      console.error("[stream] Idlix resolve failed:", err);
+    }
+  }
+
+  // Last resort: embed iframe (only if all direct sources fail AND Idlix didn't find it)
+  if (result.sources.length === 0 && !dashSource && !result.embedUrl) {
     // Use IMDB ID for providers that need it (vidsrc.me, 2embed)
     const embedId = imdbId || String(tmdbId);
     result.embedUrl =
@@ -692,50 +744,9 @@ async function fetchMzfiSubtitles(
   }));
 }
 
-// ─── vidlink.pro WASM initialization (cached across requests) ───
-let wasmInitPromise: Promise<void> | null = null;
-
-async function initVidlinkWasm(): Promise<void> {
-  if (wasmInitPromise) return wasmInitPromise;
-  wasmInitPromise = (async () => {
-    const fs = await import("fs");
-    const path = await import("path");
-    const bridgeCode = fs.readFileSync(
-      path.join(process.cwd(), "lib/vidlink-wasm/wasm-bridge.js"),
-      "utf8"
-    );
-    (globalThis as any).window = globalThis;
-    if (!(globalThis as any).document || typeof (globalThis as any).document.querySelector !== 'function') {
-      (globalThis as any).document = {
-        createElement: () => ({ style: {}, appendChild: () => {}, querySelector: () => null, querySelectorAll: () => [] }),
-        getElementById: () => null, getElementsByTagName: () => [],
-        querySelector: () => null, querySelectorAll: () => [],
-        body: { appendChild: () => {} }, head: { appendChild: () => {} },
-      };
-    }
-    try {
-      Object.defineProperty(globalThis, 'navigator', {
-        value: { userAgent: 'node', plugins: { namedItem: () => null } },
-        writable: true, configurable: true,
-      });
-    } catch {}
-    if (!(globalThis as any).location) {
-      (globalThis as any).location = { protocol: 'https:', hostname: 'localhost', origin: 'https://localhost', href: 'https://localhost/', pathname: '/', search: '', hash: '' };
-    }
-    eval(bridgeCode);
-    const sodium = (await import("libsodium-wrappers")).default;
-    await sodium.ready;
-    (globalThis as any).sodium = sodium;
-    const wasmBuffer = fs.readFileSync(path.join(process.cwd(), "lib/vidlink-wasm/fu.wasm"));
-    const dm = new (globalThis as any).Dm();
-    const { instance } = await WebAssembly.instantiate(wasmBuffer, dm.importObject);
-    dm.run(instance);
-    await new Promise((r) => setTimeout(r, 2000));
-  })();
-  return wasmInitPromise;
-}
-
 // ─── vidsrc.buzz HLS provider ──────────────────────────────────────
+// (vidlink.pro WASM is no longer used — see lib/vidlink/token.ts for the
+// pure-sodium replacement. lib/vidlink-wasm/ can be deleted.)
 // API flow:
 // 1. GET /embed/movie/{tmdb_id} → extract Q config (token + IMDB ID)
 // 2. GET /pl/api.php?a=sources&type=movie&id={imdb}&t={token} → server list

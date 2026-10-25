@@ -9,8 +9,8 @@ import {
   buildSeriesSlug,
   type TMDBMovie,
   type TMDBSeries,
-  type TMDBPaged,
 } from "@/lib/tmdb";
+import { searchMoviesClient } from "@/lib/tmdb-client";
 import { Navbar } from "@/components/Navbar";
 import { MovieCard, SeriesCard } from "@/components/MovieCard";
 
@@ -51,9 +51,10 @@ function SearchContent() {
     if (!append) setLoading(true);
     else setLoadingMore(true);
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&page=${targetPage}`);
-      if (!res.ok) throw new Error(`Search failed: ${res.status}`);
-      const data: TMDBPaged<TMDBMovie> = await res.json();
+      // Browser → TMDB /search/movie directly (CORS-open, public API key).
+      // searchMoviesClient already filters out results without poster_path,
+      // so the response shape matches what the old /api/search route returned.
+      const data = await searchMoviesClient(q, targetPage);
       if (append) {
         setResults((prev) => {
           const existing = new Set(prev.map((m) => m.id));

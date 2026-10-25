@@ -1,8 +1,29 @@
+# ─────────────────────────────────────────────────────────────────────
+# Nobar — Build static site + deploy to GitHub Pages
+#
+# How it works:
+#   1. Builds Next.js static export (output: "export") → out/ directory
+#   2. Copies index.html → 404.html (SPA fallback for dynamic routes)
+#   3. Uploads out/ as a GitHub Pages artifact
+#   4. GitHub Pages serves the static site
+#
+# The CDN proxy (Cloudflare Worker) must be deployed SEPARATELY:
+#   cd mini-services/cdn-proxy && npx wrangler deploy
+#
+# Required secrets (Settings → Secrets and variables → Actions):
+#   NEXT_PUBLIC_TMDB_API_KEY  — TMDB API key (public, safe to expose)
+#   NEXT_PUBLIC_CDN_PROXY_URL — Cloudflare Worker URL (e.g. https://nobar-cdn-proxy.xxx.workers.dev)
+#
+# Optional secrets:
+#   NEXT_PUBLIC_BASE_PATH    — Repo name if not using custom domain (e.g. /nobar)
+#   NEXT_PUBLIC_SITE_URL     — Canonical URL for SEO (e.g. https://nobar.pages.dev)
+# ─────────────────────────────────────────────────────────────────────
+
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -11,18 +32,16 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
@@ -30,16 +49,26 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build static export
-        # Next.js with output: 'export' writes the static site to ./out
+        env:
+          NEXT_PUBLIC_TMDB_API_KEY: ${{ secrets.NEXT_PUBLIC_TMDB_API_KEY }}
+          NEXT_PUBLIC_CDN_PROXY_URL: ${{ secrets.NEXT_PUBLIC_CDN_PROXY_URL }}
+          NEXT_PUBLIC_BASE_PATH: ${{ secrets.NEXT_PUBLIC_BASE_PATH }}
+          NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+          BUILD_STATIC: "true"
         run: bun run build
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+      - name: Add SPA fallback
+        run: |
+          cp out/index.html out/404.html
+          echo "✓ Copied index.html → 404.html (SPA fallback)"
+
+      - name: Add .nojekyll
+        run: touch out/.nojekyll
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./out
+          path: out
 
   deploy:
     needs: build

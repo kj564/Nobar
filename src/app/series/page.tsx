@@ -7,6 +7,7 @@ import {
   type TMDBPaged,
 } from "@/lib/tmdb";
 import { SeriesCard } from "@/components/MovieCard";
+import { fetchTVTrendingClient } from "@/lib/tmdb-client";
 import { Navbar } from "@/components/Navbar";
 
 export default function SeriesListingPage() {
@@ -26,9 +27,7 @@ export default function SeriesListingPage() {
     }
     setError(null);
     try {
-      const res = await fetch(`/api/tv-trending?page=${targetPage}`);
-      if (!res.ok) throw new Error(`TV trending failed: ${res.status}`);
-      const data: TMDBPaged<TMDBSeries> = await res.json();
+      const data: TMDBPaged<TMDBSeries> = await fetchTVTrendingClient(targetPage);
       if (append) {
         setSeries((prev) => {
           const existing = new Set(prev.map((s) => s.id));

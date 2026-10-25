@@ -1,0 +1,7 @@
+name = "nobar-cdn-proxy"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# Deploy: npx wrangler deploy
+# Usage from browser: https://nobar-cdn-proxy.<your-subdomain>.workers.dev/?url=<encoded_cdn_url>
+# Free tier: 100,000 requests/day (~140 full movies/day)

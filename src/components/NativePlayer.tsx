@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2, Gauge, Wifi } from "lucide-react";
+import { resolveStream, resolveIdlix, buildIdlixSlug } from "@/lib/cdn-proxy";
 
 // ─────────────────────────────────────────────────────────────────────
 // NativePlayer — buttery smooth playback via Shaka Player (DASH adaptive)
@@ -23,11 +24,21 @@ import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2, 
 //  - Visible ABR indicator (current bitrate) for transparency
 // ─────────────────────────────────────────────────────────────────────
 
+type CloudFrontAuth = {
+  policy: string;
+  signature: string;
+  keyPairId: string;
+};
+
 type StreamSource = {
   quality: string;
   url: string;
   provider: string;
   type: string;
+  // For hls-direct sources: CloudFront auth values to inject into .ts
+  // segment URLs via hls.js custom fLoader. Lets browser fetch segments
+  // DIRECTLY from sacdn.hakunaymatata.com (CORS-open) — zero Vercel egress.
+  auth?: CloudFrontAuth;
 };
 
 type DashSource = {
@@ -81,6 +92,8 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   const streamUrl = kind === "tv" && season && episode
     ? `/api/stream/${tmdbId}?kind=tv&season=${season}&episode=${episode}`
     : `/api/stream/${tmdbId}`;
+  // NOTE: streamUrl is used as fallback for dev mode. In CDN proxy mode,
+  // resolveStream() from cdn-proxy.ts is used instead (see below).
 
   // ── Preconnect to CDN domains on mount → instant first byte ──
   // Browser opens TCP+TLS to hakunaymatata.com before we even need it.
@@ -300,36 +313,22 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     setEmbedUrl(null);
     setUsingDash(false);
 
-    fetch(streamUrl)
-      .then((res) => res.json())
-      .then((data) => {
+    // Use CDN proxy resolver (works in both dev + GitHub Pages static mode)
+    resolveStream(tmdbId, kind, season, episode)
+      .then(async (data) => {
         if (cancelled) return;
         setSources(data.sources || []);
-        setDashSource(data.dashSource || null);
-        // Lazy subtitle fetch: main /api/stream returns a single "Available"
-        // placeholder URL. When user opens the subtitle menu, we fetch the
-        // actual subtitle list from /api/stream/[id]/subtitles (separate
-        // endpoint, avoids Vercel function timeout on the main stream call).
-        const placeholderSubs = data.subtitles || [];
-        if (placeholderSubs.length === 1 && placeholderSubs[0].language === "Available") {
-          fetch(placeholderSubs[0].url)
-            .then((r) => r.json())
-            .then((subData) => {
-              if (cancelled) return;
-              const subs = (subData.subtitles || []).map((s: Subtitle) => ({
-                language: s.language,
-                url: s.url.startsWith("/api/") ? s.url : `/api/subtitle?url=${encodeURIComponent(s.url)}`,
-              }));
-              setSubtitles(subs);
-            })
-            .catch(() => {});
-        } else {
-          const subs = placeholderSubs.map((s: Subtitle) => ({
-            language: s.language,
-            url: s.url.startsWith("/api/") ? s.url : `/api/subtitle?url=${encodeURIComponent(s.url)}`,
-          }));
-          setSubtitles(subs);
-        }
+        setDashSource(null); // DASH not supported in static mode (needs /api/proxy)
+        // Subtitle URL handling:
+        //  - URLs on cacdn.hakunaymatata.com → vidlink.pro direct CDN, CORS-open
+        //  - All other absolute URLs → use directly (CDN proxy returns direct URLs)
+        const normalizeSub = (s: Subtitle): Subtitle => {
+          if (s.url.includes("cacdn.hakunaymatata.com")) return s; // direct CDN
+          if (s.url.startsWith("http") || s.url.startsWith("//")) return s; // direct URL
+          return s;
+        };
+        const subs = (data.subtitles || []).map(normalizeSub);
+        setSubtitles(subs);
 
         // ── Source selection strategy ──
         // DASH adaptive streaming is currently DISABLED — it has transition
@@ -349,11 +348,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         } else if (data.sources?.length > 0) {
         */
         if (data.sources?.length > 0) {
-          // Prefer HLS source (adaptive bitrate, best quality auto-switching)
+          // Source priority: hls-direct (zero-egress, vidlink.pro) > hls (proxied) > mp4
+          // hls-direct fetches .ts segments directly from sacdn.hakunaymatata.com
+          // via CloudFront signed URL query auth (no /api/proxy needed).
+          const hlsDirectSource = data.sources.find((s: StreamSource) => s.type === "hls-direct");
           const hlsSource = data.sources.find((s: StreamSource) => s.type === "hls");
-          if (hlsSource) {
-            setActiveSource(hlsSource);
-            console.log("[NOBAR] Using HLS source:", hlsSource.provider);
+          const pickedHls = hlsDirectSource || hlsSource;
+          if (pickedHls) {
+            setActiveSource(pickedHls);
+            console.log("[NOBAR] Using HLS source:", pickedHls.provider, "(", pickedHls.type, ")");
           } else {
             // Pick best MP4 quality (highest resolution number)
             const best = data.sources.reduce((b: StreamSource, s: StreamSource) =>
@@ -362,13 +365,38 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
             setActiveSource(best);
           }
         }
-        if (!data.dashSource?.url && data.sources?.length === 0 && data.embedUrl) {
-          setEmbedUrl(data.embedUrl);
-          setUseEmbed(true);
+        if (!data.sources?.length) {
+          // No direct sources — try Idlix vidhide embed fallback (movies only)
+          if (kind === "movie") {
+            // Need title + year for slug — fetch from TMDB (CORS-open, direct browser call)
+            try {
+              const tmdbRes = await fetch(
+                `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY || ""}`,
+                { signal: AbortSignal.timeout(5000) }
+              );
+              if (tmdbRes.ok) {
+                const tmdbData = await tmdbRes.json();
+                const title = tmdbData.title || tmdbData.name || "";
+                const year = (tmdbData.release_date || "").slice(0, 4);
+                if (title && year) {
+                  const slug = buildIdlixSlug(title, year);
+                  const embedUrl = await resolveIdlix(slug);
+                  if (embedUrl) {
+                    setEmbedUrl(embedUrl);
+                    setUseEmbed(true);
+                    console.log("[NOBAR] Idlix vidhide embed:", slug);
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn("[NOBAR] Idlix fallback failed:", e);
+            }
+          }
         }
       })
       .catch(() => {
         if (cancelled) return;
+        // Last resort: vidlink.pro embed iframe
         setEmbedUrl(kind === "tv" && season && episode
           ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
           : `https://vidlink.pro/movie/${tmdbId}`
@@ -378,7 +406,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [streamUrl]);
+  }, [tmdbId, kind, season, episode]);
 
   // ── Initialize Shaka when dashSource arrives + video element is mounted ──
   // DASH is currently DISABLED (see source selection strategy above).
@@ -465,17 +493,21 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     v.setAttribute("webkit-playsinline", "true");
 
     // ── HLS source: use hls.js for adaptive bitrate ──
-    if (activeSource.type === "hls") {
+    // hls-direct = vidlink.pro zero-egress path (CloudFront signed URL query auth)
+    // hls        = proxied HLS (vidsrc.buzz etc. — goes through /api/proxy)
+    const isHlsDirect = activeSource.type === "hls-direct";
+    if (activeSource.type === "hls" || isHlsDirect) {
       // Cleanup previous hls.js instance
       if (hlsRef.current) {
         try { hlsRef.current.destroy(); } catch {}
         hlsRef.current = null;
       }
 
-      // Native HLS support (Safari returns 'probably', Chrome returns 'maybe')
-      // Only use native if browser FULLY supports it ('probably')
-      // Chrome/Firefox return 'maybe' but can't actually play m3u8 → use hls.js
-      if (v.canPlayType("application/vnd.apple.mpegurl") === "probably") {
+      // Native HLS support (Safari returns 'probably', Chrome returns 'maybe').
+      // Only use native for PLAIN hls — NOT for hls-direct (Safari can't inject
+      // CloudFront auth query params into segment URLs, segments would 403).
+      // For hls-direct we ALWAYS use hls.js (with custom fLoader below).
+      if (!isHlsDirect && v.canPlayType("application/vnd.apple.mpegurl") === "probably") {
         v.src = activeSource.url;
         v.load();
         console.log("[NOBAR] HLS native playback (Safari)");
@@ -491,16 +523,56 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         };
       }
 
-      // Use hls.js for Chrome/Firefox
+      // Use hls.js for Chrome/Firefox (and hls-direct on all browsers).
+      // For hls-direct, we register a custom fragment loader that appends
+      // CloudFront auth (?Policy=...&Signature=...&Key-Pair-Id=...) to every
+      // .ts segment URL before the XHR fires. The m3u8 itself already has
+      // the auth in its URL (so manifest loads fine), but relative segment
+      // URLs in the m3u8 resolve WITHOUT inheriting the query params (per
+      // URL resolution rules) — so we must re-inject for each segment.
       import("hls.js").then((Hls) => {
         const HlsClass = Hls.default || Hls;
         if (HlsClass.isSupported()) {
-          const hls = new HlsClass({
+          // ── Build hls.js config ──
+          // For hls-direct: custom fLoader injects auth into .ts URLs.
+          const hlsConfig: any = {
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
             enableWorker: true,
             lowLatencyMode: false,
-          });
+          };
+
+          if (isHlsDirect && activeSource.auth) {
+            const auth = activeSource.auth;
+            const authQuery =
+              "?Policy=" + auth.policy +
+              "&Signature=" + auth.signature +
+              "&Key-Pair-Id=" + auth.keyPairId;
+
+            // Custom fragment loader: subclass the default loader and
+            // rewrite segment URLs BEFORE the XHR is opened.
+            // hls.js's DefaultConfig.loader is the standard XHR loader.
+            // We override .load() to mutate context.url for .ts segments.
+            class AuthInjectLoader extends HlsClass.DefaultConfig.loader {
+              load(context: any, config: any, callbacks: any) {
+                if (
+                  context.url &&
+                  context.url.includes(".ts") &&
+                  !context.url.includes("Policy=")
+                ) {
+                  const sep = context.url.includes("?") ? "&" : "?";
+                  // Drop any existing query (shouldn't have one for relative .ts)
+                  // and append our auth query.
+                  context.url = context.url + sep + authQuery.slice(1);
+                }
+                super.load(context, config, callbacks);
+              }
+            }
+            hlsConfig.fLoader = AuthInjectLoader;
+            console.log("[NOBAR] HLS direct mode — custom fLoader will inject CloudFront auth into .ts URLs");
+          }
+
+          const hls = new HlsClass(hlsConfig);
           hls.loadSource(activeSource.url);
           hls.attachMedia(v);
           hls.on(HlsClass.Events.MANIFEST_PARSED, () => {

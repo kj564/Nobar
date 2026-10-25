@@ -38,9 +38,7 @@ jobs:
 
       - name: Create GitHub Pages SPA fallback
         run: |
-          # Create 404.html = index.html + SPA redirect script
-          # The script saves the original URL path, then after React loads,
-          # restores it via history.replaceState so Next.js client routing works.
+          # Create 404.html that saves the original URL and redirects to /
           cat > out/404.html << 'HTML404'
           <!DOCTYPE html>
           <html>
@@ -48,34 +46,52 @@ jobs:
           <meta charset="utf-8">
           <title>Nobar — Streaming Film Indie</title>
           <script>
-          // GitHub Pages SPA hack:
-          // When GitHub Pages serves this 404.html for /movie/the-matrix-1999-603/,
-          // we save the original path, redirect to / (which loads index.html = the SPA),
-          // then restore the original path via history.replaceState.
           (function() {
-            var basePath = '/Nobar';
+            // Save the FULL original URL (including basePath)
             var fullPath = window.location.pathname;
+            sessionStorage.setItem('nobar-spa-redirect', fullPath);
             
-            // Remove basePath
-            var route = fullPath.replace(basePath, '') || '/';
-            
-            // Save the route we want to be at
-            sessionStorage.setItem('spa-redirect', route);
-            
-            // Redirect to base URL (which serves index.html = the SPA)
-            window.location.href = basePath + '/';
+            // Redirect to basePath root (serves index.html = the SPA)
+            var basePath = '/Nobar';
+            window.location.replace(basePath + '/');
           })();
           </script>
           </head>
-          <body>
-          <p>Redirecting...</p>
-          </body>
+          <body><p>Redirecting...</p></body>
           </html>
           HTML404
           
-          # Now modify index.html to check for spa-redirect and restore the route
-          # Insert the script right after <head> in index.html
-          sed -i 's|<head>|<head>\n<script>(function(){var r=sessionStorage.getItem("spa-redirect");if(r){sessionStorage.removeItem("spa-redirect");history.replaceState(null,"",r);}})();</script>|' out/index.html
+          # Modify index.html to restore the saved path + trigger navigation
+          # Insert script right after <head>
+          python3 -c "
+          import re
+          with open('out/index.html', 'r') as f:
+              html = f.read()
+          
+          spa_script = '''<script>
+          (function() {
+            var savedPath = sessionStorage.getItem('nobar-spa-redirect');
+            if (savedPath) {
+              sessionStorage.removeItem('nobar-spa-redirect');
+              // Restore the URL via replaceState (no page reload)
+              history.replaceState(null, '', savedPath);
+              // After Next.js loads, it will pick up the current URL via useRouter
+              // We need to wait for React to hydrate, then trigger a re-render
+              setTimeout(function() {
+                // Dispatch a popstate event so Next.js router picks up the new URL
+                window.dispatchEvent(new PopStateEvent('popstate'));
+              }, 100);
+            }
+          })();
+          </script>'''
+          
+          # Insert after <head>
+          html = html.replace('<head>', '<head>' + spa_script, 1)
+          
+          with open('out/index.html', 'w') as f:
+              f.write(html)
+          print('✓ SPA script injected into index.html')
+          "
           
           touch out/.nojekyll
           echo "✓ SPA 404 + redirect hack created"

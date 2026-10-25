@@ -1689,3 +1689,55 @@ KEY FINDINGS:
 - Simpler API than mzfi (no token mint, no BFF search)
 - Multiple servers (VNY, VNR, XPM1, XPM2)
 - No X-Frame-Options → iframe embed = zero server BW option
+
+---
+Task ID: RE-vidsrc-buzz-deep
+Agent: main
+Task: RE mendalam vidsrc.buzz — semua API endpoints + subtitles + catalog
+
+Work Log:
+1. API endpoint enumeration:
+   - a=sources: returns server list (ref, name, lang)
+   - a=play: returns HLS stream URL (/_stream?id=X, type=hls)
+   - a=subs: returns subtitle list (label, lang, cc, ref)
+   - a=sub: returns subtitle content for specific ref
+   - a=atracks: returns audio tracks for a server
+   - a=race: returns fastest server (race condition resolver)
+   - a=scores/a=score: server health scoring
+
+2. Subtitle system:
+   - Subtitle URL embedded in ref JWT: {u: "https://sub.1x2.space/subtitle/movie/{tmdb}/{lang}.vtt"}
+   - sub.1x2.space = Cloudflare-protected subtitle CDN (403 without challenge)
+   - Multiple languages available (English, German, etc.)
+   - VTT format (standard web subtitles)
+
+3. HLS playlist analysis:
+   - Adaptive bitrate: 1080p (1920x800, 2.17Mbps), 720p (1280x532, 1.03Mbps)
+   - Codecs: avc1.640029 (H.264), mp4a.40.2 (AAC)
+   - Segment URLs: /_stream?id={segment_id} (relative to vidsrc.buzz)
+   - 5-second segments → instant seek, low bandwidth per request
+
+4. Catalog coverage test:
+   - Server-side API calls rate-limited after intensive RE
+   - IP appears to be temporarily banned (403 from browser too)
+   - Coverage unknown (need fresh IP to test)
+   - At least Matrix (603) and Dark Knight (155) had sources before ban
+
+5. TV series support:
+   - /embed/tv/{tmdb}/{season}/{episode} works (page loads)
+   - API accepts type=tv parameter
+   - IMDB ID extraction works for TV shows
+
+6. Rate limiting:
+   - Multiple rapid API calls → "unavailable" response
+   - 30-60s cooldown between calls
+   - IP-level ban after too many calls (403 Forbidden)
+   - Vercel production (different IP) should work fine
+
+Stage Summary:
+- vidsrc.buzz has rich API: sources + play + subtitles + audio tracks + health scoring
+- HLS adaptive bitrate with 5-second segments (better than mzfi MP4)
+- Subtitles via sub.1x2.space (Cloudflare protected, need proxy)
+- Implementation ready: fetchVidsrcBuzzStream() + HLS.js player
+- IP rate-limited after RE intensive testing
+- Vercel production (different IP) should work normally

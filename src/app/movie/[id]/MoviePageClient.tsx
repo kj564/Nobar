@@ -65,10 +65,20 @@ export function MoviePageClient() {
   const router = useRouter();
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
+  // Get movie ID from URL params OR parse from window.location (GitHub Pages SPA)
+  function getMovieSlug(): string {
+    const paramSlug = params?.id;
+    if (paramSlug && paramSlug !== "preview") return paramSlug;
+    // Fallback: parse from URL when served via GitHub Pages 404.html
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+    let path = typeof window !== "undefined" ? window.location.pathname : "";
+    if (basePath && path.startsWith(basePath)) path = path.slice(basePath.length);
+    const match = path.match(/\/movie\/(.+?)(?:\/?)(?:\?.*)?$/);
+    return match ? match[1] : "";
+  }
+
   useEffect(() => {
-    // The URL segment is a slug of the form "the-dark-knight-27205".
-    // extractIdFromSlug() parses the trailing integer after the last dash.
-    const slug = params?.id ?? "";
+    const slug = getMovieSlug();
     const movieId = extractIdFromSlug(slug);
     if (!movieId) {
       setState({ status: "notfound" });

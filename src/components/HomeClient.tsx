@@ -25,7 +25,14 @@ type HomeClientProps = {
 };
 
 export function HomeClient({ categories }: HomeClientProps) {
-  const [activeCategory, setActiveCategory] = useState<Category>(categories[0]);
+  const [activeCategory, setActiveCategory] = useState<Category | undefined>(categories[0]);
+
+  // Update activeCategory when categories arrive (async fetch)
+  useEffect(() => {
+    if (categories.length > 0 && !activeCategory) {
+      setActiveCategory(categories[0]);
+    }
+  }, [categories, activeCategory]);
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [featured, setFeatured] = useState<TMDBMovie[]>([]);
   const [tvSeries, setTvSeries] = useState<TMDBSeries[]>([]);

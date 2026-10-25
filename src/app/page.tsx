@@ -1,25 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { HomeClient } from "@/components/HomeClient";
-import { MoviePageClient } from "@/app/movie/[id]/MoviePageClient";
-import { SeriesPageClient } from "@/app/series/[id]/SeriesPageClient";
 import { fetchCategoriesClient } from "@/lib/tmdb-client";
 import type { Category } from "@/lib/tmdb";
 
-type Route = 
-  | { type: "home" }
-  | { type: "movie" }
-  | { type: "series" }
-  | { type: "search" }
-  | { type: "movie-list" }
-  | { type: "series-list" };
+// Lazy load movie/series pages so they don't crash home page on load
+const MoviePageClient = lazy(() => 
+  import("@/app/movie/[id]/MoviePageClient").then(m => ({ default: m.MoviePageClient }))
+);
+const SeriesPageClient = lazy(() => 
+  import("@/app/series/[id]/SeriesPageClient").then(m => ({ default: m.SeriesPageClient }))
+);
+
+const LoadingSpinner = () => (
+  <div className="min-h-screen bg-ink-950 flex items-center justify-center">
+    <div className="animate-spin w-10 h-10 border-2 border-brand-500 border-t-transparent rounded-full" />
+  </div>
+);
 
 export default function Page() {
-  const [route, setRoute] = useState<Route>({ type: "home" });
+  const [route, setRoute] = useState<{type: string}>({ type: "home" });
   const [categories, setCategories] = useState<Category[]>([]);
 
-  // Parse URL on mount + on popstate (browser back/forward)
   useEffect(() => {
     function parseRoute() {
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
@@ -28,9 +31,9 @@ export default function Page() {
         path = path.slice(basePath.length) || "/";
       }
       
-      if (path.match(/^\/movie\/[^/]+\/?$/)) {
+      if (path.match(/^\/movie\/[^/]+\/?$/) && path !== "/movie/") {
         setRoute({ type: "movie" });
-      } else if (path.match(/^\/series\/[^/]+\/?$/)) {
+      } else if (path.match(/^\/series\/[^/]+\/?$/) && path !== "/series/") {
         setRoute({ type: "series" });
       } else if (path.startsWith("/search")) {
         setRoute({ type: "search" });
@@ -48,7 +51,6 @@ export default function Page() {
     return () => window.removeEventListener("popstate", parseRoute);
   }, []);
 
-  // Fetch categories for home
   useEffect(() => {
     if (route.type === "home" || route.type === "movie-list") {
       fetchCategoriesClient().then(setCategories).catch(() => {});
@@ -56,11 +58,10 @@ export default function Page() {
   }, [route.type]);
 
   if (route.type === "movie") {
-    return <MoviePageClient />;
+    return <Suspense fallback={<LoadingSpinner />}><MoviePageClient /></Suspense>;
   }
   if (route.type === "series") {
-    return <SeriesPageClient />;
+    return <Suspense fallback={<LoadingSpinner />}><SeriesPageClient /></Suspense>;
   }
-  // Home, search, listings — all use HomeClient for now
   return <HomeClient categories={categories} />;
 }

@@ -430,6 +430,11 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     // This prevents React from overwriting Shaka's MSE blob: URL when
     // usingDash flips to true. React doesn't manage this attribute,
     // so Shaka can freely set video.src = blob:... without React clobbering it.
+    //
+    // crossOrigin MUST be set BEFORE src — needed for Cloudflare Worker
+    // proxy (cross-origin video fetch). Without it, browser blocks the
+    // response and video stays at readyState=0 (never plays).
+    v.crossOrigin = "anonymous";
     if (v.src !== activeSource.url) {
       v.src = activeSource.url;
       v.load(); // force reload with new src
@@ -699,6 +704,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
           autoPlay
           muted
           preload="auto"
+          crossOrigin="anonymous"
         >
           {subtitles.map((sub, i) => (
             <track

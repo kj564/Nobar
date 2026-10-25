@@ -472,8 +472,10 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         hlsRef.current = null;
       }
 
-      // Native HLS support (Safari) — just set src
-      if (v.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native HLS support (Safari returns 'probably', Chrome returns 'maybe')
+      // Only use native if browser FULLY supports it ('probably')
+      // Chrome/Firefox return 'maybe' but can't actually play m3u8 → use hls.js
+      if (v.canPlayType("application/vnd.apple.mpegurl") === "probably") {
         v.src = activeSource.url;
         v.load();
         console.log("[NOBAR] HLS native playback (Safari)");

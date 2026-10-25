@@ -816,17 +816,95 @@ async function fetchVidsrcBuzzStream(
     const playData = await playRes.json();
 
     if (playData?.url && playData?.type === "hls") {
-      // Step 4: Build proxied HLS URL
+      // Step 4: Fetch HLS master playlist SERVER-SIDE (same IP as play API call)
+      // Session IDs from vidsrc.buzz are IP-bound — if we return a proxy URL
+      // to the browser, a DIFFERENT Vercel function (different IP) will try
+      // to fetch it → 403. Fix: fetch master + variant playlists server-side,
+      // rewrite all URLs to go through /api/proxy, return as data: URL.
       const streamPath = playData.url;
       const fullStreamUrl = streamPath.startsWith("http")
         ? streamPath
         : `https://vidsrc.buzz${streamPath}`;
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(fullStreamUrl)}`;
-      console.log(`[vidsrc.buzz] HLS stream found: ${server.name} → ${fullStreamUrl.slice(0, 80)}`);
-      return proxyUrl;
+
+      // Fetch master playlist
+      const masterRes = await fetch(fullStreamUrl, {
+        headers: { "User-Agent": VIDSRC_BUZZ_UA, Referer: embedUrl },
+      });
+      if (!masterRes.ok) {
+        console.log(`[vidsrc.buzz] master playlist failed: ${masterRes.status}`);
+        continue;
+      }
+      let masterM3u8 = await masterRes.text();
+
+      // Check if this is a master playlist (has variant streams) or a media playlist
+      const hasVariants = masterM3u8.includes("#EXT-X-STREAM-INF");
+
+      if (hasVariants) {
+        // Master playlist: fetch each variant playlist, inline them
+        const variantUrls = masterM3u8.split("\n")
+          .filter((l: string) => l.trim() && !l.startsWith("#"));
+
+        let rebuiltM3u8 = "#EXTM3U\n";
+        const lines = masterM3u8.split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line.startsWith("#EXT-X-STREAM-INF")) {
+            // Next line is the variant URL — fetch it
+            const variantUrl = lines[i + 1]?.trim();
+            if (variantUrl) {
+              const fullVariantUrl = variantUrl.startsWith("http")
+                ? variantUrl
+                : `https://vidsrc.buzz${variantUrl}`;
+              const variantRes = await fetch(fullVariantUrl, {
+                headers: { "User-Agent": VIDSRC_BUZZ_UA, Referer: embedUrl },
+              });
+              if (variantRes.ok) {
+                const variantM3u8 = await variantRes.text();
+                // Rewrite segment URLs to go through /api/proxy
+                const rewritten = rewriteHlsUrls(variantM3u8, "https://vidsrc.buzz");
+                // Convert to data URL for this variant
+                const dataUrl = `data:application/vnd.apple.mpegurl;base64,${Buffer.from(rewritten).toString("base64")}`;
+                rebuiltM3u8 += line + "\n" + dataUrl + "\n";
+              }
+            }
+            i++; // skip the variant URL line
+          } else if (line && !line.startsWith("#EXTM3U")) {
+            rebuiltM3u8 += line + "\n";
+          }
+        }
+        masterM3u8 = rebuiltM3u8;
+      } else {
+        // Media playlist: rewrite segment URLs directly
+        masterM3u8 = rewriteHlsUrls(masterM3u8, "https://vidsrc.buzz");
+      }
+
+      // Return as data URL (self-contained, no additional server calls for playlist)
+      const dataUrl = `data:application/vnd.apple.mpegurl;base64,${Buffer.from(masterM3u8).toString("base64")}`;
+      console.log(`[vidsrc.buzz] HLS playlist inlined (${masterM3u8.length}b)`);
+      return dataUrl;
     }
   }
 
   console.log("[vidsrc.buzz] no HLS stream URL from any server");
   return null;
+}
+
+// ─── HLS URL rewriter ──────────────────────────────────────────────
+// Rewrites all relative URLs in an HLS m3u8 playlist to go through
+// /api/proxy. This allows HLS.js to fetch segments via our proxy which
+// injects the correct Referer header for vidsrc.buzz.
+function rewriteHlsUrls(m3u8: string, baseUrl: string): string {
+  return m3u8
+    .split("\n")
+    .map((line: string) => {
+      const trimmed = line.trim();
+      // Skip empty lines and comments (but keep #EXT-X-KEY etc.)
+      if (!trimmed || trimmed.startsWith("#")) return line;
+      // This is a URL line — rewrite to go through /api/proxy
+      const fullUrl = trimmed.startsWith("http")
+        ? trimmed
+        : `${baseUrl}${trimmed}`;
+      return `/api/proxy?url=${encodeURIComponent(fullUrl)}`;
+    })
+    .join("\n");
 }

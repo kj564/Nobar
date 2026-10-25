@@ -358,7 +358,10 @@ export async function GET(
   // API flow: embed page → sources API → play API → HLS stream URL
   if (result.sources.length === 0 && !dashSource) {
     try {
-      const hlsUrl = await fetchVidsrcBuzzStream(tmdbId, kind, season, episode, title);
+      // Get request origin for absolute proxy URLs (needed for data: URL base)
+      const reqUrl = new URL(request.url);
+      const requestOrigin = `${reqUrl.protocol}//${reqUrl.host}`;
+      const hlsUrl = await fetchVidsrcBuzzStream(tmdbId, kind, season, episode, title, requestOrigin);
       if (hlsUrl) {
         result.sources.push({
           quality: "Auto",
@@ -748,7 +751,8 @@ async function fetchVidsrcBuzzStream(
   kind: "movie" | "tv",
   season: number,
   episode: number,
-  title: string
+  title: string,
+  requestOrigin: string
 ): Promise<string | null> {
   // Build embed URL
   const embedUrl = kind === "tv"
@@ -861,7 +865,7 @@ async function fetchVidsrcBuzzStream(
               if (variantRes.ok) {
                 const variantM3u8 = await variantRes.text();
                 // Rewrite segment URLs to go through /api/proxy
-                const rewritten = rewriteHlsUrls(variantM3u8, "https://vidsrc.buzz");
+                const rewritten = rewriteHlsUrls(variantM3u8, "https://vidsrc.buzz", requestOrigin);
                 // Convert to data URL for this variant
                 const dataUrl = `data:application/vnd.apple.mpegurl;base64,${Buffer.from(rewritten).toString("base64")}`;
                 rebuiltM3u8 += line + "\n" + dataUrl + "\n";
@@ -875,7 +879,7 @@ async function fetchVidsrcBuzzStream(
         masterM3u8 = rebuiltM3u8;
       } else {
         // Media playlist: rewrite segment URLs directly
-        masterM3u8 = rewriteHlsUrls(masterM3u8, "https://vidsrc.buzz");
+        masterM3u8 = rewriteHlsUrls(masterM3u8, "https://vidsrc.buzz", requestOrigin);
       }
 
       // Return as data URL (self-contained, no additional server calls for playlist)
@@ -893,7 +897,7 @@ async function fetchVidsrcBuzzStream(
 // Rewrites all relative URLs in an HLS m3u8 playlist to go through
 // /api/proxy. This allows HLS.js to fetch segments via our proxy which
 // injects the correct Referer header for vidsrc.buzz.
-function rewriteHlsUrls(m3u8: string, baseUrl: string): string {
+function rewriteHlsUrls(m3u8: string, cdnBaseUrl: string, proxyOrigin: string): string {
   return m3u8
     .split("\n")
     .map((line: string) => {
@@ -903,8 +907,10 @@ function rewriteHlsUrls(m3u8: string, baseUrl: string): string {
       // This is a URL line — rewrite to go through /api/proxy
       const fullUrl = trimmed.startsWith("http")
         ? trimmed
-        : `${baseUrl}${trimmed}`;
-      return `/api/proxy?url=${encodeURIComponent(fullUrl)}`;
+        : `${cdnBaseUrl}${trimmed}`;
+      // Use ABSOLUTE URL (proxyOrigin + /api/proxy) so it resolves correctly
+      // even when the base URL is a data: URL
+      return `${proxyOrigin}/api/proxy?url=${encodeURIComponent(fullUrl)}`;
     })
     .join("\n");
 }

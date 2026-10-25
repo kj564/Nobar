@@ -1809,3 +1809,63 @@ Stage Summary:
 - NEW: surge URL formula deobfuscated
 - NEW: vidlink HLS gives adaptive bitrate (like vidsrc.buzz but different CDN)
 - Implementation opportunity: force XPE=hls → get HLS from vidlink
+
+---
+Task ID: RE-keterikatan-deep-v2
+Agent: main
+Task: RE mendalam sacdn CDN + vidlink HLS cookies + mzfi detail endpoint
+
+Work Log:
+
+1. sacdn.hakunaymatata.com — FULL CDN chain mapped:
+   - CDN: CloudFront (HKG61-P1) → Aliyun OSS → Aliyun CDN (Tengine)
+   - Cache: 360 DAYS at edge (x-swift-cachetime: 31104000)
+   - CORS: * (browser can fetch cross-origin segments!)
+   - Auth: CloudFront signed cookies ONLY (no UA/Referer needed!)
+   - Test: WITH cookie (no UA) → 200 OK, 5.4MB segment ✓
+   - Test: WITHOUT cookie → 403 ✗
+   - Cookie is the ONLY gate (simplest proxy of all CDNs)
+
+2. CloudFront cookies decoded:
+   - CloudFront-Policy: {Statement:[{Resource:"sacdn.../hls/{id}/*",Condition:{DateLessThan:{AWS:EpochTime:1793466207}}}]}
+   - Expiry: ~6.5 days from issue
+   - TTL (from API): 3600s (1 hour — API token TTL)
+   - CloudFront-Key-Pair-Id: KMHN1LQ1HEUPL
+   - Cookie bound to specific movie path (not wildcard)
+
+3. vidlink API HLS response (XPE: hls):
+   - Stream keys: id, captions, flags, TTL, type, deliveryType, playlist, playlistHeaders, requiresProxy, playbackMetadata, expiresAt
+   - flags: ["cors-allowed"] (CDN returns CORS: *)
+   - TTL: 3600s (1 hour)
+   - playlistHeaders: {Cookie: 'CloudFront-Policy=...; Signature=...; Key-Pair-Id=...', Referer, Origin}
+   - Cookie ALONE is enough (no Referer/Origin needed per test)
+   - alternates: undefined (no alternate sources for this movie)
+
+4. mzfi detail endpoint (/wefeed-h5api-bff/detail):
+   - NEW fields discovered:
+     * seasons[]: episode info with resolutions[] (360/480/720/1080)
+     * source: upload source domain (ailok.pe — DNS dead)
+     * uploadBy: community uploader name
+     * watchTimeLimit: 15 (guest preview = 15 minutes, not 5)
+     * accessStrategy: empty (no region lock)
+   - Can query available qualities WITHOUT calling play endpoint!
+   - seasons[0].resolutions: [{resolution: 360}, {resolution: 480}, {resolution: 720}, {resolution: 1080}]
+
+5. aoneroom.com public endpoints (5 confirmed):
+   - /subject/trending ✓
+   - /subject/recommend ✓
+   - /detail?subjectId=X&detailPath=Y ✓ (rich metadata)
+   - /media-player/get-domain ✓ (returns 'https://mzfi.me/')
+   - /ad/get-config ✓
+
+6. ailok.pe = upload source domain (DNS dead, not a CDN)
+   - Movies uploaded by community users (e.g., "JustLaugh😂")
+   - Upload model: community → ailok.pe → hakunaymatata.com CDN
+
+Stage Summary:
+- sacdn fully mapped: CloudFront + Aliyun, 360-day cache, CORS: *, cookie-only auth
+- vidlink HLS cookies valid 6.5 days, TTL 1 hour
+- mzfi detail endpoint: seasons + source + watchTimeLimit (15min)
+- Proxy for sacdn: inject Cookie only (simplest of all CDNs)
+- ailok.pe = dead upload domain (not usable)
+- vidlink HLS implementation opportunity: XPE=hls → HLS + cookies → proxy

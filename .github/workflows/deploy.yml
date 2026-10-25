@@ -19,14 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Build static export
         env:
           NEXT_PUBLIC_TMDB_API_KEY: ${{ secrets.NEXT_PUBLIC_TMDB_API_KEY }}
@@ -35,72 +32,13 @@ jobs:
           NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
           BUILD_STATIC: "true"
         run: bun run build
-
-      - name: Create GitHub Pages SPA fallback
+      - name: SPA fallback
         run: |
-          # Create 404.html that saves the original URL and redirects to /
-          cat > out/404.html << 'HTML404'
-          <!DOCTYPE html>
-          <html>
-          <head>
-          <meta charset="utf-8">
-          <title>Nobar — Streaming Film Indie</title>
-          <script>
-          (function() {
-            // Save the FULL original URL (including basePath)
-            var fullPath = window.location.pathname;
-            sessionStorage.setItem('nobar-spa-redirect', fullPath);
-            
-            // Redirect to basePath root (serves index.html = the SPA)
-            var basePath = '/Nobar';
-            window.location.replace(basePath + '/');
-          })();
-          </script>
-          </head>
-          <body><p>Redirecting...</p></body>
-          </html>
-          HTML404
-          
-          # Modify index.html to restore the saved path + trigger navigation
-          # Insert script right after <head>
-          python3 -c "
-          import re
-          with open('out/index.html', 'r') as f:
-              html = f.read()
-          
-          spa_script = '''<script>
-          (function() {
-            var savedPath = sessionStorage.getItem('nobar-spa-redirect');
-            if (savedPath) {
-              sessionStorage.removeItem('nobar-spa-redirect');
-              // Restore the URL via replaceState (no page reload)
-              history.replaceState(null, '', savedPath);
-              // After Next.js loads, it will pick up the current URL via useRouter
-              // We need to wait for React to hydrate, then trigger a re-render
-              setTimeout(function() {
-                // Dispatch a popstate event so Next.js router picks up the new URL
-                window.dispatchEvent(new PopStateEvent('popstate'));
-              }, 100);
-            }
-          })();
-          </script>'''
-          
-          # Insert after <head>
-          html = html.replace('<head>', '<head>' + spa_script, 1)
-          
-          with open('out/index.html', 'w') as f:
-              f.write(html)
-          print('✓ SPA script injected into index.html')
-          "
-          
+          cp out/index.html out/404.html
           touch out/.nojekyll
-          echo "✓ SPA 404 + redirect hack created"
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: out
-
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -108,6 +46,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
+      - uses: actions/deploy-pages@v4
         id: deployment
-        uses: actions/deploy-pages@v4

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import { SPARouter } from "@/components/SPARouter";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="font-sans antialiased selection:bg-brand-500/40">
+        <SPARouter />
         {children}
       </body>
     </html>

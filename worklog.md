@@ -1644,3 +1644,48 @@ Cloudflare Protection Level: MAXIMUM
 KESIMPULAN: cineby.rocks = DEAD END untuk RE
 Lebih terkunci dari vidsrc.sh (yang minimal bisa load page di browser).
 cineby.rocks tidak bisa diakses sama sekali tanpa real browser + Turnstile solving.
+
+---
+Task ID: RE-vidsrc-buzz-breakthrough
+Agent: main
+Task: RE brutal cineby.rocks + scan 20 providers → temukan vidsrc.buzz
+
+Work Log:
+1. cineby.rocks: DEAD END (Cloudflare MAX, all paths 403, Turnstile blocks automation)
+2. Scanned 20+ streaming providers:
+   - 6 returned 200: 2embed.cc, vidsrc.me, vidsrc.to, lookmovie.io, 111movies, the.fyi
+   - 2embed.cc has iframe to vidsrc.buzz (NEW DOMAIN!)
+   - vidsrc.to redirects to vsembed.ru (403 Cloudflare)
+3. vidsrc.buzz DEEP RE (BREAKTHROUGH):
+   - Page: /embed/movie/{tmdb_id} → 200, 108KB, NO X-Frame-Options
+   - Has <base href="/pl/"> tag
+   - Q config: {type, id(IMDB), s, e, t(JWT token)}
+   - Token decoded: {c:hash, s:"src|movie|imdb|s|e", e:expiry(6hr)}
+   - API: /pl/api.php?a=sources&type=movie&id={imdb}&s=0&e=0&t={token}
+   - API response: {status:"ok", servers:[{ref, name, lang}]}
+   - Play API: /pl/api.php?a=play&ref={ref}
+   - Play response: {url:"/_stream?id={session_id}", type:"hls"}
+   - Stream: /_stream?id={session_id} → HLS m3u8 playlist!
+   - HLS has adaptive bitrate: 1080p (2.17Mbps) + 720p (1.03Mbps) + lower
+   - Segment URLs: /_stream?id={segment_id} (relative, resolve to vidsrc.buzz)
+4. Stream URL tests:
+   - Referer: vidsrc.buzz → 200 (m3u8 playlist) ✓
+   - No Referer → 403 ✗
+   - Nobar Referer → 403 ✗
+   - CORS: NO (no Access-Control-Allow-Origin) ✗
+   - X-Frame-Options: NONE → iframe embed possible ✓
+5. API rate limiting:
+   - Multiple rapid API calls → sources API returns "unavailable"
+   - 30s cooldown → API works again
+   - Some movies return "unavailable" (not all movies have sources)
+   - Matrix (603) and Dark Knight (155) have sources
+   - Jurassic World (135397) does NOT have sources on vidsrc.buzz
+
+KEY FINDINGS:
+- vidsrc.buzz = NEW provider with accessible API (no Turnstile, no encryption)
+- HLS adaptive bitrate (1080p/720p, better than mzfi MP4)
+- Still needs proxy (no CORS, Referer-gated)
+- BUT: HLS segments are small (5-second chunks) → better seeking + buffering
+- Simpler API than mzfi (no token mint, no BFF search)
+- Multiple servers (VNY, VNR, XPM1, XPM2)
+- No X-Frame-Options → iframe embed = zero server BW option

@@ -1613,3 +1613,34 @@ KESIMPULAN:
 - autoembed.app: Cloudflare Turnstile + X-Frame-Options (locked down)
 - Tidak ada CDN baru yang bisa di-RE
 - autoembed app ada Cloudflare protection sama seperti vidsrc.sh
+
+---
+Task ID: RE-cineby-rocks-brutal
+Agent: main
+Task: RE brutal cineby.rocks — cari celah CDN/stream
+
+Work Log:
+1. Direct curl (server-side): 403 Cloudflare challenge (all paths)
+2. Browser automation (headless Chromium): 403 Turnstile stuck ("Just a moment...")
+3. API endpoint enumeration (/api/movie, /api/watch, /api/source, /api/stream, etc): ALL 403
+4. Embed URL test (/embed/movie/, /embed/, /player/): ALL 403
+5. Homepage (/): 403 (Cloudflare blocks even homepage)
+6. X-Requested-With + Accept: application/json: 403
+7. cf_clearance cookie extraction from browser: FAIL (cookie tidak di-set)
+8. Wayback Machine: FAIL (no snapshots)
+9. Archive.today: FAIL (connection timeout)
+10. GitHub code search: FAIL (no results)
+11. Reddit search: FAIL (no results)
+12. API subdomain (api.cineby.rocks): FAIL (DNS tidak resolve)
+13. Cloudflare IPs: 172.67.147.173, 104.21.33.178 (Cloudflare proxy)
+
+Cloudflare Protection Level: MAXIMUM
+- Page-level Turnstile challenge (visible, bukan invisible)
+- Detects headless Chromium automation
+- X-Frame-Options: SAMEORIGIN (iframe blocked)
+- CSP strict (nonce-only scripts, no inline)
+- ALL paths return 403 (even / and /favicon.ico)
+
+KESIMPULAN: cineby.rocks = DEAD END untuk RE
+Lebih terkunci dari vidsrc.sh (yang minimal bisa load page di browser).
+cineby.rocks tidak bisa diakses sama sekali tanpa real browser + Turnstile solving.

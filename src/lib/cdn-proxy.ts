@@ -43,16 +43,12 @@ export async function resolveStream(
         const year = ((tmdbData as any)[dateField] || "").slice(0, 4);
 
         if (title && year) {
-          // Call CDN proxy's mzfi resolver
-          const mzfiParams = new URLSearchParams({ kind, title, year });
-          const mzfiUrl = proxyUrl(`/mzfi/${tmdbId}?${mzfiParams}`);
-          const mzfiRes = await fetch(mzfiUrl, { signal: AbortSignal.timeout(15000) });
-          if (mzfiRes.ok) {
-            const mzfiData = await mzfiRes.json();
-            if (mzfiData.sources && mzfiData.sources.length > 0) {
-              // mzfi found it! Return proxied MP4 sources (ad-free!)
-              return mzfiData;
-            }
+          // Client-side mzfi search (CORS-open, direct browser call)
+          // Token from x-user header, stream URLs proxied through Worker /mp4
+          const { resolveMzfiStream } = await import("@/lib/mzfi-client");
+          const mzfiSources = await resolveMzfiStream(title, year, kind);
+          if (mzfiSources.length > 0) {
+            return { sources: mzfiSources, subtitles: [] };
           }
         }
       }

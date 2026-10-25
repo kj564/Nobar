@@ -127,9 +127,15 @@ async function getMzfiToken(): Promise<string | null> {
   const r = await fetch("https://mzfi.me/wefeed-h5api-bff/home?page=1", {
     headers: MZFI_HEADERS,
   });
+  // Try set-cookie first
   const setCookie = r.headers.get("set-cookie") || "";
-  const m = setCookie.match(/token=([^;]+)/);
-  return m ? m[1].replace(/%22/g, "").replace(/^"|"$/g, "") : null;
+  const m1 = setCookie.match(/token=([^;]+)/);
+  if (m1) return m1[1].replace(/%22/g, "").replace(/^"|"$/g, "");
+  // Fallback: extract from x-user header (mzfi sends token here too)
+  const xUser = r.headers.get("x-user") || "";
+  const m2 = xUser.match(/"token"\s*:\s*"([^"]+)"/);
+  if (m2) return m2[1];
+  return null;
 }
 
 // ─── HTTP server (Bun) / Worker entry ─────────────────────────────
@@ -422,6 +428,26 @@ async function handleRequestInner(req: Request): Promise<Response> {
       return Response.json({ sources, subtitles }, { headers: corsHeaders });
     } catch (e: any) {
       return Response.json({ sources: [], subtitles: [], error: e.message }, { headers: corsHeaders });
+    }
+  }
+
+  if (path === "/test-mzfi") {
+    try {
+      const r = await fetch("https://mzfi.me/wefeed-h5api-bff/home?page=1", {
+        headers: MZFI_HEADERS,
+      });
+      const text = await r.text();
+      const setCookie = r.headers.get("set-cookie") || "NONE";
+      const xUser = r.headers.get("x-user") || "NONE";
+      return Response.json({
+        status: r.status,
+        bodyLen: text.length,
+        setCookie: setCookie.slice(0, 100),
+        xUser: xUser.slice(0, 100),
+        hasToken: setCookie.includes("token") || xUser.includes("token"),
+      }, { headers: corsHeaders });
+    } catch (e: any) {
+      return Response.json({ error: e.message }, { headers: corsHeaders });
     }
   }
 

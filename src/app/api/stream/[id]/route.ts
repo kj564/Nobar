@@ -91,6 +91,37 @@ export async function getMzfiToken(): Promise<string | null> {
 // In-flight request deduplication: key → Promise<SubjectMatch|null>
 const inflightSearches = new Map<string, Promise<SubjectMatch & { subjectType: number } | null>>();
 
+// ─── External CDN proxy URL (Cloudflare Worker / Deno Deploy) ────────
+// If CDN_PROXY_URL env var is set, video streams are routed through the
+// external proxy instead of Vercel's /api/proxy. This eliminates Vercel
+// egress (video bytes go: Browser → external proxy → CDN, bypassing Vercel).
+//
+// Options:
+//   1. Cloudflare Worker (FREE, unlimited BW):
+//      Deploy: cd mini-services/cdn-proxy && wrangler deploy
+//      Set: CDN_PROXY_URL=https://nobar-cdn-proxy.your-subdomain.workers.dev
+//
+//   2. Deno Deploy (FREE, 1M req/month):
+//      Deploy: deno deploy --allow-net mini-services/cdn-proxy/deno/proxy.ts
+//      Set: CDN_PROXY_URL=https://nobar-cdn-proxy.deno.dev
+//
+//   3. Not set (default): uses Vercel /api/proxy (counts Vercel egress)
+const CDN_PROXY_URL = process.env.CDN_PROXY_URL || "";
+
+function buildProxyUrl(cdnUrl: string, mbtoken?: string): string {
+  if (CDN_PROXY_URL) {
+    // Use external proxy (Cloudflare Worker / Deno Deploy)
+    const base = CDN_PROXY_URL.replace(/\/$/, "");
+    const params = new URLSearchParams({ url: cdnUrl });
+    if (mbtoken) params.set("mbtoken", mbtoken);
+    return `${base}/?${params.toString()}`;
+  }
+  // Fallback: Vercel's built-in /api/proxy
+  const params = new URLSearchParams({ url: cdnUrl });
+  if (mbtoken) params.set("mbtoken", mbtoken);
+  return `/api/proxy?${params.toString()}`;
+}
+
 const COMMON_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
@@ -234,7 +265,7 @@ export async function GET(
         .sort((a: any, b: any) => Number(a.resolutions) - Number(b.resolutions));
 
       for (const stream of sorted) {
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(stream.url)}`;
+        const proxyUrl = buildProxyUrl(stream.url);
         result.sources.push({
           quality: `${stream.resolutions}p`,
           url: proxyUrl,
@@ -259,7 +290,7 @@ export async function GET(
           const br = Number(String(b.resolutions).split(",")[0]) || 0;
           return ar >= br ? a : b;
         });
-        const mpdUrl = `/api/proxy?url=${encodeURIComponent(best.url)}&mbtoken=${encodeURIComponent(best.signCookie)}`;
+        const mpdUrl = buildProxyUrl(best.url, best.signCookie);
         const maxRes = String(best.resolutions || "").split(",")[0] || "auto";
         dashSource = {
           url: mpdUrl,
@@ -319,7 +350,7 @@ export async function GET(
               if (size > 0 && size < 50_000_000) continue;
               result.sources.push({
                 quality: `${quality}p`,
-                url: `/api/proxy?url=${encodeURIComponent(qData.url)}`,
+                url: buildProxyUrl(qData.url),
                 provider: "vidlink.pro",
                 type: "mp4",
               });

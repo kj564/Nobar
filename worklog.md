@@ -1561,3 +1561,55 @@ CONCLUSION:
 
 FINAL VERDICT: No native browser bypass possible for hakunaymatata.com CDNs.
 Both mzfi and vidlink anti-leech mechanisms exploit forbidden headers (Referer + User-Agent).
+
+---
+Task ID: RE-embed-su-autoembed
+Agent: main
+Task: RE embed.su + autoembed.to — cari CDN yang tidak reject browser
+
+Work Log:
+
+1. embed.su:
+   - DNS FAIL (domain tidak resolve di 8.8.8.8 / 1.1.1.1)
+   - Tidak bisa diakses sama sekali (status 000)
+   - Domain mungkin sudah mati atau berubah
+
+2. autoembed.to:
+   - DNS resolve (162.4.84.240) tapi connection FAILED
+   - Tidak bisa diakses (status 000)
+   - Server mungkin down atau blok koneksi
+
+3. autoembed.xyz:
+   - Landing page (APK download only, 60KB)
+   - Tidak ada streaming content
+   - Link ke watch-v2.autoembed.app
+
+4. watch-v2.autoembed.app:
+   - Cloudflare Turnstile (return 403 untuk automation)
+   - X-Frame-Options: SAMEORIGIN (iframe blocked)
+   - CSP strict (script-src nonce-only, no inline scripts)
+   - Browser test: "Just a moment..." challenge page
+   - Tidak bisa bypass tanpa real browser solving Turnstile
+
+5. autoembed.net:
+   - Landing page (redirect ke watch-v2.autoembed.app)
+   - 404 untuk semua /movie/ /embed/ /api/ paths
+   - Tidak ada API/streaming endpoint
+
+6. cinehd.dev:
+   - 403 (Cloudflare block)
+
+7. embed.link:
+   - Domain parking page ("Embed Math Equations, Flowcharts")
+   - Tidak ada streaming content
+
+8. embed.cz:
+   - Domain registrar page (Gransy)
+   - Tidak ada streaming content
+
+KESIMPULAN:
+- embed.su: DEAD (DNS fail)
+- autoembed.to: DEAD (connection fail)
+- autoembed.app: Cloudflare Turnstile + X-Frame-Options (locked down)
+- Tidak ada CDN baru yang bisa di-RE
+- autoembed app ada Cloudflare protection sama seperti vidsrc.sh

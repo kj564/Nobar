@@ -36,11 +36,12 @@ jobs:
           BUILD_STATIC: "true"
         run: bun run build
 
-      - name: Add SPA fallback + .nojekyll
+      - name: Create SPA 404 fallback
         run: |
+          # Copy index.html as 404.html for SPA routing
           cp out/index.html out/404.html
           touch out/.nojekyll
-          echo "✓ SPA fallback created"
+          echo "✓ SPA fallback + .nojekyll created"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

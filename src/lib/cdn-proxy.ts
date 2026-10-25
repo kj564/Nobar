@@ -1,112 +1,71 @@
 // ─────────────────────────────────────────────────────────────────────
 // lib/cdn-proxy.ts — Client-side CDN proxy configuration
-//
-// For GitHub Pages deployment: the app is static (no /api/* routes).
-// All server-side logic moves to a tiny CDN proxy service that returns
-// only JSON (~8KB per movie). Video segments go directly from CDN to browser.
-//
-// Two deployment modes:
-//   1. GitHub Pages (static) → Cloudflare Worker (e.g. https://nobar-cdn-proxy.workers.dev)
-//      Set NEXT_PUBLIC_CDN_PROXY_URL to the Worker URL.
-//   2. Dev (Caddy gateway) → CDN proxy on :3003 via XTransformPort
-//      Uses relative paths with ?XTransformPort=3003 query param.
 // ─────────────────────────────────────────────────────────────────────
 
-// In static mode, set this to the Cloudflare Worker URL.
-const CDN_PROXY_URL =
-  process.env.NEXT_PUBLIC_CDN_PROXY_URL || "";
-
-// CDN proxy port (for dev mode via Caddy gateway)
+const CDN_PROXY_URL = process.env.NEXT_PUBLIC_CDN_PROXY_URL || "";
 const CDN_PROXY_PORT = "3003";
+const isStaticMode = typeof window !== "undefined" && (window.location.hostname.includes("github.io") || CDN_PROXY_URL.length > 0);
 
-// Detect if we're running on GitHub Pages (static mode)
-const isStaticMode =
-  typeof window !== "undefined" &&
-  (window.location.hostname.includes("github.io") ||
-    CDN_PROXY_URL.length > 0);
-
-/**
- * Build the proxy URL for a given path.
- * - Static mode (GitHub Pages): uses CDN_PROXY_URL (Cloudflare Worker)
- * - Dev mode (Caddy gateway): uses relative path + XTransformPort
- */
 function proxyUrl(path: string): string {
-  if (isStaticMode && CDN_PROXY_URL) {
-    return `${CDN_PROXY_URL}${path}`;
-  }
-  // Dev mode: relative path + XTransformPort (Caddy gateway)
+  if (isStaticMode && CDN_PROXY_URL) return `${CDN_PROXY_URL}${path}`;
   const sep = path.includes("?") ? "&" : "?";
   return `${path}${sep}XTransformPort=${CDN_PROXY_PORT}`;
 }
 
-/**
- * Resolve stream sources for a TMDB ID via CDN proxy.
- * Returns hls-direct sources (browser fetches directly from sacdn).
- */
 export async function resolveStream(
   tmdbId: number,
   kind: "movie" | "tv" = "movie",
   season: number = 1,
   episode: number = 1
 ): Promise<{
-  sources: Array<{
-    quality: string;
-    url: string;
-    provider: string;
-    type: string;
-    auth?: { policy: string; signature: string; keyPairId: string };
-  }>;
+  sources: Array<{ quality: string; url: string; provider: string; type: string; auth?: any }>;
   subtitles: Array<{ language: string; url: string }>;
   embedUrl?: string | null;
 }> {
-  if (isStaticMode || true) {
-    const params = new URLSearchParams({
-      kind,
-      season: String(season),
-      episode: String(episode),
-    });
-    const url = proxyUrl(`/vidlink/${tmdbId}?${params}`);
-    const res = await fetch(url);
-    if (!res.ok) return { sources: [], subtitles: [], embedUrl: null };
-    const data = await res.json();
-    
-    // If no HLS source (only MP4), try Idlix embed fallback
-    // MP4 from bcdn.hakunaymatata.com fails in browser (UA anti-bot → error 4)
-    const hasHls = data.sources?.some((s: any) => s.type === "hls-direct");
-    if (!hasHls && kind === "movie") {
-      // Fetch TMDB title+year to construct Idlix slug
-      try {
-        const tmdbRes = await fetch(
-          `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY || ""}`,
-          { signal: AbortSignal.timeout(5000) }
-        );
-        if (tmdbRes.ok) {
-          const tmdbData = await tmdbRes.json();
-          const title = tmdbData.title || tmdbData.name || "";
-          const year = (tmdbData.release_date || "").slice(0, 4);
-          if (title && year) {
-            const slug = buildIdlixSlug(title, year);
-            const embedUrl = await resolveIdlix(slug);
-            if (embedUrl) {
-              return { sources: [], subtitles: [], embedUrl };
-            }
+  const params = new URLSearchParams({ kind, season: String(season), episode: String(episode) });
+  const url = proxyUrl(`/vidlink/${tmdbId}?${params}`);
+  const res = await fetch(url);
+  if (!res.ok) return { sources: [], subtitles: [], embedUrl: null };
+  const data = await res.json();
+
+  const hasHls = data.sources?.some((s: any) => s.type === "hls-direct");
+  
+  // If no HLS (only MP4), MP4 won't work in browser (bcdn UA anti-bot → error 4)
+  // Try Idlix vidhide embed as fallback (for movies only)
+  if (!hasHls && kind === "movie") {
+    try {
+      const tmdbRes = await fetch(
+        `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY || "a3ce3ae3ddb29e9417ffcc2889becf9b"}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (tmdbRes.ok) {
+        const tmdbData = await tmdbRes.json();
+        const title = tmdbData.title || tmdbData.name || "";
+        const year = (tmdbData.release_date || "").slice(0, 4);
+        if (title && year) {
+          const slug = buildIdlixSlug(title, year);
+          const embedUrl = await resolveIdlix(slug);
+          if (embedUrl) {
+            return { sources: [], subtitles: [], embedUrl };
           }
         }
-      } catch {}
-    }
-    
-    return data;
+      }
+    } catch {}
   }
-  return { sources: [], subtitles: [], embedUrl: null };
+
+  // For TV without HLS, try vidlink.pro embed
+  if (!hasHls && kind === "tv") {
+    return {
+      sources: [],
+      subtitles: [],
+      embedUrl: `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`,
+    };
+  }
+
+  return data;
 }
 
-/**
- * Resolve Idlix vidhide embed URL via CDN proxy.
- * Only used when vidlink HLS fails (fallback).
- */
-export async function resolveIdlix(
-  slug: string
-): Promise<string | null> {
+export async function resolveIdlix(slug: string): Promise<string | null> {
   const url = proxyUrl(`/idlix/${slug}`);
   const res = await fetch(url);
   if (!res.ok) return null;
@@ -114,31 +73,13 @@ export async function resolveIdlix(
   return data.embedUrl || null;
 }
 
-/**
- * Fetch mzfi catalog (trending + recommended) via CDN proxy.
- */
-export async function fetchMzfiCatalog(): Promise<{
-  trending: Array<{
-    subjectId: string;
-    title: string;
-    year: string;
-    genre: string;
-    imdbRating: string;
-    posterUrl: string;
-    subjectType: number;
-  }>;
-  recommended: Array<any>;
-}> {
+export async function fetchMzfiCatalog(): Promise<any> {
   const url = proxyUrl("/mzfi/catalog");
   const res = await fetch(url);
   if (!res.ok) return { trending: [], recommended: [] };
   return res.json();
 }
 
-/**
- * Build Idlix slug from title + year.
- * Used client-side to construct the slug for resolveIdlix.
- */
 export function buildIdlixSlug(title: string, year: string): string {
   const slug = title
     .toLowerCase()

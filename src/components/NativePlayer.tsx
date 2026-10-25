@@ -429,72 +429,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     };
   }, [dashSource, loadShaka]);
 
-  // ── Video events (only for MP4/HLS mode — Shaka handles its own) ──
+  // ── Video events (MP4 + HLS mode — Shaka handles its own) ──
   useEffect(() => {
     const v = videoRef.current;
     if (!v || usingDash) return;
     if (!activeSource) return;
 
-    // ── HLS source: use hls.js for adaptive bitrate ──
-    if (activeSource.type === "hls") {
-      // Native HLS support (Safari) — just set src
-      if (v.canPlayType("application/vnd.apple.mpegurl")) {
-        v.src = activeSource.url;
-        v.load();
-        console.log("[NOBAR] HLS native playback (Safari)");
-      } else {
-        // Use hls.js for Chrome/Firefox
-        let hls: any = null;
-        import("hls.js").then((Hls) => {
-          const HlsClass = Hls.default || Hls;
-          if (HlsClass.isSupported()) {
-            hls = new HlsClass({
-              // Tune for smoothness
-              maxBufferLength: 30,           // buffer 30s ahead
-              maxMaxBufferLength: 60,        // max 60s buffer
-              liveSyncDurationCount: 3,
-              // Start at highest quality that fits bandwidth
-              abrController: undefined,      // use default ABR
-              // Enable worker for faster processing
-              enableWorker: true,
-              // Low latency mode off (VOD content)
-              lowLatencyMode: false,
-            });
-            hls.loadSource(activeSource.url);
-            hls.attachMedia(v);
-            hls.on(HlsClass.Events.MANIFEST_PARSED, () => {
-              console.log("[NOBAR] HLS manifest loaded — starting playback");
-              v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-            });
-            hls.on(HlsClass.Events.ERROR, (_event: any, data: any) => {
-              if (data.fatal) {
-                console.error("[NOBAR] HLS fatal error:", data.type, data.details);
-                if (data.type === HlsClass.ErrorTypes.NETWORK_ERROR) {
-                  hls.startLoad();
-                } else {
-                  hls.destroy();
-                }
-              }
-            });
-            hlsRef.current = hls;
-          }
-        }).catch((err) => {
-          console.error("[NOBAR] hls.js failed to load:", err);
-          // Fallback: set src directly (might work if browser supports HLS natively)
-          v.src = activeSource.url;
-          v.load();
-        });
-      }
-      return; // Skip MP4 src setting
-    }
-
-    // ── MP4 source: set src directly ──
-    if (v.src !== activeSource.url) {
-      v.src = activeSource.url;
-      v.load(); // force reload with new src
-    }
-
-    // Force muted on load — browser blocks autoplay of unmuted videos.
+    // ── Attach video event listeners FIRST (works for both MP4 and HLS) ──
+    // HLS.js / native HLS set video.src which fires the same events as MP4.
+    // Without these, time display = 0:00, duration = 0, play/pause broken.
     v.muted = true;
     setMuted(true);
 
@@ -520,6 +463,82 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     };
     Object.entries(handlers).forEach(([e, fn]) => v.addEventListener(e, fn));
     v.setAttribute("webkit-playsinline", "true");
+
+    // ── HLS source: use hls.js for adaptive bitrate ──
+    if (activeSource.type === "hls") {
+      // Cleanup previous hls.js instance
+      if (hlsRef.current) {
+        try { hlsRef.current.destroy(); } catch {}
+        hlsRef.current = null;
+      }
+
+      // Native HLS support (Safari) — just set src
+      if (v.canPlayType("application/vnd.apple.mpegurl")) {
+        v.src = activeSource.url;
+        v.load();
+        console.log("[NOBAR] HLS native playback (Safari)");
+        // Autoplay after metadata
+        const t = setTimeout(async () => {
+          try { await v.play(); setPlaying(true); } catch { setPlaying(false); }
+        }, 500);
+        return () => {
+          clearTimeout(t);
+          clearTimeout(vtRetry);
+          clearTimeout(vtRetry2);
+          Object.entries(handlers).forEach(([e, fn]) => v.removeEventListener(e, fn));
+        };
+      }
+
+      // Use hls.js for Chrome/Firefox
+      import("hls.js").then((Hls) => {
+        const HlsClass = Hls.default || Hls;
+        if (HlsClass.isSupported()) {
+          const hls = new HlsClass({
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            enableWorker: true,
+            lowLatencyMode: false,
+          });
+          hls.loadSource(activeSource.url);
+          hls.attachMedia(v);
+          hls.on(HlsClass.Events.MANIFEST_PARSED, () => {
+            console.log("[NOBAR] HLS manifest loaded — starting playback");
+            v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+          });
+          hls.on(HlsClass.Events.ERROR, (_event: any, data: any) => {
+            if (data.fatal) {
+              console.error("[NOBAR] HLS fatal error:", data.type, data.details);
+              if (data.type === HlsClass.ErrorTypes.NETWORK_ERROR) {
+                hls.startLoad();
+              } else {
+                hls.destroy();
+              }
+            }
+          });
+          hlsRef.current = hls;
+        }
+      }).catch((err) => {
+        console.error("[NOBAR] hls.js failed to load:", err);
+        v.src = activeSource.url;
+        v.load();
+      });
+
+      return () => {
+        clearTimeout(vtRetry);
+        clearTimeout(vtRetry2);
+        Object.entries(handlers).forEach(([e, fn]) => v.removeEventListener(e, fn));
+        if (hlsRef.current) {
+          try { hlsRef.current.destroy(); } catch {}
+          hlsRef.current = null;
+        }
+      };
+    }
+
+    // ── MP4 source: set src directly ──
+    if (v.src !== activeSource.url) {
+      v.src = activeSource.url;
+      v.load(); // force reload with new src
+    }
 
     // Try autoplay after metadata loads
     const tryAutoplay = async () => {

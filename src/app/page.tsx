@@ -1,51 +1,66 @@
-// Home page — client component for GitHub Pages static export.
-//
-// Migration context:
-//   Previously a server component that awaited `fetchCategories()` from
-//   `@/lib/tmdb` (which reads the server-side TMDB_API_KEY env var and uses
-//   server-only fetch). For static export we cannot do server-side data
-//   fetching, so this page is now a client component that resolves the
-//   category list on mount via `fetchCategoriesClient()` from
-//   `@/lib/tmdb-client`.
-//
-//   `fetchCategoriesClient()` returns a hardcoded list (no network call) so
-//   it resolves synchronously inside a microtask — the user sees a brief
-//   blank shell on first paint, then the full HomeClient UI on the very next
-//   tick. HomeClient itself handles all trending/TV/mzfi catalog fetching
-//   via the CDN proxy once mounted.
 "use client";
 
 import { useEffect, useState } from "react";
 import { HomeClient } from "@/components/HomeClient";
+import { MoviePageClient } from "@/app/movie/[id]/MoviePageClient";
+import { SeriesPageClient } from "@/app/series/[id]/SeriesPageClient";
 import { fetchCategoriesClient } from "@/lib/tmdb-client";
 import type { Category } from "@/lib/tmdb";
 
-export default function NobarPage() {
-  // categories is `null` until the client-side fetch resolves; this lets us
-  // render a plain dark shell during the very first paint instead of an
-  // empty nav (which would cause HomeClient's `useState(categories[0])` to
-  // initialize activeCategory to undefined).
-  const [categories, setCategories] = useState<Category[] | null>(null);
+type Route = 
+  | { type: "home" }
+  | { type: "movie" }
+  | { type: "series" }
+  | { type: "search" }
+  | { type: "movie-list" }
+  | { type: "series-list" };
 
+export default function Page() {
+  const [route, setRoute] = useState<Route>({ type: "home" });
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  // Parse URL on mount + on popstate (browser back/forward)
   useEffect(() => {
-    let mounted = true;
-    fetchCategoriesClient()
-      .then((cats) => {
-        if (mounted) setCategories(cats);
-      })
-      .catch(() => {
-        if (mounted) setCategories([]);
-      });
-    return () => {
-      mounted = false;
-    };
+    function parseRoute() {
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+      let path = window.location.pathname;
+      if (basePath && path.startsWith(basePath)) {
+        path = path.slice(basePath.length) || "/";
+      }
+      
+      if (path.match(/^\/movie\/[^/]+\/?$/)) {
+        setRoute({ type: "movie" });
+      } else if (path.match(/^\/series\/[^/]+\/?$/)) {
+        setRoute({ type: "series" });
+      } else if (path.startsWith("/search")) {
+        setRoute({ type: "search" });
+      } else if (path === "/movie/" || path === "/movie") {
+        setRoute({ type: "movie-list" });
+      } else if (path === "/series/" || path === "/series") {
+        setRoute({ type: "series-list" });
+      } else {
+        setRoute({ type: "home" });
+      }
+    }
+    
+    parseRoute();
+    window.addEventListener("popstate", parseRoute);
+    return () => window.removeEventListener("popstate", parseRoute);
   }, []);
 
-  if (!categories) {
-    // Minimal dark shell — matches the page background so there's no white
-    // flash before HomeClient mounts.
-    return <div className="min-h-screen bg-ink-950" />;
-  }
+  // Fetch categories for home
+  useEffect(() => {
+    if (route.type === "home" || route.type === "movie-list") {
+      fetchCategoriesClient().then(setCategories).catch(() => {});
+    }
+  }, [route.type]);
 
+  if (route.type === "movie") {
+    return <MoviePageClient />;
+  }
+  if (route.type === "series") {
+    return <SeriesPageClient />;
+  }
+  // Home, search, listings — all use HomeClient for now
   return <HomeClient categories={categories} />;
 }

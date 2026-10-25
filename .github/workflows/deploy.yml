@@ -1,24 +1,3 @@
-# ─────────────────────────────────────────────────────────────────────
-# Nobar — Build static site + deploy to GitHub Pages
-#
-# How it works:
-#   1. Builds Next.js static export (output: "export") → out/ directory
-#   2. Copies index.html → 404.html (SPA fallback for dynamic routes)
-#   3. Uploads out/ as a GitHub Pages artifact
-#   4. GitHub Pages serves the static site
-#
-# The CDN proxy (Cloudflare Worker) must be deployed SEPARATELY:
-#   cd mini-services/cdn-proxy && npx wrangler deploy
-#
-# Required secrets (Settings → Secrets and variables → Actions):
-#   NEXT_PUBLIC_TMDB_API_KEY  — TMDB API key (public, safe to expose)
-#   NEXT_PUBLIC_CDN_PROXY_URL — Cloudflare Worker URL (e.g. https://nobar-cdn-proxy.xxx.workers.dev)
-#
-# Optional secrets:
-#   NEXT_PUBLIC_BASE_PATH    — Repo name if not using custom domain (e.g. /nobar)
-#   NEXT_PUBLIC_SITE_URL     — Canonical URL for SEO (e.g. https://nobar.pages.dev)
-# ─────────────────────────────────────────────────────────────────────
-
 name: Deploy to GitHub Pages
 
 on:
@@ -57,13 +36,11 @@ jobs:
           BUILD_STATIC: "true"
         run: bun run build
 
-      - name: Add SPA fallback
+      - name: Add SPA fallback + .nojekyll
         run: |
           cp out/index.html out/404.html
-          echo "✓ Copied index.html → 404.html (SPA fallback)"
-
-      - name: Add .nojekyll
-        run: touch out/.nojekyll
+          touch out/.nojekyll
+          echo "✓ SPA fallback created"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

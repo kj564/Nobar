@@ -75,6 +75,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const shakaRef = useRef<any>(null);  // shaka.Player instance
+  const hlsRef = useRef<any>(null);    // hls.js instance
   const shakaLoadedRef = useRef(false);
 
   const streamUrl = kind === "tv" && season && episode
@@ -348,10 +349,18 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
         } else if (data.sources?.length > 0) {
         */
         if (data.sources?.length > 0) {
-          const best = data.sources.reduce((b: StreamSource, s: StreamSource) =>
-            parseInt(s.quality) > parseInt(b.quality) ? s : b
-          );
-          setActiveSource(best);
+          // Prefer HLS source (adaptive bitrate, best quality auto-switching)
+          const hlsSource = data.sources.find((s: StreamSource) => s.type === "hls");
+          if (hlsSource) {
+            setActiveSource(hlsSource);
+            console.log("[NOBAR] Using HLS source:", hlsSource.provider);
+          } else {
+            // Pick best MP4 quality (highest resolution number)
+            const best = data.sources.reduce((b: StreamSource, s: StreamSource) =>
+              parseInt(s.quality) > parseInt(b.quality) ? s : b
+            );
+            setActiveSource(best);
+          }
         }
         if (!data.dashSource?.url && data.sources?.length === 0 && data.embedUrl) {
           setEmbedUrl(data.embedUrl);
@@ -420,16 +429,66 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     };
   }, [dashSource, loadShaka]);
 
-  // ── Video events (only for MP4 mode — Shaka handles its own) ──
+  // ── Video events (only for MP4/HLS mode — Shaka handles its own) ──
   useEffect(() => {
     const v = videoRef.current;
     if (!v || usingDash) return;
     if (!activeSource) return;
 
-    // Set src directly on the DOM element (NOT via React's src prop).
-    // This prevents React from overwriting Shaka's MSE blob: URL when
-    // usingDash flips to true. React doesn't manage this attribute,
-    // so Shaka can freely set video.src = blob:... without React clobbering it.
+    // ── HLS source: use hls.js for adaptive bitrate ──
+    if (activeSource.type === "hls") {
+      // Native HLS support (Safari) — just set src
+      if (v.canPlayType("application/vnd.apple.mpegurl")) {
+        v.src = activeSource.url;
+        v.load();
+        console.log("[NOBAR] HLS native playback (Safari)");
+      } else {
+        // Use hls.js for Chrome/Firefox
+        let hls: any = null;
+        import("hls.js").then((Hls) => {
+          const HlsClass = Hls.default || Hls;
+          if (HlsClass.isSupported()) {
+            hls = new HlsClass({
+              // Tune for smoothness
+              maxBufferLength: 30,           // buffer 30s ahead
+              maxMaxBufferLength: 60,        // max 60s buffer
+              liveSyncDurationCount: 3,
+              // Start at highest quality that fits bandwidth
+              abrController: undefined,      // use default ABR
+              // Enable worker for faster processing
+              enableWorker: true,
+              // Low latency mode off (VOD content)
+              lowLatencyMode: false,
+            });
+            hls.loadSource(activeSource.url);
+            hls.attachMedia(v);
+            hls.on(HlsClass.Events.MANIFEST_PARSED, () => {
+              console.log("[NOBAR] HLS manifest loaded — starting playback");
+              v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+            });
+            hls.on(HlsClass.Events.ERROR, (_event: any, data: any) => {
+              if (data.fatal) {
+                console.error("[NOBAR] HLS fatal error:", data.type, data.details);
+                if (data.type === HlsClass.ErrorTypes.NETWORK_ERROR) {
+                  hls.startLoad();
+                } else {
+                  hls.destroy();
+                }
+              }
+            });
+            hlsRef.current = hls;
+          }
+        }).catch((err) => {
+          console.error("[NOBAR] hls.js failed to load:", err);
+          // Fallback: set src directly (might work if browser supports HLS natively)
+          v.src = activeSource.url;
+          v.load();
+        });
+      }
+      return; // Skip MP4 src setting
+    }
+
+    // ── MP4 source: set src directly ──
     if (v.src !== activeSource.url) {
       v.src = activeSource.url;
       v.load(); // force reload with new src

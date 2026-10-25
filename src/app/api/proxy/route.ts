@@ -38,7 +38,11 @@ export async function GET(request: Request) {
     let origin = "https://videm.xyz";
     let needsMbToken = false;
 
-    if (targetUrl.includes("sbcdnw.hakunaymatata.com")) {
+    if (targetUrl.includes("vidsrc.buzz")) {
+      // vidsrc.buzz HLS streams — Referer-gated (403 without it)
+      referer = "https://vidsrc.buzz/";
+      origin = "https://vidsrc.buzz";
+    } else if (targetUrl.includes("sbcdnw.hakunaymatata.com")) {
       // DASH CDN — requires X-MB-Token header AND Referer (per RE report).
       // Bare request → 429; Referer only → 403; X-MB-Token + Referer → 200.
       // movieboxhd.net and mzfi.me are both accepted Referer values.

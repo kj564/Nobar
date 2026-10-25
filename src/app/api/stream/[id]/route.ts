@@ -352,8 +352,28 @@ export async function GET(
     ];
   }
 
-  // Last resort: embed iframe (only if both mzfi + vidlink fail)
-  // Try multiple embed providers: vidlink.pro → vidsrc.me → 2embed.cc
+  // ─── vidsrc.buzz HLS fallback (adaptive bitrate) ──────────────────
+  // If mzfi + vidlink both returned no sources, try vidsrc.buzz which
+  // provides HLS adaptive bitrate streams (1080p/720p/480p auto-switch).
+  // API flow: embed page → sources API → play API → HLS stream URL
+  if (result.sources.length === 0 && !dashSource) {
+    try {
+      const hlsUrl = await fetchVidsrcBuzzStream(tmdbId, kind, season, episode, title);
+      if (hlsUrl) {
+        result.sources.push({
+          quality: "Auto",
+          url: hlsUrl,
+          provider: "vidsrc.buzz",
+          type: "hls",
+        });
+        console.log("[stream] vidsrc.buzz HLS source added");
+      }
+    } catch (err) {
+      console.error("[stream] vidsrc.buzz fetch failed:", err);
+    }
+  }
+
+  // Last resort: embed iframe (only if all direct sources fail)
   if (result.sources.length === 0 && !dashSource) {
     // Use IMDB ID for providers that need it (vidsrc.me, 2embed)
     const embedId = imdbId || String(tmdbId);
@@ -709,4 +729,104 @@ async function initVidlinkWasm(): Promise<void> {
     await new Promise((r) => setTimeout(r, 2000));
   })();
   return wasmInitPromise;
+}
+
+// ─── vidsrc.buzz HLS provider ──────────────────────────────────────
+// API flow:
+// 1. GET /embed/movie/{tmdb_id} → extract Q config (token + IMDB ID)
+// 2. GET /pl/api.php?a=sources&type=movie&id={imdb}&t={token} → server list
+// 3. GET /pl/api.php?a=play&ref={ref} → {url: "/_stream?id=X", type: "hls"}
+// 4. Return proxied HLS URL: /api/proxy?url=vidsrc.buzz/_stream?id=X
+//
+// HLS segments are small (5-second chunks) → much less proxy bandwidth
+// than full MP4 progressive. HLS.js handles adaptive bitrate in browser.
+
+const VIDSRC_BUZZ_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+async function fetchVidsrcBuzzStream(
+  tmdbId: number,
+  kind: "movie" | "tv",
+  season: number,
+  episode: number,
+  title: string
+): Promise<string | null> {
+  // Build embed URL
+  const embedUrl = kind === "tv"
+    ? `https://vidsrc.buzz/embed/tv/${tmdbId}/${season}/${episode}`
+    : `https://vidsrc.buzz/embed/movie/${tmdbId}`;
+
+  // Step 1: Fetch embed page to extract Q config (token + IMDB ID)
+  const pageRes = await fetch(embedUrl, {
+    headers: { "User-Agent": VIDSRC_BUZZ_UA, Referer: "https://vidsrc.buzz/" },
+  });
+  if (!pageRes.ok) {
+    console.log("[vidsrc.buzz] embed page failed:", pageRes.status);
+    return null;
+  }
+  const html = await pageRes.text();
+
+  // Extract Q config from JavaScript
+  const tokenMatch = html.match(/"t":"([^"]+)"/);
+  const idMatch = html.match(/"id":"(tt\d+)"/);
+  if (!tokenMatch || !idMatch) {
+    console.log("[vidsrc.buzz] no token/IMDB ID found in page");
+    return null;
+  }
+  const token = tokenMatch[1];
+  const imdbId = idMatch[1];
+
+  // Step 2: Call sources API
+  const encodedToken = encodeURIComponent(token);
+  const typeParam = kind === "tv" ? "tv" : "movie";
+  const sourcesUrl = `https://vidsrc.buzz/pl/api.php?a=sources&type=${typeParam}&id=${imdbId}&s=${kind === "tv" ? season : 0}&e=${kind === "tv" ? episode : 0}&t=${encodedToken}`;
+
+  const sourcesRes = await fetch(sourcesUrl, {
+    headers: {
+      "User-Agent": VIDSRC_BUZZ_UA,
+      Referer: embedUrl,
+      Accept: "application/json",
+    },
+  });
+  if (!sourcesRes.ok) {
+    console.log("[vidsrc.buzz] sources API failed:", sourcesRes.status);
+    return null;
+  }
+  const sourcesData = await sourcesRes.json();
+
+  if (sourcesData?.error || !sourcesData?.servers?.length) {
+    console.log("[vidsrc.buzz] no servers:", sourcesData?.error || "empty");
+    return null;
+  }
+
+  // Step 3: Call play API for each server until we get a stream URL
+  for (const server of sourcesData.servers) {
+    const ref = server.ref;
+    if (!ref) continue;
+    const encodedRef = encodeURIComponent(ref);
+    const playUrl = `https://vidsrc.buzz/pl/api.php?a=play&ref=${encodedRef}`;
+
+    const playRes = await fetch(playUrl, {
+      headers: {
+        "User-Agent": VIDSRC_BUZZ_UA,
+        Referer: embedUrl,
+        Accept: "application/json",
+      },
+    });
+    if (!playRes.ok) continue;
+    const playData = await playRes.json();
+
+    if (playData?.url && playData?.type === "hls") {
+      // Step 4: Build proxied HLS URL
+      const streamPath = playData.url;
+      const fullStreamUrl = streamPath.startsWith("http")
+        ? streamPath
+        : `https://vidsrc.buzz${streamPath}`;
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(fullStreamUrl)}`;
+      console.log(`[vidsrc.buzz] HLS stream found: ${server.name} → ${fullStreamUrl.slice(0, 80)}`);
+      return proxyUrl;
+    }
+  }
+
+  console.log("[vidsrc.buzz] no HLS stream URL from any server");
+  return null;
 }

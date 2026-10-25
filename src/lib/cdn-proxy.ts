@@ -30,30 +30,20 @@ export async function resolveStream(
 
   const hasHls = data.sources?.some((s: any) => s.type === "hls-direct");
   
-  // If no HLS (only MP4), MP4 won't work in browser (bcdn UA anti-bot → error 4)
-  // Try Idlix vidhide embed as fallback (for movies only)
-  if (!hasHls && kind === "movie") {
-    try {
-      const tmdbRes = await fetch(
-        `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY || "a3ce3ae3ddb29e9417ffcc2889becf9b"}`,
-        { signal: AbortSignal.timeout(5000) }
-      );
-      if (tmdbRes.ok) {
-        const tmdbData = await tmdbRes.json();
-        const title = tmdbData.title || tmdbData.name || "";
-        const year = (tmdbData.release_date || "").slice(0, 4);
-        if (title && year) {
-          const slug = buildIdlixSlug(title, year);
-          const embedUrl = await resolveIdlix(slug);
-          if (embedUrl) {
-            return { sources: [], subtitles: [], embedUrl };
-          }
-        }
+  // Wrap MP4 URLs through Worker's /mp4 proxy (bcdn blocks browser UA with 428)
+  // Browser → Worker /mp4?url={mp4_url} → Worker fetches from bcdn (no UA) → streams back
+  // This makes ALL movies playable ad-free — no iframe, no ads!
+  if (data.sources) {
+    for (const s of data.sources) {
+      if (s.type === "mp4" && s.url && s.url.startsWith("http")) {
+        const proxyBase = isStaticMode && CDN_PROXY_URL ? CDN_PROXY_URL : "";
+        const proxyPath = `/mp4?url=${encodeURIComponent(s.url)}`;
+        s.url = proxyBase ? `${proxyBase}${proxyPath}` : `${proxyPath}${proxyPath.includes("?") ? "&" : "?"}XTransformPort=${CDN_PROXY_PORT}`;
       }
-    } catch {}
+    }
   }
 
-  // For TV without HLS, try vidlink.pro embed
+  // For TV without HLS, use vidlink.pro embed
   if (!hasHls && kind === "tv") {
     return {
       sources: [],

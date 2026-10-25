@@ -265,6 +265,42 @@ async function handleRequestInner(req: Request): Promise<Response> {
     );
   }
 
+  // ─── MP4 proxy endpoint ─────────────────────────────────────────
+  // GET /mp4?url={encoded_mp4_url}
+  // Fetches MP4 from bcdn.hakunaymatata.com WITHOUT User-Agent
+  // (bcdn rejects browser UA with 428). Streams back with Range support.
+  // This makes ALL vidlink.pro movies playable ad-free (not just HLS ones).
+  if (path === "/mp4" || path === "/mp4/") {
+    const targetUrl = url.searchParams.get("url");
+    if (!targetUrl) {
+      return Response.json({ error: "url parameter required" }, { status: 400, headers: corsHeaders });
+    }
+
+    const mp4Headers: Record<string, string> = {
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+    };
+    const range = req.headers.get("range");
+    if (range) mp4Headers["Range"] = range;
+
+    try {
+      const mp4Res = await fetch(targetUrl, { headers: mp4Headers, redirect: "follow" });
+      const respHeaders = new Headers(corsHeaders);
+    const ct = mp4Res.headers.get("content-type");
+    const cl = mp4Res.headers.get("content-length");
+    const cr = mp4Res.headers.get("content-range");
+    const ar = mp4Res.headers.get("accept-ranges");
+    if (ct) respHeaders.set("Content-Type", ct);
+    if (cl) respHeaders.set("Content-Length", cl);
+    if (cr) respHeaders.set("Content-Range", cr);
+    if (ar) respHeaders.set("Accept-Ranges", ar);
+    respHeaders.set("Cache-Control", "public, max-age=3600");
+      return new Response(mp4Res.body, { status: mp4Res.status, headers: respHeaders });
+    } catch (e: any) {
+      return Response.json({ error: "MP4 fetch failed: " + e.message }, { status: 502, headers: corsHeaders });
+    }
+  }
+
   return Response.json({ error: "Not found" }, { status: 404, headers: corsHeaders });
 }
 
@@ -291,3 +327,4 @@ try {
 // This file is the Bun dev server entry point only.
 // Bun auto-detects `export default { fetch }` and starts a server on port 3000,
 // which conflicts with Next.js dev server.
+

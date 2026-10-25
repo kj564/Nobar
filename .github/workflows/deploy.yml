@@ -32,9 +32,32 @@ jobs:
           NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
           BUILD_STATIC: "true"
         run: bun run build
-      - name: SPA fallback
+      - name: Create SPA 404 fallback
         run: |
-          cp out/index.html out/404.html
+          # Extract JS/CSS bundle URLs from index.html
+          # Create a minimal 404.html that loads the same bundles but NO pre-rendered content
+          python3 << 'PY'
+          import re
+          with open('out/index.html') as f:
+              html = f.read()
+          
+          # Extract all <script src="..."> and <link href="...css">
+          scripts = re.findall(r'<script\s+src="([^"]+)"[^>]*>', html)
+          css = re.findall(r'<link\s+rel="stylesheet"\s+href="([^"]+)"', html)
+          
+          # Build minimal 404.html
+          parts = ['<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"/>']
+          parts.append('<meta name="viewport" content="width=device-width, initial-scale=1"/>')
+          for c in css:
+              parts.append(f'<link rel="stylesheet" href="{c}"/>')
+          for s in scripts:
+              parts.append(f'<script src="{s}" async=""></script>')
+          parts.append('</head><body><div id="__next"></div></body></html>')
+          
+          with open('out/404.html', 'w') as f:
+              f.write('\n'.join(parts))
+          print(f'Created 404.html with {len(scripts)} scripts + {len(css)} CSS')
+          PY
           touch out/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:

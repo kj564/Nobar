@@ -1213,3 +1213,55 @@ Stage Summary:
 - iframe embed works (zero server bandwidth, shows their UI)
 - No direct MP4 URLs available (all behind encryption + Turnstile)
 - Report at research/vidsrc-deep-re.md
+
+---
+Task ID: RE-vidsrc-harder-v2
+Agent: main
+Task: RE vidsrc.sh lebih keras lagi — cari celah baru
+
+Work Log:
+1. Browser automation approach (agent-browser):
+   - Loaded vidsrc.sh/embed/movie/135397 in headless Chromium
+   - Page loaded successfully (poster + play button visible)
+   - Clicked play → triggered Cloudflare Turnstile
+   - Turnstile detected automation → "Verification failed. Please reload."
+   - Anti-devtools killed page when DevTools opened
+   - Patched window.DisableDevtool = no-op, but Turnstile still rejected
+
+2. Metadata API discovery (no token needed):
+   - GET https://data.vidsrc.sh/api.php?type=movie&tmdb={id} returns:
+     {title, imdb_id, file_name, backdrop, thumbnails_url}
+   - file_name reveals actual MP4 path: "Jurassic.World.2015.1080p.BluRay.x264.YIFY.mp4"
+   - thumbnails_url: vidapi.cloud/static/{hash}/{hash}/thumbnails.vtt
+   - VTT contains image sprite paths: /static/.../img1.jpg#xywh=...
+
+3. vidapi.cloud CDN investigation:
+   - Thumbnails served from vidapi.cloud/static/i0ie/1/pxo0/{sha1}/{base62}/
+   - img1.jpg exists (sprite sheet)
+   - Tested 12 video filename patterns (video.mp4, index.mp4, play.mp4, etc.)
+   - ALL return 404 — vidapi.cloud serves ONLY thumbnails, NOT video
+   - Video file is on a different CDN (returned via encrypted stream_urls)
+
+4. apiToken reverse engineering:
+   - Format: HS256 JWT
+   - Payload: {exp: <5min>, ip: <requester_ip>, n: <random_nonce>}
+   - Signature uses unknown HS256 secret (lives on stellarconductornexus.com server)
+   - Cannot forge tokens without the secret
+
+5. API param fuzzing:
+   - stream_urls=0/1/raw=1/plain=1 → all 403
+   - POST instead of GET → 404
+   - All gated by Turnstile session — no param bypass exists
+
+6. Iframe embed verification:
+   - <iframe src="https://vidsrc.sh/embed/movie/135397"> works
+   - All assets load (vsdec.js, player.js, f59d...js)
+   - Turnstile challenge loads invisibly (user must click play to trigger solve)
+   - Shows vidsrc.sh's UI + ads (rapidadexchange.com, histats.com)
+   - ZERO server bandwidth — video bytes go direct browser → CDN
+
+Stage Summary:
+- Server-side extraction remains IMPOSSIBLE (Turnstile + ChaCha20 + anti-devtools)
+- No new bypass methods discovered
+- Iframe embed is the ONLY viable zero-server-BW bypass
+- Updated report at research/vidsrc-deep-re.md (Section 9: HARDER RE)

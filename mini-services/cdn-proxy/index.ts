@@ -265,11 +265,13 @@ async function handleRequestInner(req: Request): Promise<Response> {
     );
   }
 
-  // ─── MP4 proxy endpoint ─────────────────────────────────────────
+  // ─── MP4 proxy endpoint (SMART — adds correct headers per CDN) ──
   // GET /mp4?url={encoded_mp4_url}
-  // Fetches MP4 from bcdn.hakunaymatata.com WITHOUT User-Agent
-  // (bcdn rejects browser UA with 428). Streams back with Range support.
-  // This makes ALL vidlink.pro movies playable ad-free (not just HLS ones).
+  // Smart proxy that adds the right headers based on CDN domain:
+  //   bcdn.hakunaymatata.com → NO User-Agent (anti-bot blocks browser UA)
+  //   bcdnxw.hakunaymatata.com → Referer: https://mzfi.me/ (Referer anti-leech)
+  //   sbcdnw.hakunaymatata.com → Referer + X-MB-Token (DASH, via mbtoken param)
+  // Streams back with Range support + CORS headers.
   if (path === "/mp4" || path === "/mp4/") {
     const targetUrl = url.searchParams.get("url");
     if (!targetUrl) {
@@ -279,28 +281,147 @@ async function handleRequestInner(req: Request): Promise<Response> {
     const mp4Headers: Record<string, string> = {
       "Accept": "*/*",
       "Accept-Language": "en-US,en;q=0.9",
-      // bcdn rejects browser UA (Mozilla/Chrome/etc → 428/427)
-      // Send a non-browser UA (Wget/curl pattern passes)
-      "User-Agent": "Wget/1.21",
     };
+
+    // Smart header injection based on CDN domain
+    if (targetUrl.includes("bcdn.hakunaymatata.com")) {
+      // vidlink.pro MP4 CDN — rejects browser UA (428/427), send no UA
+      // Don't set User-Agent at all
+    } else if (targetUrl.includes("bcdnxw.hakunaymatata.com")) {
+      // mzfi.me MP4 CDN — requires Referer anti-leech
+      mp4Headers["Referer"] = "https://mzfi.me/";
+      mp4Headers["Origin"] = "https://mzfi.me";
+      mp4Headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
+    } else {
+      // Default: send browser UA
+      mp4Headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
+    }
+
+    // Optional mbtoken for mzfi DASH CDN (sbcdnw)
+    const mbtoken = url.searchParams.get("mbtoken");
+    if (mbtoken && targetUrl.includes("sbcdnw")) {
+      mp4Headers["X-MB-Token"] = mbtoken;
+      mp4Headers["Referer"] = "https://movieboxhd.net/";
+      mp4Headers["Origin"] = "https://movieboxhd.net";
+      mp4Headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
+    }
+
     const range = req.headers.get("range");
     if (range) mp4Headers["Range"] = range;
 
     try {
       const mp4Res = await fetch(targetUrl, { headers: mp4Headers, redirect: "follow" });
       const respHeaders = new Headers(corsHeaders);
-    const ct = mp4Res.headers.get("content-type");
-    const cl = mp4Res.headers.get("content-length");
-    const cr = mp4Res.headers.get("content-range");
-    const ar = mp4Res.headers.get("accept-ranges");
-    if (ct) respHeaders.set("Content-Type", ct);
-    if (cl) respHeaders.set("Content-Length", cl);
-    if (cr) respHeaders.set("Content-Range", cr);
-    if (ar) respHeaders.set("Accept-Ranges", ar);
-    respHeaders.set("Cache-Control", "public, max-age=3600");
+      const ct = mp4Res.headers.get("content-type");
+      const cl = mp4Res.headers.get("content-length");
+      const cr = mp4Res.headers.get("content-range");
+      const ar = mp4Res.headers.get("accept-ranges");
+      if (ct) respHeaders.set("Content-Type", ct);
+      if (cl) respHeaders.set("Content-Length", cl);
+      if (cr) respHeaders.set("Content-Range", cr);
+      if (ar) respHeaders.set("Accept-Ranges", ar);
+      respHeaders.set("Cache-Control", "public, max-age=3600");
       return new Response(mp4Res.body, { status: mp4Res.status, headers: respHeaders });
     } catch (e: any) {
       return Response.json({ error: "MP4 fetch failed: " + e.message }, { status: 502, headers: corsHeaders });
+    }
+  }
+
+  // ─── mzfi stream resolver ─────────────────────────────────────────
+  // GET /mzfi/{tmdbId}?kind=movie&title={title}&year={year}
+  // Searches mzfi.me for the movie, gets stream URLs, returns proxied MP4 sources.
+  // The Worker handles all mzfi auth (Cookie + Referer) server-side.
+  // Browser plays via /mp4 proxy (Worker adds Referer for bcdnxw CDN).
+  const mzfiMatch = path.match(/^\/mzfi\/(\d+)$/);
+  if (mzfiMatch) {
+    const tmdbId = Number(mzfiMatch[1]);
+    const kind = (url.searchParams.get("kind") || "movie") as "movie" | "tv";
+    const title = url.searchParams.get("title") || "";
+    const year = url.searchParams.get("year") || "";
+
+    if (!title) {
+      return Response.json({ sources: [], subtitles: [], error: "title required" }, { headers: corsHeaders });
+    }
+
+    try {
+      const token = await getMzfiToken();
+      if (!token) {
+        return Response.json({ sources: [], subtitles: [], error: "mzfi token failed" }, { headers: corsHeaders });
+      }
+
+      // Search mzfi for the movie
+      const searchRes = await fetch("https://mzfi.me/wefeed-h5api-bff/subject/search", {
+        method: "POST",
+        headers: { ...MZFI_HEADERS, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: title, page: 1, perPage: 20 }),
+      });
+      const searchData = await searchRes.json();
+      const items = searchData?.data?.items || [];
+
+      // Find matching item (title + year)
+      let target: any = null;
+      const normTitle = title.toLowerCase().replace(/[^a-z0-9]/g, "");
+      for (const item of items) {
+        const itemNorm = (item.title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const itemYear = (item.releaseDate || "").slice(0, 4);
+        if (itemNorm === normTitle && (itemYear === year || Math.abs(Number(itemYear) - Number(year)) <= 1)) {
+          target = item;
+          break;
+        }
+      }
+      // Fuzzy match
+      if (!target) {
+        for (const item of items) {
+          const itemNorm = (item.title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (itemNorm.includes(normTitle) || normTitle.includes(itemNorm)) {
+            target = item;
+            break;
+          }
+        }
+      }
+
+      if (!target) {
+        return Response.json({ sources: [], subtitles: [], error: "not found in mzfi" }, { headers: corsHeaders });
+      }
+
+      // Call /subject/play
+      const seParam = kind === "tv" ? "1" : "0";
+      const epParam = kind === "tv" ? "1" : "0";
+      const playUrl = `https://mzfi.me/wefeed-h5api-bff/subject/play?subjectId=${target.subjectId}&se=${seParam}&ep=${epParam}&detailPath=${target.detailPath}&streamSignType=1&supportCodecs%5Bh264%5D=1`;
+      const playRes = await fetch(playUrl, {
+        headers: { ...MZFI_HEADERS, Authorization: `Bearer ${token}`, Referer: `https://mzfi.me/spa/videoPlayPage/movies/${target.detailPath}?id=${target.subjectId}` },
+      });
+      const playData = await playRes.json();
+      const data = playData?.data;
+      if (!data) {
+        return Response.json({ sources: [], subtitles: [], error: "play failed" }, { headers: corsHeaders });
+      }
+
+      const streams = data.streams || [];
+      const sources: any[] = [];
+
+      for (const s of streams) {
+        if (s.url) {
+          // Wrap through /mp4 proxy (Worker adds Referer for bcdnxw)
+          const proxyUrl = `/mp4?url=${encodeURIComponent(s.url)}`;
+          const fullProxyUrl = isStaticMode ? `${CDN_PROXY_URL}${proxyUrl}` : `${proxyUrl}&XTransformPort=${CDN_PROXY_PORT}`;
+          sources.push({
+            quality: `${s.id || "auto"}p`,
+            url: fullProxyUrl,
+            provider: "mzfi.me",
+            type: "mp4",
+          });
+        }
+      }
+
+      // Also extract subtitles
+      const subtitles: any[] = [];
+      const captions = data.captions || [];
+      // mzfi returns captions via separate API call — skip for now
+
+      return Response.json({ sources, subtitles }, { headers: corsHeaders });
+    } catch (e: any) {
+      return Response.json({ sources: [], subtitles: [], error: e.message }, { headers: corsHeaders });
     }
   }
 

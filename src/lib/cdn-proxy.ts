@@ -27,8 +27,38 @@ export async function resolveStream(
   const hasHls = data.sources?.some((s: any) => s.type === "hls-direct");
 
   if (!hasHls) {
-    // No HLS → MP4 URLs from bcdn are often expired/stale (vidlink.pro CDN cache issue)
-    // Use vidlink.pro embed iframe as fallback (plays video, has ads)
+    // No HLS from vidlink → try mzfi.me (Worker handles search + play + auth)
+    // mzfi has a HUGE catalog (thousands of movies) with direct MP4 URLs
+    try {
+      // Get title + year from TMDB (CORS-open, direct browser call)
+      const tmdbEndpoint = kind === "tv" ? "tv" : "movie";
+      const tmdbRes = await fetch(
+        `https://api.themoviedb.org/3/${tmdbEndpoint}/${tmdbId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY || "a3ce3ae3ddb29e9417ffcc2889becf9b"}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (tmdbRes.ok) {
+        const tmdbData = await tmdbRes.json();
+        const title = tmdbData.title || tmdbData.name || "";
+        const dateField = kind === "tv" ? "first_air_date" : "release_date";
+        const year = ((tmdbData as any)[dateField] || "").slice(0, 4);
+
+        if (title && year) {
+          // Call CDN proxy's mzfi resolver
+          const mzfiParams = new URLSearchParams({ kind, title, year });
+          const mzfiUrl = proxyUrl(`/mzfi/${tmdbId}?${mzfiParams}`);
+          const mzfiRes = await fetch(mzfiUrl, { signal: AbortSignal.timeout(15000) });
+          if (mzfiRes.ok) {
+            const mzfiData = await mzfiRes.json();
+            if (mzfiData.sources && mzfiData.sources.length > 0) {
+              // mzfi found it! Return proxied MP4 sources (ad-free!)
+              return mzfiData;
+            }
+          }
+        }
+      }
+    } catch {}
+
+    // mzfi didn't have it → use vidlink.pro embed (has ads but plays)
     if (kind === "tv") {
       return { sources: [], subtitles: [], embedUrl: `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}` };
     }

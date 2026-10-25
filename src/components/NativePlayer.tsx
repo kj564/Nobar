@@ -317,6 +317,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     resolveStream(tmdbId, kind, season, episode)
       .then(async (data) => {
         if (cancelled) return;
+        
+        // If CDN proxy returned an embedUrl (Idlix fallback for MP4-only movies)
+        if (data.embedUrl) {
+          setEmbedUrl(data.embedUrl);
+          setUseEmbed(true);
+          setLoading(false);
+          return;
+        }
+        
         setSources(data.sources || []);
         setDashSource(null); // DASH not supported in static mode (needs /api/proxy)
         // Subtitle URL handling:

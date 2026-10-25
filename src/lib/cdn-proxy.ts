@@ -57,9 +57,9 @@ export async function resolveStream(
     auth?: { policy: string; signature: string; keyPairId: string };
   }>;
   subtitles: Array<{ language: string; url: string }>;
+  embedUrl?: string | null;
 }> {
   if (isStaticMode || true) {
-    // Always use CDN proxy (works in both dev + static mode)
     const params = new URLSearchParams({
       kind,
       season: String(season),
@@ -67,9 +67,37 @@ export async function resolveStream(
     });
     const url = proxyUrl(`/vidlink/${tmdbId}?${params}`);
     const res = await fetch(url);
-    if (!res.ok) return { sources: [], subtitles: [] };
-    return res.json();
+    if (!res.ok) return { sources: [], subtitles: [], embedUrl: null };
+    const data = await res.json();
+    
+    // If no HLS source (only MP4), try Idlix embed fallback
+    // MP4 from bcdn.hakunaymatata.com fails in browser (UA anti-bot → error 4)
+    const hasHls = data.sources?.some((s: any) => s.type === "hls-direct");
+    if (!hasHls && kind === "movie") {
+      // Fetch TMDB title+year to construct Idlix slug
+      try {
+        const tmdbRes = await fetch(
+          `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY || ""}`,
+          { signal: AbortSignal.timeout(5000) }
+        );
+        if (tmdbRes.ok) {
+          const tmdbData = await tmdbRes.json();
+          const title = tmdbData.title || tmdbData.name || "";
+          const year = (tmdbData.release_date || "").slice(0, 4);
+          if (title && year) {
+            const slug = buildIdlixSlug(title, year);
+            const embedUrl = await resolveIdlix(slug);
+            if (embedUrl) {
+              return { sources: [], subtitles: [], embedUrl };
+            }
+          }
+        }
+      } catch {}
+    }
+    
+    return data;
   }
+  return { sources: [], subtitles: [], embedUrl: null };
 }
 
 /**

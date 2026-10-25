@@ -62,9 +62,19 @@ export function SeriesPageClient() {
   const router = useRouter();
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
+  // Get series ID from URL params OR parse from window.location (GitHub Pages SPA)
+  function getSeriesSlug(): string {
+    const paramSlug = params?.id;
+    if (paramSlug && paramSlug !== "preview") return paramSlug;
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+    let path = typeof window !== "undefined" ? window.location.pathname : "";
+    if (basePath && path.startsWith(basePath)) path = path.slice(basePath.length);
+    const match = path.match(/\/series\/(.+?)(?:\/?)(?:\?.*)?$/);
+    return match ? match[1] : "";
+  }
+
   useEffect(() => {
-    // URL segment is a slug of the form "breaking-bad-1396".
-    const slug = params?.id ?? "";
+    const slug = getSeriesSlug();
     const seriesId = extractIdFromSlug(slug);
     if (!seriesId) {
       setState({ status: "notfound" });

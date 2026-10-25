@@ -36,12 +36,49 @@ jobs:
           BUILD_STATIC: "true"
         run: bun run build
 
-      - name: Create SPA 404 fallback
+      - name: Create GitHub Pages SPA fallback
         run: |
-          # Copy index.html as 404.html for SPA routing
-          cp out/index.html out/404.html
+          # Create 404.html = index.html + SPA redirect script
+          # The script saves the original URL path, then after React loads,
+          # restores it via history.replaceState so Next.js client routing works.
+          cat > out/404.html << 'HTML404'
+          <!DOCTYPE html>
+          <html>
+          <head>
+          <meta charset="utf-8">
+          <title>Nobar — Streaming Film Indie</title>
+          <script>
+          // GitHub Pages SPA hack:
+          // When GitHub Pages serves this 404.html for /movie/the-matrix-1999-603/,
+          // we save the original path, redirect to / (which loads index.html = the SPA),
+          // then restore the original path via history.replaceState.
+          (function() {
+            var basePath = '/Nobar';
+            var fullPath = window.location.pathname;
+            
+            // Remove basePath
+            var route = fullPath.replace(basePath, '') || '/';
+            
+            // Save the route we want to be at
+            sessionStorage.setItem('spa-redirect', route);
+            
+            // Redirect to base URL (which serves index.html = the SPA)
+            window.location.href = basePath + '/';
+          })();
+          </script>
+          </head>
+          <body>
+          <p>Redirecting...</p>
+          </body>
+          </html>
+          HTML404
+          
+          # Now modify index.html to check for spa-redirect and restore the route
+          # Insert the script right after <head> in index.html
+          sed -i 's|<head>|<head>\n<script>(function(){var r=sessionStorage.getItem("spa-redirect");if(r){sessionStorage.removeItem("spa-redirect");history.replaceState(null,"",r);}})();</script>|' out/index.html
+          
           touch out/.nojekyll
-          echo "✓ SPA fallback + .nojekyll created"
+          echo "✓ SPA 404 + redirect hack created"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

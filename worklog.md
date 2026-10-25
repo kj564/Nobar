@@ -1869,3 +1869,63 @@ Stage Summary:
 - Proxy for sacdn: inject Cookie only (simplest of all CDNs)
 - ailok.pe = dead upload domain (not usable)
 - vidlink HLS implementation opportunity: XPE=hls → HLS + cookies → proxy
+
+---
+Task ID: RE-vidlink-wasm-key-extracted
+Agent: main
+Task: RE mendalam fu.wasm — extract secret key, mint tokens without WASM
+
+Work Log:
+
+1. fu.wasm analysis:
+   - 2.4MB Go binary compiled to WASM (gojs.syscall/js bridge)
+   - Code section: 1.49MB, Data section: 877KB
+   - 4037 embedded strings
+   - Contains: sodium, crypto_secretbox_easy, getAdv
+   - Exports: run, resume, getsp, mem (Go runtime)
+
+2. Token structure analysis:
+   - Format: base64url(nonce + ciphertext)
+   - Nonce: 24 zero bytes (DETERMINISTIC, not random!)
+   - Same movieId → same token (verified: 2 calls = identical)
+   - crypto: XSalsa20-Poly1305 (crypto_secretbox_easy)
+
+3. SECRET KEY EXTRACTED via sodium hook:
+   - Strategy: override sodium.crypto_secretbox_easy before WASM run
+   - Go WASM calls sodium.crypto_secretbox_easy(message, nonce, key)
+   - Captured all 3 args:
+     * message: movieId_ascii + \x00\x00\x00\x00 + \x6a\xdd\xa0\x55
+     * nonce: 24×0x00
+     * key: c75136c5668bbfe65a7ecad431a745db68b5f381555b38d8f6c699449cf11fcd
+   - Key is STATIC (same for all movies, embedded in WASM data section)
+
+4. Message format decoded:
+   - Movie 603: "603" + 0x00000000 + 0x6adda055 (11 bytes)
+   - Movie 135397: "135397" + 0x00000000 + 0x6adda055 (14 bytes)
+   - Pattern: movieId_ascii + 4 null bytes + constant suffix 0x6adda055
+
+5. SELF-MINTED TOKEN VERIFICATION:
+   - Minted token for movie 603 → MATCHES WASM-generated token ✓
+   - Minted token for movie 135397 → MATCHES WASM-generated token ✓
+   - API call with self-minted token → WORKS! Returns HLS playlist ✓
+   - Token generation: <1ms (vs 3s WASM startup)
+
+6. IMPLICATION:
+   - Can ELIMINATE 2.4MB fu.wasm + 3s startup time
+   - Replace with: sodium.crypto_secretbox_easy (instant, <1ms)
+   - No WASM bridge needed, no browser stubs, no eval()
+   - Cleaner, faster, less dependencies
+
+COMPLETE vidlink ARCHITECTURE (FULLY REVERSED):
+  1. Token = base64url(nonce=0x00*24 + crypto_secretbox_easy(movieId+\x00*4+\x6a\xdd\xa0\x55, nonce, KEY))
+  2. API: /api/b/movie/{token}?multiLang=0 with X-Playback-Environment: hls
+  3. Response: {playlist: sacdn.../local.m3u8, playlistHeaders: {Cookie: CloudFront-Policy=...}}
+  4. HLS: sacdn.hakunaymatata.com/hls/{id}/local.m3u8 (CloudFront + Aliyun OSS + Aliyun CDN)
+  5. Segments: 5.4MB/10s, CORS:*, cookie-only auth, 360-day cache
+
+Stage Summary:
+- SECRET KEY EXTRACTED: c75136c5668bbfe65a7ecad431a745db68b5f381555b38d8f6c699449cf11fcd
+- Token = deterministic crypto_secretbox (not random, no expiry)
+- Self-minted tokens verified against WASM + API
+- fu.wasm can be replaced with 10 lines of sodium code
+- vidlink architecture COMPLETELY reversed end-to-end

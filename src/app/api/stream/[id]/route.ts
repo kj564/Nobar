@@ -361,16 +361,17 @@ export async function GET(
       // Get request origin for absolute proxy URLs (needed for data: URL base)
       const reqUrl = new URL(request.url);
       const requestOrigin = `${reqUrl.protocol}//${reqUrl.host}`;
-      const hlsUrl = await fetchVidsrcBuzzStream(tmdbId, kind, season, episode, title, requestOrigin);
-      if (hlsUrl) {
-        result.sources.push({
-          quality: "Auto",
-          url: hlsUrl,
-          provider: "vidsrc.buzz",
-          type: "hls",
-        });
-        console.log("[stream] vidsrc.buzz HLS source added");
-      }
+      // Return dedicated HLS endpoint URL (not data URL)
+      // This endpoint fetches HLS playlist server-side (same IP as API calls)
+      // and returns modified m3u8 with proxied segment URLs
+      const hlsEndpoint = `${requestOrigin}/api/vidsrc-hls/${tmdbId}?kind=${kind}${kind === "tv" ? `&season=${season}&episode=${episode}` : ""}`;
+      result.sources.push({
+        quality: "Auto",
+        url: hlsEndpoint,
+        provider: "vidsrc.buzz",
+        type: "hls",
+      });
+      console.log("[stream] vidsrc.buzz HLS endpoint added");
     } catch (err) {
       console.error("[stream] vidsrc.buzz fetch failed:", err);
     }

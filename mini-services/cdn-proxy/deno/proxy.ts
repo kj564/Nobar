@@ -7,11 +7,10 @@
  * 1. https://dash.deno.com → New Project → Playground
  * 2. Paste this entire file
  * 3. Click "Save & Deploy"
- * 4. Get URL: https://<your-project>.deno.dev
+ * 4. Get URL: https://<your-project>.deno.dev (or .deno.net)
  * 5. Set CDN_PROXY_URL env var in Vercel = that URL
  */
 
-// Use Deno.serve (built-in, no imports needed)
 Deno.serve(async (req: Request): Promise<Response> => {
   const url = new URL(req.url);
 
@@ -78,7 +77,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   // ─── vidlink CDN (bcdn) — needs NO Referer, NO browser UA ───
   // Deno sends "Deno/X.X" UA by default (non-browser, works!)
-  // Don't set anything — Deno's default works
   else if (targetUrl.includes("bcdn.hakunaymatata.com")) {
     // intentionally empty
   }
@@ -89,6 +87,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     headers["Origin"] = "https://movieboxhd.net";
     if (mbtoken) headers["X-MB-Token"] = mbtoken;
   }
+
+  // ─── CRITICAL: Remove Deno Deploy's auto-injected headers ───
+  // Deno Deploy adds these headers to ALL outbound requests:
+  //   Cdn-Loop, X-Deno-Loop, Traceparent
+  // mzfi CDN (Alibaba/Tengine) BLOCKS requests with Cdn-Loop header (426)
+  // Setting them to empty string overrides the defaults
+  headers["Cdn-Loop"] = "";
+  headers["X-Deno-Loop"] = "";
+  headers["Traceparent"] = "";
 
   // Fetch from CDN
   let res: Response;
@@ -110,9 +117,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
   }
 
-  // Retry on 429/428 (rate-limit) with minimal headers
-  if (res.status === 429 || res.status === 428) {
-    const retryHeaders: Record<string, string> = {};
+  // Retry on 426/429/428 (rate-limit / CDN block) with minimal headers
+  if (res.status === 426 || res.status === 429 || res.status === 428) {
+    const retryHeaders: Record<string, string> = {
+      "Cdn-Loop": "",
+      "X-Deno-Loop": "",
+      "Traceparent": "",
+    };
     if (range) retryHeaders["Range"] = range;
 
     if (targetUrl.includes("bcdnxw.hakunaymatata.com")) {

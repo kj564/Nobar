@@ -1494,3 +1494,70 @@ KESIMPULAN FINAL:
 - vidlink: surge.flooderrr.store proxy (CloudFront, milik mereka)
 - kita: butuh proxy sendiri (Vercel/Cloudflare Worker/Deno Deploy)
 
+
+---
+Task ID: RE-mzfi-vidlink-native-v3
+Agent: main
+Task: RE opsi 2 (mzfi alternate endpoint) + opsi 3 (surge proxy) + test ide user (iframe srcdoc)
+
+Work Log:
+
+1. mzfi.me open redirect search:
+   - Tested 8 redirect paths (/redirect, /go, /link, /jump, /api/redirect, etc.)
+   - ALL return 200 with index.html (mzfi is SPA, no redirect endpoints)
+   - No open redirect vulnerability found
+   - Anti-leech is at CDN level (not app level) → cannot bypass via app
+
+2. vidlink API deep analysis:
+   - API response fields: sourceId, stream.{id, type, flags, TTL, deliveryType, qualities, captions}
+   - flags: ["cors-allowed"] — vidlink claims URLs are CORS-allowed
+   - requiresProxy: true — vidlink explicitly says proxy needed
+   - deliveryType: "file" (not HLS/DASH)
+   - surge.flooderrr.store URL NOT in API response
+   - surge URL constructed CLIENT-SIDE by vidlink SPA JS
+   - sc= (CloudFront signed cookies) NOT in API response
+   - Without sc= → surge returns 403
+
+3. vidlink CDN CORS test:
+   - OPTIONS preflight: timing-allow-origin: * (but no CORS headers)
+   - GET with Origin: no Access-Control-Allow-Origin in response
+   - flags: ["cors-allowed"] is misleading — CDN doesn't actually return CORS headers
+   - CDN rejects browser User-Agent (428) regardless of CORS
+
+4. Browser <video> direct fetch test:
+   - <video src="https://bcdn.hakunaymatata.com/...mp4"> → error code 4 (format error)
+   - CDN returns 428 HTML error page (not video) → video element can't decode
+   - <meta name="referrer" content="no-referrer"> → still 429 (mzfi needs Referer)
+   - crossorigin="anonymous" → still fails (CDN rejects browser UA)
+
+5. User idea test (iframe srcdoc + sandbox):
+   - iframe srcdoc: origin = null → browser sends no Referer → mzfi CDN rejects (429)
+   - mzfi CDN REQUIRES Referer: mzfi.me → no-referrer = reject
+   - Sandbox iframe: same result (origin null, no Referer)
+   - vidlink CDN: still rejects browser UA (428) regardless of iframe
+
+6. vidlink CDN header matrix (final):
+   - curl UA (non-browser) + Range → 206 ✓
+   - browser UA + Range → 428 ✗
+   - browser UA + Sec-Fetch-Dest: video + Sec-Fetch-Mode: no-cors → 428 ✗
+   - browser UA + Sec-Fetch-Site: same-origin (fake) → 428 ✗
+   - NO User-Agent + Range → 206 ✓ (but browser always sends UA)
+
+CONCLUSION:
+- mzfi CDN: anti-leech checks Referer against allowlist (mzfi.me, etc.)
+  Browser can't forge Referer (forbidden header)
+  iframe srcdoc/sandbox = origin null → no Referer → reject
+  No open redirect in mzfi.me app
+  
+- vidlink CDN: anti-leech rejects browser User-Agent (428)
+  Browser always sends UA (forbidden header)
+  flags: ["cors-allowed"] is misleading (CDN doesn't return CORS headers)
+  surge.flooderrr.store proxy needs CloudFront signed cookies (not in API response)
+  
+- User's iframe srcdoc idea: doesn't work because:
+  1. mzfi needs Referer (no-referrer = reject)
+  2. vidlink rejects browser UA (forbidden header)
+  3. iframe sandbox = origin null = no Referer = reject
+
+FINAL VERDICT: No native browser bypass possible for hakunaymatata.com CDNs.
+Both mzfi and vidlink anti-leech mechanisms exploit forbidden headers (Referer + User-Agent).

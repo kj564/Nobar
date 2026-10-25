@@ -1417,3 +1417,80 @@ Stage Summary:
 - CDN_PROXY_URL env var: auto-switches between Vercel proxy and external
 - Deployment guide written (Cloudflare Worker + Deno Deploy)
 - User deploys free proxy → sets env var → zero Vercel egress + native player
+
+---
+Task ID: RE-hakunaymatata-intensif-v3
+Agent: main
+Task: RE intensif — kenapa mzfi & vidlink bisa native, cari bypass pure browser
+
+Work Log:
+
+1. mzfi.me SPA network capture (DEEP):
+   - Browser origin = mzfi.me
+   - Video src = https://bcdnxw.hakunaymatata.com/bt/...mp4?sign=X&t=Y (DIRECT)
+   - Browser kirim Referer: https://mzfi.me/ (otomatis, dari origin)
+   - CDN accept karena Referer match mzfi.me → 206 ✓
+   - mzfi SPA = DIRECT from CDN, NO proxy server
+   - TRICK: origin-match (browser origin = mzfi.me = Referer yang CDN accept)
+   - Kita TIDAK bisa tiru karena origin Nobar = nobar-stream.vercel.app
+
+2. vidlink.pro SPA network capture (BREAKTHROUGH):
+   - Browser origin = vidlink.pro
+   - Video src = https://surge.flooderrr.store/sacdn/dash/.../index_web.mpd
+     ?host=https://sacdn.hakunaymatata.com
+     &sc=CloudFront-Policy=...;CloudFront-Signature=...;CloudFront-Key-Pair-Id=...
+   - surge.flooderrr.store = CloudFront distribution (PROXY vidlink sendiri!)
+   - vidlink.pro SPA = PAKAI PROXY (surge.flooderrr.store)
+   - requiresProxy: true di API response
+   - vidlink TIDAK main direct dari hakunaymatata.com
+   - Decoded CloudFront-Policy: bound to sacdn.hakunaymatata.com/dash/{movie_id}/*, 7 hari expiry
+
+3. vidlink API response analysis:
+   {
+     "stream": {
+       "qualities": {
+         "1080": {
+           "url": "https://bcdn.hakunaymatata.com/resource/h265/...mp4?sign=X&t=Y",
+           "requiresProxy": true  ← EXPLICIT FLAG
+         }
+       }
+     }
+   }
+   vidlink sendiri bilang URL ini butuh proxy!
+
+4. surge.flooderrr.store test:
+   - Bare request (no sc=) → 403 (CloudFront requires signed cookies)
+   - With valid sc= from vidlink API → 403 (Policy bound to specific resource)
+   - Tidak bisa dipakai sebagai proxy gratis oleh kita
+
+5. hakunaymatata.com header matrix (EXHAUSTIVE):
+   Tested: Origin: null, Sec-Fetch-Site, X-Forwarded-Host, X-Real-IP, HTTP/3,
+   Referer: hakunaymatata.com (self), Referer: bcdnxw.hakunaymatata.com (same subdomain)
+   Result: ALL return 429 (anti-leech strict)
+   CDN checks Referer against allowlist: mzfi.me, movieboxhd.net, netfilm.world, etc.
+   Origin/Sec-Fetch-*/X-Forwarded-* headers: irrelevant
+
+6. vidlink CDN (bcdn.hakunaymatata.com) matrix:
+   - NO UA + Sec-Fetch-Site: same-origin → 206 ✓ (BREAKTHROUGH!)
+   - curl UA + Sec-Fetch-Site: same-site → 206 ✓
+   - Browser SELALU kirim UA → 428 (reject)
+   - Service Worker: forbidden headers (Referer, User-Agent stripped by browser)
+   - Tidak bisa bypass dari browser
+
+7. sacdn.hakunaymatata.com (subdomain BARU ditemukan):
+   - Dari vidlink API response, video pakai sacdn (bukan bcdnxw/bcdn)
+   - sacdn = CloudFront-fronted (perlu signed cookies)
+   - Test tanpa cookies → 403
+   - Tidak bisa akses direct
+
+KESIMPULAN FINAL:
+- mzfi SPA: NATIVE karena origin-match (browser origin = mzfi.me → Referer cocok)
+  Kita TIDAK bisa tiru tanpa host Nobar di mzfi.me subdomain (tidak mungkin)
+- vidlink SPA: PAKAI PROXY (surge.flooderrr.store, CloudFront distribution)
+  vidlink sendiri butuh proxy, requiresProxy: true
+- TIDAK ADA bypass pure browser untuk hakunaymatata.com
+- SEMUA provider (mzfi, vidlink, kita) butuh server-side header injection
+- mzfi: origin-match (gratis kalau origin = mzfi.me)
+- vidlink: surge.flooderrr.store proxy (CloudFront, milik mereka)
+- kita: butuh proxy sendiri (Vercel/Cloudflare Worker/Deno Deploy)
+

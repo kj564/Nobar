@@ -1,0 +1,40 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://deno.land/std/http/server.ts": "https://deno.land/std@0.224.0/http/server.ts"
+  },
+  "remote": {
+    "https://deno.land/std@0.224.0/async/delay.ts": "f90dd685b97c2f142b8069082993e437b1602b8e2561134827eeb7c12b95c499",
+    "https://deno.land/std@0.224.0/http/server.ts": "f9313804bf6467a1704f45f76cb6cd0a3396a3b31c316035e6a4c2035d1ea514"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@prisma/client@^6.11.1",
+        "npm:@tailwindcss/postcss@4",
+        "npm:@types/node@22",
+        "npm:@types/react-dom@19",
+        "npm:@types/react@19",
+        "npm:@vitalets/google-translate-api@^9.2.1",
+        "npm:class-variance-authority@~0.7.1",
+        "npm:clsx@^2.1.1",
+        "npm:crypto-js@^4.2.0",
+        "npm:eslint-config-next@^16.1.1",
+        "npm:eslint@9",
+        "npm:hls.js@^1.7.3",
+        "npm:libsodium-wrappers@~0.8.4",
+        "npm:lucide-react@0.525",
+        "npm:next@^16.1.1",
+        "npm:react-dom@19",
+        "npm:react@19",
+        "npm:shaka-player@^5.3.2",
+        "npm:tailwind-merge@^3.3.1",
+        "npm:tailwindcss@4",
+        "npm:tweetnacl-util@~0.15.1",
+        "npm:tweetnacl@^1.0.3",
+        "npm:typescript@5",
+        "npm:z-ai-web-dev-sdk@^0.0.18"
+      ]
+    }
+  }
+}

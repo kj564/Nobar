@@ -72,56 +72,51 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   // Step 4: Fetch master playlist
   const masterRes = await fetch(streamUrl, { headers: { "User-Agent": UA, Referer: embedUrl } });
   if (!masterRes.ok) return NextResponse.json({ error: "master playlist failed" }, { status: 502 });
-  let masterM3u8 = await masterRes.text();
+  const masterM3u8 = await masterRes.text();
 
-  // Step 5: If master has variants, fetch each variant and inline segment URLs
+  // Step 5: Fetch best variant playlist and return directly (not as data URL)
+  let finalM3u8 = masterM3u8;
   const hasVariants = masterM3u8.includes("#EXT-X-STREAM-INF");
 
   if (hasVariants) {
-    // For each variant, fetch the variant playlist and rewrite URLs
-    // Then replace the variant URL with a new endpoint that returns the variant
+    // Pick best variant (highest bandwidth) and fetch its playlist
     const lines = masterM3u8.split("\n");
-    let rebuilt = "#EXTM3U\n";
+    let bestBandwidth = 0;
+    let bestVariantUrl = "";
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.startsWith("#EXT-X-STREAM-INF")) {
+        const bwMatch = line.match(/BANDWIDTH=(\d+)/);
+        const bandwidth = bwMatch ? parseInt(bwMatch[1]) : 0;
         const variantUrl = lines[i + 1]?.trim();
-        if (variantUrl) {
-          const fullVariantUrl = variantUrl.startsWith("http") ? variantUrl : `https://vidsrc.buzz${variantUrl}`;
-          // Fetch variant playlist
-          const vRes = await fetch(fullVariantUrl, { headers: { "User-Agent": UA, Referer: embedUrl } });
-          if (vRes.ok) {
-            const vM3u8 = await vRes.text();
-            // Rewrite segment URLs to absolute proxy URLs
-            const rewritten = vM3u8.split("\n").map((l: string) => {
-              const t = l.trim();
-              if (!t || t.startsWith("#")) return l;
-              const fullUrl = t.startsWith("http") ? t : `https://vidsrc.buzz${t}`;
-              return `${proxyOrigin}/api/proxy?url=${encodeURIComponent(fullUrl)}`;
-            }).join("\n");
-            // Encode as data URL (hls.js supports data: URLs for media playlists)
-            const dataUrl = `data:application/vnd.apple.mpegurl;base64,${Buffer.from(rewritten).toString("base64")}`;
-            rebuilt += line + "\n" + dataUrl + "\n";
-          }
+        if (bandwidth > bestBandwidth && variantUrl) {
+          bestBandwidth = bandwidth;
+          bestVariantUrl = variantUrl;
         }
         i++;
-      } else if (line && !line.startsWith("#EXTM3U")) {
-        rebuilt += line + "\n";
       }
     }
-    masterM3u8 = rebuilt;
-  } else {
-    // Media playlist: rewrite segment URLs directly
-    masterM3u8 = masterM3u8.split("\n").map((l: string) => {
-      const t = l.trim();
-      if (!t || t.startsWith("#")) return l;
-      const fullUrl = t.startsWith("http") ? t : `https://vidsrc.buzz${t}`;
-      return `${proxyOrigin}/api/proxy?url=${encodeURIComponent(fullUrl)}`;
-    }).join("\n");
+
+    if (bestVariantUrl) {
+      const fullVariantUrl = bestVariantUrl.startsWith("http") ? bestVariantUrl : `https://vidsrc.buzz${bestVariantUrl}`;
+      const vRes = await fetch(fullVariantUrl, { headers: { "User-Agent": UA, Referer: embedUrl } });
+      if (vRes.ok) {
+        finalM3u8 = await vRes.text();
+        console.log(`[vidsrc-hls] Using best variant: ${bestBandwidth}bps`);
+      }
+    }
   }
 
-  return new NextResponse(masterM3u8, {
+  // Step 7: Rewrite ALL segment URLs to go through /api/proxy (absolute URLs)
+  finalM3u8 = finalM3u8.split("\n").map((l: string) => {
+    const t = l.trim();
+    if (!t || t.startsWith("#")) return l;
+    const fullUrl = t.startsWith("http") ? t : `https://vidsrc.buzz${t}`;
+    return `${proxyOrigin}/api/proxy?url=${encodeURIComponent(fullUrl)}`;
+  }).join("\n");
+
+  return new NextResponse(finalM3u8, {
     headers: {
       "Content-Type": "application/vnd.apple.mpegurl",
       "Access-Control-Allow-Origin": "*",

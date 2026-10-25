@@ -63,5 +63,9 @@ export default function Page() {
   if (route.type === "series") {
     return <Suspense fallback={<LoadingSpinner />}><SeriesPageClient /></Suspense>;
   }
+  // Don't render HomeClient until categories are loaded (prevents crash)
+  if (categories.length === 0) {
+    return <LoadingSpinner />;
+  }
   return <HomeClient categories={categories} />;
 }

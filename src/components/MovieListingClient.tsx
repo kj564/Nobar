@@ -7,6 +7,7 @@ import {
   type TMDBPaged,
   type Category,
 } from "@/lib/tmdb";
+import { fetchTrendingClient, searchMoviesClient, fetchByGenreClient } from "@/lib/tmdb-client";
 import { MovieCard } from "@/components/MovieCard";
 import { Navbar } from "@/components/Navbar";
 

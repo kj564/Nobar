@@ -8,22 +8,6 @@ function proxyUrl(path: string): string {
   return `${path}${sep}XTransformPort=${CDN_PROXY_PORT}`;
 }
 
-// ─── lk21 client-side resolver (no Nobar server needed) ──────────────
-// Applies lk21's OWN approach: fetch encrypted config + AES key via CORS
-// proxy, decrypt IN THE BROWSER via WebCrypto. The browser then plays
-// the resolved HLS directly from putarin/lowhls9 (both CORS-open).
-//
-// Only loaded when we have a title (client-side resolution needs the
-// movie title to search lk21's catalog). vidlink.pro uses TMDB IDs only,
-// so this is the primary path when the user is on a movie detail page.
-let resolveLk21Client: typeof import("./lk21-client").resolveLk21Client | null = null;
-async function getLk21Client() {
-  if (!resolveLk21Client) {
-    resolveLk21Client = (await import("./lk21-client")).resolveLk21Client;
-  }
-  return resolveLk21Client;
-}
-
 export async function resolveStream(
   tmdbId: number,
   kind: "movie" | "tv" = "movie",

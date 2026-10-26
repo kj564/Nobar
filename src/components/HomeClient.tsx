@@ -148,7 +148,7 @@ export function HomeClient({ categories }: HomeClientProps) {
     setIsSearching(true);
     setSearchQuery(q);
     setPage(1);
-    loadCategory(activeCategory, 1, false, { searching: true, query: q });
+    loadCategory(activeCategory || categories[0], 1, false, { searching: true, query: q });
   };
 
   const exitSearch = () => {

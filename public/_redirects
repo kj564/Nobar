@@ -1,0 +1,16 @@
+# CF Pages SPA routing — serve index.html with 200 status for all app routes
+# This fixes the 404 status issue: /movie/[slug] was returning 404 even though
+# the SPA shell HTML was served. With these rewrites, CF Pages serves
+# index.html with 200 status, then React Router handles client-side routing.
+
+# Movie + series detail pages (SPA routes)
+/movie/*    /index.html    200
+/series/*   /index.html    200
+
+# Search page
+/search     /index.html    200
+/search/*   /index.html    200
+
+# Listing pages (already have static HTML, but 200 ensures no 404)
+/movie      /index.html    200
+/series     /index.html    200

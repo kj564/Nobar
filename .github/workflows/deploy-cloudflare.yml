@@ -47,10 +47,15 @@ jobs:
           BUILD_STATIC: "true"
         run: bun run build
 
-      - name: SPA fallback (404.html = index.html)
+      - name: SPA routing (CF Pages _redirects)
         run: |
-          cp out/index.html out/404.html
+          # _redirects is already in public/ (copied to out/ by build).
+          # Do NOT create 404.html — it interferes with _redirects catch-all.
+          # The _redirects file: "/*  /index.html  200" serves index.html
+          # with 200 status for all non-static routes (SPA fallback).
           touch out/.nojekyll
+          echo "=== _redirects ==="
+          cat out/_redirects
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

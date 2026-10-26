@@ -538,7 +538,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
     const vtRetry = setTimeout(notifyVideoTogether, 1000);
     const vtRetry2 = setTimeout(notifyVideoTogether, 3000);
 
-    const handlers = {
+    const handlers: Record<string, () => void> = {
       timeupdate: () => setCurrentTime(v.currentTime),
       durationchange: () => setDuration(v.duration || 0),
       play: () => { setPlaying(true); setBuffering(false); },
@@ -547,8 +547,27 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
       playing: () => setBuffering(false),
       canplay: () => setBuffering(false),
       volumechange: () => { setMuted(v.muted); setVolume(v.volume); },
+      // ERROR RECOVERY: if MP4 source fails (bcdnxw 429, network error),
+      // auto-fallback to vidlink embed (has ads, but at least plays).
+      error: () => {
+        const e = v.error;
+        if (!e) return;
+        console.warn("[NOBAR] Video error:", e.code, "src="+v.src.slice(0,60));
+        // Code 4 = MEDIA_ERR_SRC_NOT_SUPPORTED (bcdnxw 429, format issue, etc.)
+        // Code 2 = MEDIA_ERR_NETWORK
+        // Only fallback once — don't infinite loop.
+        if (!useEmbed && !embedUrl) {
+          console.log("[NOBAR] Auto-fallback to vidlink embed");
+          const fb = kind === "tv" && season && episode
+            ? `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`
+            : `https://vidlink.pro/movie/${tmdbId}`;
+          setEmbedUrl(fb);
+          setUseEmbed(true);
+          setLoading(false);
+        }
+      },
     };
-    Object.entries(handlers).forEach(([e, fn]) => v.addEventListener(e, fn));
+    Object.entries(handlers).forEach(([e, fn]) => v.addEventListener(e, fn as EventListener));
     v.setAttribute("webkit-playsinline", "true");
 
     // ── HLS source: use hls.js for adaptive bitrate ──

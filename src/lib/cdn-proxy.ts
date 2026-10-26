@@ -69,37 +69,36 @@ export async function resolveStream(
   // vidlink.pro returns MP4 sources on bcdn/bcdnxw.hakunaymatata.com, which
   // blocks browser User-Agent (HTTP 428) AND CF Worker headers (HTTP 427).
   //
-  // SOLUTION: The CF Worker's /mp4-socket route uses cloudflare:sockets
-  // (raw TLS TCP) to fetch from bcdn — this does NOT add Cf-Worker/Cdn-Loop
-  // headers, so bcdn accepts (206). No Deno Deploy/Vercel/external host needed.
-  //
-  // In dev, the local Bun cdn-proxy doesn't have cloudflare:sockets, so we
-  // fall back to /mp4 (fetch-based, strips UA — works for local testing).
-  //
-  // IMPORTANT: bcdnxw.hakunaymatata.com blocks CF Worker IP entirely (427
-  // even with raw TCP socket + correct Referer/UA). Only bcdn. works via
-  // socket proxy. So we FILTER OUT bcdnxw sources — they can't be proxied.
-  // If ALL sources are bcdnxw → fall through to vidlink embed (has ads, but
-  // at least plays).
+  // ── lk21 didn't have it → try MP4 sources ──
+  // bcdn. → proxied via CF Worker TCP socket (ad-free)
+  // bcdnxw. → played DIRECTLY in browser (no proxy needed! <video> doesn't
+  //   require CORS for media playback). CF Worker can't reach bcdnxw (427),
+  //   but the browser CAN — bcdnxw blocks CF IPs, not user IPs.
+  // other → try via Worker proxy
   const mp4ProxyPath = isStaticMode ? "/mp4-socket" : "/mp4";
   const mp4Sources = (data.sources || [])
     .filter((s: any) => s.type === "mp4" && s.url)
-    .filter((s: any) => {
-      // bcdn. → works via TCP socket proxy (no UA, no CF headers)
-      // bcdnxw. → BLOCKED by CF Worker IP (427 even via socket)
-      // other   → try anyway (might work)
+    .map((s: any) => {
       if (s.url.includes("bcdnxw.")) {
-        console.warn("[NOBAR] bcdnxw MP4 cannot be proxied by CF Worker, skipping:", s.quality);
-        return false;
+        // bcdnxw: play DIRECTLY in browser (no proxy).
+        // <video> element doesn't need CORS for media playback.
+        // bcdnxw blocks CF Worker IP (427) but accepts browser IP.
+        console.log("[NOBAR] bcdnxw MP4 — playing directly in browser (no proxy):", s.quality);
+        return {
+          quality: s.quality,
+          url: s.url, // direct URL, no proxy
+          provider: s.provider || "vidlink.pro",
+          type: "mp4",
+        };
       }
-      return true;
-    })
-    .map((s: any) => ({
-      quality: s.quality,
-      url: proxyUrl(`${mp4ProxyPath}?url=${encodeURIComponent(s.url)}`),
-      provider: s.provider || "vidlink.pro",
-      type: "mp4",
-    }));
+      // bcdn. → proxy via TCP socket (ad-free)
+      return {
+        quality: s.quality,
+        url: proxyUrl(`${mp4ProxyPath}?url=${encodeURIComponent(s.url)}`),
+        provider: s.provider || "vidlink.pro",
+        type: "mp4",
+      };
+    });
 
   if (mp4Sources.length > 0) {
     return {

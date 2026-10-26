@@ -194,7 +194,7 @@ async function handleRequestInner(req: Request): Promise<Response> {
     // vidlink tokens are valid for 5s (mint) → 6h (JWT ws field). The stream
     // URLs themselves expire after ~30 min (sign+t). Caching for 10 min is
     // safe and drops vidlink API calls by ~99% for popular movies.
-    const cacheKey = `vidlink:${kind}:${tmdbId}:${season}:${episode}`;
+    const cacheKey = `vidlink:v2:${kind}:${tmdbId}:${season}:${episode}`;
     const cache = (caches as any).default;
     const cacheReq = new Request(`https://nobar-cdn-proxy.internal/${cacheKey}`);
     const cached = await cache.match(cacheReq);
@@ -247,13 +247,14 @@ async function handleRequestInner(req: Request): Promise<Response> {
 
     const responseData = { sources, subtitles };
 
-    // Store in CF edge cache (10 min TTL via Cache-Control).
+    // Store in CF edge cache (3 min TTL — URL expiry is ~30min, keep margin).
+    // Was 10 min but some bcdnxw URLs expired before cache TTL ended.
     // Fire-and-forget — don't block the response.
     if (sources.length > 0) {
       const cacheRes = new Response(JSON.stringify(responseData), {
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": "public, max-age=600", // 10 min
+          "Cache-Control": "public, max-age=180", // 3 min
         },
       });
       cache.put(cacheReq, cacheRes.clone()).catch(() => {});

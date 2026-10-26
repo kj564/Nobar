@@ -668,6 +668,109 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
     };
   }, [activeSource, usingDash]);
 
+  // ── Subtitle loader: fetch VTT + add cues manually via TextTrack API ──
+  // WHY: When video.src is a blob URL (hls.js MediaSource), the browser
+  // FAILS to load <track src="..."> elements — they show mode="showing"
+  // but cues=0 (VTT not parsed). This is a known browser limitation.
+  //
+  // FIX: Instead of <track>, we fetch the VTT content via fetch(), parse
+  // it, create a TextTrack via video.addTextTrack(), and add cues manually
+  // via track.addCue(new VTTCue(start, end, text)). This works regardless
+  // of whether video.src is blob or direct URL.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !activeSource || subtitles.length === 0) return;
+
+    let cancelled = false;
+    const loadedTracks: { url: string; track: TextTrack }[] = [];
+
+    (async () => {
+      // Clear any existing manual tracks (added by previous run).
+      // Built-in tracks (from <track> elements) are gone now — we removed them.
+      // addTextTrack tracks are at the end of textTracks list.
+      const existingManualCount = (v as any)._manualSubCount || 0;
+      for (let i = 0; i < existingManualCount; i++) {
+        try { v.removeChild(v.textTracks[v.textTracks.length - 1] as any); } catch {}
+      }
+      (v as any)._manualSubCount = 0;
+
+      for (const sub of subtitles) {
+        if (cancelled) break;
+        try {
+          const res = await fetch(sub.url);
+          if (!res.ok) continue;
+          const vtt = await res.text();
+
+          // Create a TextTrack via the API (not <track> element).
+          const track = v.addTextTrack("subtitles", sub.language, sub.language.toLowerCase().slice(0, 2));
+          track.mode = "disabled"; // start disabled, user enables via UI
+
+          // Parse VTT cues. Format:
+          //   WEBVTT
+          //   <blank>
+          //   00:00:55.680 --> 00:00:57.473
+          //   subtitle text
+          //   <blank>
+          const lines = vtt.split("\n");
+          let i = 0;
+          while (i < lines.length) {
+            const line = lines[i].trim();
+            // Skip WEBVTT header, NOTE blocks, cue identifiers (numbers), blank lines
+            if (!line || line.startsWith("WEBVTT") || line.startsWith("NOTE") || /^\d+$/.test(line)) {
+              i++;
+              continue;
+            }
+            // Timestamp line: 00:00:55.680 --> 00:00:57.473
+            const tsMatch = line.match(/(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/);
+            if (tsMatch) {
+              const start = (+tsMatch[1]) * 3600 + (+tsMatch[2]) * 60 + (+tsMatch[3]) + (+tsMatch[4]) / 1000;
+              const end = (+tsMatch[5]) * 3600 + (+tsMatch[6]) * 60 + (+tsMatch[7]) + (+tsMatch[8]) / 1000;
+              // Collect cue text (lines until blank or next timestamp)
+              const textLines: string[] = [];
+              i++;
+              while (i < lines.length && lines[i].trim() && !lines[i].includes("-->")) {
+                textLines.push(lines[i].trim());
+                i++;
+              }
+              const text = textLines.join("\n");
+              if (text) {
+                try {
+                  track.addCue(new VTTCue(start, end, text));
+                } catch {
+                  // VTTCue not available in some browsers — skip
+                }
+              }
+            } else {
+              i++;
+            }
+          }
+          loadedTracks.push({ url: sub.url, track });
+          // Note: track.cues returns null when track.mode === "disabled".
+          // We temporarily set to "hidden" to count, then back to "disabled".
+          track.mode = "hidden";
+          console.log(`[NOBAR] Subtitle ready: ${sub.language} (${track.cues?.length || 0} cues)`);
+          track.mode = "disabled";
+        } catch (e) {
+          console.warn(`[NOBAR] Failed to load subtitle ${sub.language}:`, e);
+        }
+      }
+      (v as any)._manualSubCount = loadedTracks.length;
+
+      // If user had a subtitle selected (e.g., after source switch),
+      // re-activate it.
+      if (activeSubtitle) {
+        const idx = subtitles.findIndex(s => s.url === activeSubtitle);
+        if (idx >= 0 && loadedTracks[idx]) {
+          loadedTracks[idx].track.mode = "showing";
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [subtitles, activeSource]);
+
   // ── Video events for DASH mode (Shaka owns playback, we track state) ──
   useEffect(() => {
     const v = videoRef.current;
@@ -886,18 +989,8 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
           autoPlay
           muted
           preload="auto"
-        >
-          {subtitles.map((sub, i) => (
-            <track
-              key={i}
-              kind="subtitles"
-              src={sub.url}
-              srcLang={sub.language.toLowerCase().slice(0, 2)}
-              label={sub.language}
-              default={activeSubtitle === sub.url}
-            />
-          ))}
-        </video>
+          crossOrigin="anonymous"
+        />
 
         {buffering && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -1046,8 +1139,15 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
                           setActiveSubtitle(sub.url);
                           const v = videoRef.current;
                           if (v) {
+                            // Manual tracks (added via addTextTrack) start AFTER
+                            // any built-in <track> elements. Since we removed all
+                            // <track> elements, all tracks are manual — index i
+                            // matches the subtitles array index directly.
+                            // Use label matching as a fallback for safety.
                             for (let j = 0; j < v.textTracks.length; j++) {
-                              v.textTracks[j].mode = j === i ? "showing" : "disabled";
+                              const tt = v.textTracks[j];
+                              const isActive = tt.label === sub.language || j === i;
+                              tt.mode = isActive ? "showing" : "disabled";
                             }
                           }
                           setShowSettings("");

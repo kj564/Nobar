@@ -299,6 +299,24 @@ async function handleRequestInner(req: Request): Promise<Response> {
     if (!targetUrl) {
       return Response.json({ error: "url parameter required" }, { status: 400, headers: corsHeaders });
     }
+
+    // ── Cache subtitle VTT at CF edge (24h) ──
+    // Subtitles are static (don't change), and each is 50-200KB. Without
+    // caching, every page load re-fetches from cacdn → adds latency + load
+    // on cacdn. With CF edge cache, the second viewer gets instant VTT.
+    const cacheKey = `subtitle:${targetUrl}`;
+    const cache = (caches as any).default;
+    const cacheReq = new Request(`https://nobar-cdn-proxy.internal/${cacheKey}`);
+    const cached = await cache.match(cacheReq);
+    if (cached) {
+      // Return cached VTT — instant, no upstream fetch.
+      const cachedHeaders = new Headers(corsHeaders);
+      cachedHeaders.set("Content-Type", "text/vtt; charset=utf-8");
+      cachedHeaders.set("Cache-Control", "public, max-age=86400");
+      cachedHeaders.set("X-Cache", "HIT");
+      return new Response(cached.body, { status: 200, headers: cachedHeaders });
+    }
+
     try {
       const subRes = await fetch(targetUrl, {
         headers: { ...MZFI_HEADERS, Accept: "text/plain,*/*" },
@@ -311,15 +329,18 @@ async function handleRequestInner(req: Request): Promise<Response> {
 
       // Convert SRT → WebVTT (only if it looks like SRT, not already VTT)
       if (!text.startsWith("WEBVTT")) {
-        // SRT format: timestamps use comma for milliseconds (00:00:01,000)
-        // VTT format: timestamps use period (00:00:01.000)
-        // Also need WEBVTT header at the start.
         text = "WEBVTT\n\n" + text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
       }
 
       const vttHeaders = new Headers(corsHeaders);
       vttHeaders.set("Content-Type", "text/vtt; charset=utf-8");
-      vttHeaders.set("Cache-Control", "public, max-age=86400"); // cache 24h
+      vttHeaders.set("Cache-Control", "public, max-age=86400"); // browser cache 24h
+      vttHeaders.set("X-Cache", "MISS");
+
+      // Store in CF edge cache (fire-and-forget, 24h TTL).
+      const cacheRes = new Response(text, { headers: vttHeaders });
+      cache.put(cacheReq, cacheRes.clone()).catch(() => {});
+
       return new Response(text, { status: 200, headers: vttHeaders });
     } catch (e: any) {
       return Response.json({ error: "Subtitle proxy failed: " + e.message }, { status: 502, headers: corsHeaders });

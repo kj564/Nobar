@@ -668,108 +668,94 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
     };
   }, [activeSource, usingDash]);
 
-  // ── Subtitle loader: fetch VTT + add cues manually via TextTrack API ──
-  // WHY: When video.src is a blob URL (hls.js MediaSource), the browser
-  // FAILS to load <track src="..."> elements — they show mode="showing"
-  // but cues=0 (VTT not parsed). This is a known browser limitation.
+  // ── Subtitle track registry: create empty tracks on load, fetch VTT lazily ──
+  // OPTIMIZATION: Previously we fetched ALL 15 VTT files on page load
+  // (each 50-200KB → 1-3MB total, 5-10s delay). Now we:
+  //   1. Create empty TextTracks immediately (instant, no network)
+  //   2. Fetch + parse VTT ONLY when user selects that language
+  //   3. Cache parsed cues so re-selecting is instant
   //
-  // FIX: Instead of <track>, we fetch the VTT content via fetch(), parse
-  // it, create a TextTrack via video.addTextTrack(), and add cues manually
-  // via track.addCue(new VTTCue(start, end, text)). This works regardless
-  // of whether video.src is blob or direct URL.
+  // This drops initial load from 15 fetches to 0. User only pays for the
+  // subtitle they actually use (~1 fetch, ~200KB).
+  const loadedSubsRef = useRef<Map<string, TextTrack>>(new Map());
+  const loadingSubsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !activeSource || subtitles.length === 0) return;
 
-    let cancelled = false;
-    const loadedTracks: { url: string; track: TextTrack }[] = [];
+    // Clear old tracks from previous source.
+    const existingManualCount = (v as any)._manualSubCount || 0;
+    for (let i = 0; i < existingManualCount; i++) {
+      try { v.removeChild(v.textTracks[v.textTracks.length - 1] as any); } catch {}
+    }
+    (v as any)._manualSubCount = 0;
+    loadedSubsRef.current.clear();
+    loadingSubsRef.current.clear();
 
-    (async () => {
-      // Clear any existing manual tracks (added by previous run).
-      // Built-in tracks (from <track> elements) are gone now — we removed them.
-      // addTextTrack tracks are at the end of textTracks list.
-      const existingManualCount = (v as any)._manualSubCount || 0;
-      for (let i = 0; i < existingManualCount; i++) {
-        try { v.removeChild(v.textTracks[v.textTracks.length - 1] as any); } catch {}
-      }
-      (v as any)._manualSubCount = 0;
-
-      for (const sub of subtitles) {
-        if (cancelled) break;
-        try {
-          const res = await fetch(sub.url);
-          if (!res.ok) continue;
-          const vtt = await res.text();
-
-          // Create a TextTrack via the API (not <track> element).
-          const track = v.addTextTrack("subtitles", sub.language, sub.language.toLowerCase().slice(0, 2));
-          track.mode = "disabled"; // start disabled, user enables via UI
-
-          // Parse VTT cues. Format:
-          //   WEBVTT
-          //   <blank>
-          //   00:00:55.680 --> 00:00:57.473
-          //   subtitle text
-          //   <blank>
-          const lines = vtt.split("\n");
-          let i = 0;
-          while (i < lines.length) {
-            const line = lines[i].trim();
-            // Skip WEBVTT header, NOTE blocks, cue identifiers (numbers), blank lines
-            if (!line || line.startsWith("WEBVTT") || line.startsWith("NOTE") || /^\d+$/.test(line)) {
-              i++;
-              continue;
-            }
-            // Timestamp line: 00:00:55.680 --> 00:00:57.473
-            const tsMatch = line.match(/(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/);
-            if (tsMatch) {
-              const start = (+tsMatch[1]) * 3600 + (+tsMatch[2]) * 60 + (+tsMatch[3]) + (+tsMatch[4]) / 1000;
-              const end = (+tsMatch[5]) * 3600 + (+tsMatch[6]) * 60 + (+tsMatch[7]) + (+tsMatch[8]) / 1000;
-              // Collect cue text (lines until blank or next timestamp)
-              const textLines: string[] = [];
-              i++;
-              while (i < lines.length && lines[i].trim() && !lines[i].includes("-->")) {
-                textLines.push(lines[i].trim());
-                i++;
-              }
-              const text = textLines.join("\n");
-              if (text) {
-                try {
-                  track.addCue(new VTTCue(start, end, text));
-                } catch {
-                  // VTTCue not available in some browsers — skip
-                }
-              }
-            } else {
-              i++;
-            }
-          }
-          loadedTracks.push({ url: sub.url, track });
-          // Note: track.cues returns null when track.mode === "disabled".
-          // We temporarily set to "hidden" to count, then back to "disabled".
-          track.mode = "hidden";
-          console.log(`[NOBAR] Subtitle ready: ${sub.language} (${track.cues?.length || 0} cues)`);
-          track.mode = "disabled";
-        } catch (e) {
-          console.warn(`[NOBAR] Failed to load subtitle ${sub.language}:`, e);
-        }
-      }
-      (v as any)._manualSubCount = loadedTracks.length;
-
-      // If user had a subtitle selected (e.g., after source switch),
-      // re-activate it.
-      if (activeSubtitle) {
-        const idx = subtitles.findIndex(s => s.url === activeSubtitle);
-        if (idx >= 0 && loadedTracks[idx]) {
-          loadedTracks[idx].track.mode = "showing";
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    // Create empty TextTracks — instant, no network fetch.
+    // Cues will be added on-demand when user selects this language.
+    for (const sub of subtitles) {
+      const track = v.addTextTrack("subtitles", sub.language, sub.language.toLowerCase().slice(0, 2));
+      track.mode = "disabled";
+      loadedSubsRef.current.set(sub.url, track);
+    }
+    (v as any)._manualSubCount = subtitles.length;
+    console.log(`[NOBAR] Created ${subtitles.length} subtitle tracks (lazy-load on select)`);
   }, [subtitles, activeSource]);
+
+  // Load a single subtitle's VTT + add cues. Called when user clicks a language.
+  // Cached: once loaded, re-selecting is instant (track already has cues).
+  const loadSubtitleCues = useCallback(async (subUrl: string, language: string) => {
+    const track = loadedSubsRef.current.get(subUrl);
+    if (!track) return;
+    // Already loaded (has cues)?
+    if (track.cues && track.cues.length > 0) return;
+    // Already loading? (avoid duplicate fetch)
+    if (loadingSubsRef.current.has(subUrl)) return;
+    loadingSubsRef.current.add(subUrl);
+
+    try {
+      const sub = subtitles.find(s => s.url === subUrl);
+      if (!sub) return;
+      const res = await fetch(sub.url);
+      if (!res.ok) return;
+      const vtt = await res.text();
+
+      // Parse VTT cues (same logic as before, just deferred to here).
+      const lines = vtt.split("\n");
+      let i = 0;
+      while (i < lines.length) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith("WEBVTT") || line.startsWith("NOTE") || /^\d+$/.test(line)) {
+          i++;
+          continue;
+        }
+        const tsMatch = line.match(/(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/);
+        if (tsMatch) {
+          const start = (+tsMatch[1]) * 3600 + (+tsMatch[2]) * 60 + (+tsMatch[3]) + (+tsMatch[4]) / 1000;
+          const end = (+tsMatch[5]) * 3600 + (+tsMatch[6]) * 60 + (+tsMatch[7]) + (+tsMatch[8]) / 1000;
+          const textLines: string[] = [];
+          i++;
+          while (i < lines.length && lines[i].trim() && !lines[i].includes("-->")) {
+            textLines.push(lines[i].trim());
+            i++;
+          }
+          const text = textLines.join("\n");
+          if (text) {
+            try { track.addCue(new VTTCue(start, end, text)); } catch {}
+          }
+        } else {
+          i++;
+        }
+      }
+      console.log(`[NOBAR] Loaded ${track.cues?.length || 0} cues for ${language} (lazy)`);
+    } catch (e) {
+      console.warn(`[NOBAR] Failed to load subtitle ${language}:`, e);
+    } finally {
+      loadingSubsRef.current.delete(subUrl);
+    }
+  }, [subtitles]);
 
   // ── Video events for DASH mode (Shaka owns playback, we track state) ──
   useEffect(() => {
@@ -1135,19 +1121,21 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
                     {subtitles.map((sub, i) => (
                       <button
                         key={i}
-                        onClick={() => {
+                        onClick={async () => {
                           setActiveSubtitle(sub.url);
                           const v = videoRef.current;
                           if (v) {
-                            // Manual tracks (added via addTextTrack) start AFTER
-                            // any built-in <track> elements. Since we removed all
-                            // <track> elements, all tracks are manual — index i
-                            // matches the subtitles array index directly.
-                            // Use label matching as a fallback for safety.
+                            // Disable all tracks first.
                             for (let j = 0; j < v.textTracks.length; j++) {
-                              const tt = v.textTracks[j];
-                              const isActive = tt.label === sub.language || j === i;
-                              tt.mode = isActive ? "showing" : "disabled";
+                              v.textTracks[j].mode = "disabled";
+                            }
+                            // Find this subtitle's track + enable it.
+                            const track = loadedSubsRef.current.get(sub.url);
+                            if (track) {
+                              track.mode = "showing";
+                              // Lazy-load VTT cues if not already loaded.
+                              // This is async — cues appear ~200ms after click.
+                              loadSubtitleCues(sub.url, sub.language);
                             }
                           }
                           setShowSettings("");

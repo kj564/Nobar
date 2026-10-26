@@ -805,11 +805,14 @@ async function lk21ExtractPutarinCode(
 ): Promise<{ code: string; base: string } | null> {
   const html = await lk21FetchText(movieUrl, LK21_BASE + "/");
   // <iframe src="https://putarin.{biz|xyz}/e/{code}" ...>
+  // Also: puterin.biz (third domain, same player software)
   const m = html.match(
-    /src="(https?:\/\/putarin\.(biz|xyz)\/e\/([A-Za-z0-9_-]+))"/
+    /src="(https?:\/\/(?:putarin\.(biz|xyz)|puterin\.biz)\/e\/([A-Za-z0-9_-]+))"/
   );
   if (!m) return null;
-  const base = m[2] === "xyz" ? PUTARIN_XYZ : PUTARIN_BIZ;
+  // For puterin.biz, the base is puterin.biz itself (no .xyz variant).
+  const domain = m[2] || "biz"; // "biz" used for both putarin.biz and puterin.biz
+  const base = m[1].match(/https?:\/\/[^/]+/)?.[0] || PUTARIN_BIZ;
   return { code: m[3], base };
 }
 
@@ -924,9 +927,9 @@ async function lk21Resolve(
           signal: AbortSignal.timeout(8000),
         });
         if (checkRes.ok) {
-          // Verify it's actually a movie page (has putarin embed).
+          // Verify it's actually a movie page (has putarin/puterin embed).
           const html = await checkRes.text();
-          if (html.includes("putarin.")) {
+          if (html.includes("putarin.") || html.includes("puterin.")) {
             results = [{ slug, title, url: directUrl }];
             break;
           }

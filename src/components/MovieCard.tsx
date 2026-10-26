@@ -13,8 +13,8 @@ import {
 } from "@/lib/tmdb";
 
 // Track which stream URLs we've already prefetched to avoid duplicate fetches.
-// Shared across all card instances — once prefetched, the /api/stream
-// response is cached server-side (in-memory cache) so subsequent clicks
+// Shared across all card instances — once prefetched, the Worker caches the
+// response at CF edge (10 min for vidlink, 5h for lk21) so subsequent clicks
 // resolve instantly.
 const prefetchedIds = new Set<string>();
 
@@ -25,17 +25,24 @@ function useStreamPrefetch(tmdbId: number, kind: "movie" | "tv") {
     if (prefetchedIds.has(key)) return;
     prefetchedIds.add(key);
     setPrefetched(true);
-    // Fire-and-forget — the server caches the result (mzfi token + search
-    // + play URL). When user clicks, /api/stream returns in ~50ms (warm).
-    fetch(`/api/stream/${tmdbId}${kind === "tv" ? "?kind=tv&season=1&episode=1" : ""}`, {
-      method: "GET",
-      // Don't wait for response — just warm the server cache
-      priority: "low",
-    }).catch(() => {
-      // If prefetch fails, allow retry on next hover
+    // Fire-and-forget — warm the Worker edge cache (vidlink resolve + lk21).
+    // When user clicks, the stream URL is already cached → instant playback.
+    const CDN_PROXY_URL = process.env.NEXT_PUBLIC_CDN_PROXY_URL || "";
+    const isStatic = CDN_PROXY_URL.length > 0;
+    const sep = "?";
+    const vidlinkUrl = isStatic
+      ? `${CDN_PROXY_URL}/vidlink/${tmdbId}?kind=${kind}${kind === "tv" ? "&season=1&episode=1" : ""}`
+      : `/vidlink/${tmdbId}?kind=${kind}${kind === "tv" ? "&season=1&episode=1" : ""}${sep}XTransformPort=3003`;
+    fetch(vidlinkUrl, { method: "GET", priority: "low" }).catch(() => {
       prefetchedIds.delete(key);
       setPrefetched(false);
     });
+    // Also prefetch the movie page JS chunk via dynamic import (warms browser cache).
+    if (kind === "movie") {
+      import("@/app/movie/[id]/MoviePageClient").catch(() => {});
+    } else {
+      import("@/app/series/[id]/SeriesPageClient").catch(() => {});
+    }
   }, [tmdbId, kind]);
   return { prefetch, prefetched };
 }
@@ -68,8 +75,11 @@ export function MovieCard({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={posterUrl(movie.poster_path)}
+            srcSet={`${posterUrl(movie.poster_path, "sm")} 1x, ${posterUrl(movie.poster_path, "lg")} 2x`}
+            sizes="(max-width: 768px) 50vw, (max-width: 1280px) 25vw, 200px"
             alt={title}
             loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover card-thumb-img"
           />
         ) : null}
@@ -145,8 +155,11 @@ export function SeriesCard({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={posterUrl(series.poster_path)}
+            srcSet={`${posterUrl(series.poster_path, "sm")} 1x, ${posterUrl(series.poster_path, "lg")} 2x`}
+            sizes="(max-width: 768px) 50vw, (max-width: 1280px) 25vw, 200px"
             alt={title}
             loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover card-thumb-img"
           />
         ) : null}

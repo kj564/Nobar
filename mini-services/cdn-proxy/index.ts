@@ -407,48 +407,40 @@ async function handleRequestInner(req: Request): Promise<Response> {
       let extraHeaders = "";
       let userAgent = "";
       if (host.includes("bcdnxw.")) {
-        // mzfi.me MP4 CDN — requires browser UA + Referer anti-leech.
         userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
         extraHeaders = "Referer: https://mzfi.me/\r\nOrigin: https://mzfi.me\r\n";
       }
-      // For bcdn.: send NO User-Agent header at all (bcdn 428's browser UA).
       const uaHeader = userAgent ? `User-Agent: ${userAgent}\r\n` : "";
       const reqLine = `GET ${reqPath} HTTP/1.1\r\nHost: ${host}\r\n${uaHeader}Range: ${range}\r\nAccept: */*\r\n${extraHeaders}Connection: close\r\n\r\n`;
       await writer.write(new TextEncoder().encode(reqLine));
       writer.releaseLock();
 
-      // Read raw HTTP response (headers + body combined in stream).
-      const chunks: Uint8Array[] = [];
-      let totalLen = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        totalLen += value.length;
-        // Don't buffer entire movie — cap at 2MB for this read.
-        // The browser will make new Range requests as needed.
-        if (totalLen > 2 * 1024 * 1024) break;
+      // ── STREAMING: parse headers from first chunk, then stream body ──
+      // Previously we buffered 2MB before returning — that delayed TTFB by
+      // ~2s on slow connections. Now we:
+      //   1. Read first chunk (contains HTTP status + headers + maybe some body)
+      //   2. Parse headers, extract status + content-length + content-range
+      //   3. Create a ReadableStream that yields body bytes as they arrive
+      //   4. Return Response with the stream — browser gets bytes immediately
+      const firstChunk = (await reader.read()).value;
+      if (!firstChunk) {
+        socket.close();
+        return Response.json({ error: "empty response from CDN" }, { status: 502, headers: corsHeaders });
       }
-      socket.close();
 
-      // Combine chunks.
-      const all = new Uint8Array(totalLen);
-      let off = 0;
-      for (const c of chunks) { all.set(c, off); off += c.length; }
-
-      // Split headers/body at \r\n\r\n.
+      // Find header/body separator (\r\n\r\n).
       let headerEnd = -1;
-      for (let i = 0; i < all.length - 3; i++) {
-        if (all[i] === 13 && all[i+1] === 10 && all[i+2] === 13 && all[i+3] === 10) {
+      for (let i = 0; i < firstChunk.length - 3; i++) {
+        if (firstChunk[i] === 13 && firstChunk[i+1] === 10 && firstChunk[i+2] === 13 && firstChunk[i+3] === 10) {
           headerEnd = i; break;
         }
       }
       if (headerEnd < 0) {
-        return Response.json({ error: "no HTTP header separator in response" }, { status: 502, headers: corsHeaders });
+        socket.close();
+        return Response.json({ error: "no HTTP header separator" }, { status: 502, headers: corsHeaders });
       }
 
-      const headerStr = new TextDecoder().decode(all.slice(0, headerEnd));
-      const body = all.slice(headerEnd + 4);
+      const headerStr = new TextDecoder().decode(firstChunk.slice(0, headerEnd));
       const statusMatch = headerStr.match(/HTTP\/1\.[01] (\d+)/);
       const status = statusMatch ? parseInt(statusMatch[1]) : 200;
 
@@ -465,7 +457,39 @@ async function handleRequestInner(req: Request): Promise<Response> {
         }
       }
       respHeaders.set("Cache-Control", "public, max-age=3600");
-      return new Response(body, { status, headers: respHeaders });
+
+      // Body bytes from first chunk (after \r\n\r\n).
+      const firstBody = firstChunk.slice(headerEnd + 4);
+
+      // Create a ReadableStream that yields body bytes as they arrive.
+      // This is the KEY optimization — browser starts receiving bytes immediately.
+      const stream = new ReadableStream({
+        start(controller) {
+          // Push first chunk's body.
+          if (firstBody.length > 0) controller.enqueue(firstBody);
+          // Then read remaining chunks from socket.
+          (async () => {
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                controller.enqueue(value);
+              }
+            } catch {
+              // Socket closed or error — end stream.
+            } finally {
+              controller.close();
+              try { socket.close(); } catch {}
+            }
+          })();
+        },
+        cancel() {
+          // Browser cancelled (e.g., user seeked away) — close socket.
+          try { socket.close(); } catch {}
+        },
+      });
+
+      return new Response(stream, { status, headers: respHeaders });
     } catch (e: any) {
       return Response.json({ error: "Socket proxy failed: " + e.message }, { status: 502, headers: corsHeaders });
     }

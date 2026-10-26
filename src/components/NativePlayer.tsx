@@ -94,6 +94,25 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
   const [currentTime, setCurrentTime] = useState(0);
   const [buffering, setBuffering] = useState(false);
   const [volume, setVolume] = useState(1);
+
+  // Mobile UX state: controls visibility + auto-hide
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const isTouchDevice = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-hide controls after 3s of inactivity (mobile pattern).
+  // Only auto-hide when playing + not in settings menu.
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    if (playing && !showSettings) {
+      controlsTimeoutRef.current = setTimeout(() => {
+        setControlsVisible(false);
+        setShowSettings("");
+      }, 3000);
+    }
+  }, [playing, showSettings]);
   const [currentBitrate, setCurrentBitrate] = useState<number>(0);  // for ABR indicator
   const [currentDashHeight, setCurrentDashHeight] = useState<number>(0); // current DASH resolution (e.g. 1080)
   const [dashQualities, setDashQualities] = useState<Array<{id: number, height: number, bandwidth: number}>>([]); // available DASH tracks
@@ -844,11 +863,21 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
 
   const toggleMute = () => {
     const v = videoRef.current;
-    if (v) { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 0.5; }
+    if (v) { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 0.5; setMuted(v.muted); }
   };
   const toggleFullscreen = () => {
     const el = containerRef.current; if (!el) return;
-    document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen();
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      // Unlock orientation on exit
+      if (screen.orientation?.unlock) screen.orientation.unlock();
+    } else {
+      el.requestFullscreen?.() || (el as any).webkitRequestFullscreen?.();
+      // Lock to landscape on mobile for better viewing
+      if (isTouchDevice && screen.orientation?.lock) {
+        screen.orientation.lock("landscape").catch(() => {});
+      }
+    }
   };
   const seek = (t: number) => {
     const v = videoRef.current;
@@ -856,8 +885,54 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
   };
   const setVol = (vol: number) => {
     const v = videoRef.current;
-    if (v) { v.volume = vol; v.muted = vol === 0; }
+    if (v) { v.volume = vol; v.muted = vol === 0; setMuted(vol === 0); }
   };
+
+  // Mobile: tap to toggle controls (not play/pause — play/pause is the center button).
+  // On desktop: click still toggles play (existing behavior).
+  const handleVideoTap = useCallback(() => {
+    if (isTouchDevice) {
+      // Mobile: tap = toggle controls visibility
+      setControlsVisible((prev) => {
+        const next = !prev;
+        if (next) {
+          // Showed controls → start auto-hide timer
+          if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+          if (playing) {
+            controlsTimeoutRef.current = setTimeout(() => {
+              setControlsVisible(false);
+              setShowSettings("");
+            }, 3000);
+          }
+        }
+        return next;
+      });
+    } else {
+      // Desktop: click = play/pause
+      togglePlay();
+    }
+  }, [isTouchDevice, playing, togglePlay]);
+
+  // Auto-show controls when playback state changes (pause → show, play → auto-hide).
+  useEffect(() => {
+    if (!playing) {
+      setControlsVisible(true);
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    } else {
+      showControls();
+    }
+  }, [playing, showControls]);
+
+  // Track fullscreen state changes (user can exit via ESC / system UI).
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
+  }, []);
 
   const changeQuality = (s: StreamSource) => {
     // Switch from DASH → MP4 (or between MP4 qualities)
@@ -952,6 +1027,25 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
+  // Buffered percentage — how much of the video is pre-loaded ahead of playhead.
+  // Reads from video.buffered (TimeRanges), finds the range containing currentTime.
+  const bufferedPercent = (() => {
+    const v = videoRef.current;
+    if (!v || !duration) return 0;
+    try {
+      for (let i = 0; i < v.buffered.length; i++) {
+        if (v.buffered.start(i) <= currentTime && v.buffered.end(i) >= currentTime) {
+          return (v.buffered.end(i) / duration) * 100;
+        }
+      }
+      // No range contains currentTime — use last buffered end.
+      if (v.buffered.length > 0) {
+        return (v.buffered.end(v.buffered.length - 1) / duration) * 100;
+      }
+    } catch {}
+    return 0;
+  })();
+
   // Loading
   if (loading) {
     return (
@@ -990,14 +1084,20 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
     );
   }
 
-  // Native player — NO ADS, DASH adaptive OR direct MP4
+  // Native player — NO ADS, mobile-first UI
   return (
     <div className="space-y-2">
-      <div ref={containerRef} className="relative bg-black aspect-video overflow-hidden rounded-lg group" tabIndex={0}>
+      <div
+        ref={containerRef}
+        className={`relative bg-black overflow-hidden rounded-lg group select-none ${isFullscreen ? "fixed inset-0 z-50 rounded-none" : "aspect-video"}`}
+        tabIndex={0}
+      >
         <video
           ref={videoRef}
           className="w-full h-full object-contain"
-          onClick={togglePlay}
+          onClick={handleVideoTap}
+          onDoubleClick={!isTouchDevice ? toggleFullscreen : undefined}
+          onTouchStart={isTouchDevice ? () => showControls() : undefined}
           playsInline
           autoPlay
           muted
@@ -1005,113 +1105,154 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
           crossOrigin="anonymous"
         />
 
+        {/* Buffering spinner — always visible during buffering */}
         {buffering && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <Loader2 className="w-12 h-12 text-white/80 animate-spin" />
           </div>
         )}
 
+        {/* Play button overlay — shows when paused (not buffering) */}
         {!playing && !buffering && (
-          <button onClick={togglePlay} className="absolute inset-0 flex items-center justify-center" aria-label="Play">
-            <div className="w-16 h-16 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-2xl transition-transform hover:scale-110">
-              <Play className="w-8 h-8 fill-white text-white ml-1" />
+          <button
+            onClick={togglePlay}
+            className="absolute inset-0 flex items-center justify-center bg-black/20"
+            aria-label="Play"
+          >
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-2xl transition-transform hover:scale-110">
+              <Play className="w-8 h-8 sm:w-10 sm:h-10 fill-white text-white ml-1" />
             </div>
           </button>
         )}
 
-        {/* Controls */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent px-4 pt-12 pb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-          {/* Seek bar */}
+        {/* Controls bar — mobile: tap to show/hide + auto-hide after 3s */}
+        {/* Desktop: hover to show (group-hover) */}
+        {/* Mobile: controlsVisible state controls visibility */}
+        <div
+          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-3 sm:px-4 pt-16 sm:pt-12 pb-2 transition-opacity duration-200 ${
+            isTouchDevice
+              ? controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+              : "opacity-0 group-hover:opacity-100"
+          }`}
+          onPointerMove={() => showControls()}
+        >
+          {/* Seek bar — bigger touch target on mobile (h-2.5 vs h-1.5) */}
           <div
-            className="relative w-full h-1.5 bg-white/20 rounded-full mb-3 cursor-pointer group/seek"
+            className="relative w-full h-2.5 sm:h-1.5 bg-white/20 rounded-full mb-3 cursor-pointer touch-none"
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               seek(((e.clientX - rect.left) / rect.width) * duration);
+              showControls();
             }}
           >
+            {/* Buffered (light gray) */}
+            <div
+              className="absolute top-0 left-0 h-full bg-white/30 rounded-full"
+              style={{ width: `${bufferedPercent}%` }}
+            />
+            {/* Progress (brand color) */}
             <div className="absolute top-0 left-0 h-full bg-brand-500 rounded-full" style={{ width: `${progress}%` }} />
-            <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover/seek:opacity-100 transition-opacity" style={{ left: `calc(${progress}% - 6px)` }} />
+            {/* Thumb — bigger on mobile (w-4 h-4 vs w-3 h-3), always visible on touch */}
+            <div
+              className={`absolute top-1/2 -translate-y-1/2 rounded-full bg-white shadow-md transition-opacity ${
+                isTouchDevice ? "w-4 h-4 opacity-100" : "w-3 h-3 opacity-0 group-hover:opacity-100"
+              }`}
+              style={{ left: `calc(${progress}% - ${isTouchDevice ? "8px" : "6px"})` }}
+            />
           </div>
 
-          <div className="flex items-center gap-3">
-            <button onClick={togglePlay} className="text-white hover:text-brand-500 transition">
-              {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-white" />}
+          {/* Control buttons row — bigger touch targets on mobile */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Play/Pause — 44px touch target */}
+            <button
+              onClick={(e) => { e.stopPropagation(); togglePlay(); showControls(); }}
+              className="text-white hover:text-brand-500 transition p-2 -m-2 touch-manipulation"
+              aria-label={playing ? "Pause" : "Play"}
+            >
+              {playing ? <Pause className="w-6 h-6 sm:w-5 sm:h-5" /> : <Play className="w-6 h-6 sm:w-5 sm:h-5 fill-white" />}
             </button>
-            <div className="flex items-center gap-2 group/vol">
-              <button onClick={toggleMute} className="text-white hover:text-brand-500 transition">
-                {muted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-              </button>
-              <input type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={(e) => setVol(Number(e.target.value))} className="w-0 group-hover/vol:w-20 transition-all duration-200 accent-brand-500 cursor-pointer" />
-            </div>
-            <div className="text-xs text-white/80 font-mono">{formatTime(currentTime)} / {formatTime(duration)}</div>
 
-            {/* ABR indicator (DASH only) — shows current resolution + bitrate */}
+            {/* Volume — hidden on mobile (hardware volume), shown on desktop */}
+            {!isTouchDevice && (
+              <div className="flex items-center gap-2 group/vol">
+                <button onClick={toggleMute} className="text-white hover:text-brand-500 transition" aria-label="Mute">
+                  {muted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={muted ? 0 : volume}
+                  onChange={(e) => setVol(Number(e.target.value))}
+                  className="w-0 group-hover/vol:w-20 transition-all duration-200 accent-brand-500 cursor-pointer"
+                />
+              </div>
+            )}
+
+            {/* Mute toggle for mobile (compact, no slider) */}
+            {isTouchDevice && (
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleMute(); showControls(); }}
+                className="text-white p-2 -m-2 touch-manipulation"
+                aria-label="Mute"
+              >
+                {muted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+              </button>
+            )}
+
+            {/* Time display */}
+            <div className="text-xs sm:text-sm text-white/80 font-mono whitespace-nowrap">
+              {formatTime(currentTime)} <span className="text-white/40">/</span> {formatTime(duration)}
+            </div>
+
+            {/* ABR indicator (DASH only) */}
             {usingDash && currentDashHeight > 0 && (
               <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono">
                 <Wifi className="w-3 h-3" />
                 {currentDashHeight}p{abrEnabled ? " · auto" : " · locked"}
-                {currentBitrate > 0 && ` · ${formatBitrate(currentBitrate)}`}
               </span>
             )}
 
             <div className="flex-1" />
 
-            {/* Quality / source picker — always show when there are choices */}
+            {/* Quality picker */}
             {(sources.length > 1 || dashSource) && (
               <div className="relative">
-                <button onClick={() => setShowSettings(showSettings === "q" ? "" : "q")} className="text-white hover:text-brand-500 transition flex items-center gap-1">
-                  <Settings className="w-5 h-5" />
-                  <span className="text-xs">
-                    {usingDash
-                      ? (abrEnabled ? "Auto" : `${currentDashHeight}p`)
-                      : activeSource?.quality}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowSettings(showSettings === "q" ? "" : "q"); showControls(); }}
+                  className="text-white hover:text-brand-500 transition flex items-center gap-1 p-2 -m-2 touch-manipulation"
+                  aria-label="Quality"
+                >
+                  <Settings className="w-6 h-6 sm:w-5 sm:h-5" />
+                  <span className="text-xs hidden sm:inline">
+                    {usingDash ? (abrEnabled ? "Auto" : `${currentDashHeight}p`) : activeSource?.quality}
                   </span>
                 </button>
                 {showSettings === "q" && (
-                  <div className="absolute bottom-8 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[160px] max-h-72 overflow-y-auto scroll-row">
-                    {/* DASH Auto option — ABR enabled */}
+                  <div className="absolute bottom-10 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[140px] max-h-72 overflow-y-auto scroll-row z-20">
                     {dashSource && (
                       <button
-                        onClick={usingDash && abrEnabled ? enableAutoDash : switchToDash}
-                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition flex items-center gap-2 ${
-                          usingDash && abrEnabled ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"
-                        }`}
+                        onClick={() => { usingDash && abrEnabled ? enableAutoDash() : switchToDash(); }}
+                        className={`w-full text-left px-3 py-2 rounded text-sm transition flex items-center gap-2 ${usingDash && abrEnabled ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
                       >
-                        <Gauge className="w-3.5 h-3.5" />
-                        Auto
-                        <span className="ml-auto text-[10px] text-gray-500">DASH</span>
+                        <Gauge className="w-3.5 h-3.5" /> Auto
                       </button>
                     )}
-                    {/* DASH manual quality options (only when DASH is active) */}
                     {usingDash && dashQualities.map((q) => (
                       <button
                         key={q.id}
                         onClick={() => selectDashQuality(q.id)}
-                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition flex items-center gap-2 ${
-                          !abrEnabled && currentDashHeight === q.height
-                            ? "bg-brand-500/20 text-brand-500"
-                            : "text-gray-300 hover:bg-white/5"
-                        }`}
+                        className={`w-full text-left px-3 py-2 rounded text-sm transition ${!abrEnabled && currentDashHeight === q.height ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
                       >
-                        <span className="w-3.5 h-3.5 flex items-center justify-center">
-                          {!abrEnabled && currentDashHeight === q.height ? "●" : ""}
-                        </span>
-                        {q.height}p
-                        <span className="ml-auto text-[10px] text-gray-500">{formatBitrate(q.bandwidth)}</span>
+                        {q.height}p <span className="ml-auto text-[10px] text-gray-500">{formatBitrate(q.bandwidth)}</span>
                       </button>
                     ))}
-                    {/* Divider between DASH and MP4 options */}
-                    {usingDash && sources.length > 0 && (
-                      <div className="border-t border-white/10 my-1" />
-                    )}
-                    {/* MP4 qualities */}
                     {sources.map((s, i) => (
                       <button
                         key={i}
                         onClick={() => changeQuality(s)}
-                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${
-                          !usingDash && activeSource?.url === s.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"
-                        }`}
+                        className={`w-full text-left px-3 py-2 rounded text-sm transition ${!usingDash && activeSource?.url === s.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
                       >
                         {s.quality} <span className="text-[10px] text-gray-500">MP4</span>
                       </button>
@@ -1120,28 +1261,28 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
                 )}
               </div>
             )}
-            {/* Subtitles toggle */}
+
+            {/* Subtitles */}
             {subtitles.length > 0 && (
               <div className="relative">
                 <button
-                  onClick={() => setShowSettings(showSettings === "s" ? "" : "s")}
-                  className={`text-white hover:text-brand-500 transition flex items-center gap-1 ${activeSubtitle ? "text-brand-400" : ""}`}
+                  onClick={(e) => { e.stopPropagation(); setShowSettings(showSettings === "s" ? "" : "s"); showControls(); }}
+                  className={`text-white transition flex items-center gap-1 p-2 -m-2 touch-manipulation ${activeSubtitle ? "text-brand-400" : ""}`}
                   aria-label="Subtitles"
                 >
-                  <Subtitles className="w-5 h-5" />
+                  <Subtitles className="w-6 h-6 sm:w-5 sm:h-5" />
+                  {activeSubtitle && <span className="text-[10px] text-brand-400 hidden sm:inline">ON</span>}
                 </button>
                 {showSettings === "s" && (
-                  <div className="absolute bottom-8 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[150px] max-h-60 overflow-y-auto scroll-row">
+                  <div className="absolute bottom-10 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[140px] max-h-60 overflow-y-auto scroll-row z-20">
                     <button
                       onClick={() => {
                         setActiveSubtitle(null);
                         const v = videoRef.current;
-                        if (v) {
-                          for (let i = 0; i < v.textTracks.length; i++) v.textTracks[i].mode = "disabled";
-                        }
+                        if (v) { for (let i = 0; i < v.textTracks.length; i++) v.textTracks[i].mode = "disabled"; }
                         setShowSettings("");
                       }}
-                      className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${!activeSubtitle ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
+                      className={`w-full text-left px-3 py-2 rounded text-sm transition ${!activeSubtitle ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
                     >
                       Off
                     </button>
@@ -1152,22 +1293,16 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
                           setActiveSubtitle(sub.url);
                           const v = videoRef.current;
                           if (v) {
-                            // Disable all tracks first.
-                            for (let j = 0; j < v.textTracks.length; j++) {
-                              v.textTracks[j].mode = "disabled";
-                            }
-                            // Find this subtitle's track + enable it.
+                            for (let j = 0; j < v.textTracks.length; j++) v.textTracks[j].mode = "disabled";
                             const track = loadedSubsRef.current.get(sub.url);
                             if (track) {
                               track.mode = "showing";
-                              // Lazy-load VTT cues if not already loaded.
-                              // This is async — cues appear ~200ms after click.
                               loadSubtitleCues(sub.url, sub.language);
                             }
                           }
                           setShowSettings("");
                         }}
-                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition ${activeSubtitle === sub.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
+                        className={`w-full text-left px-3 py-2 rounded text-sm transition ${activeSubtitle === sub.url ? "bg-brand-500/20 text-brand-500" : "text-gray-300 hover:bg-white/5"}`}
                       >
                         {sub.language}
                       </button>
@@ -1176,8 +1311,14 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
                 )}
               </div>
             )}
-            <button onClick={toggleFullscreen} className="text-white hover:text-brand-500 transition">
-              <Maximize className="w-5 h-5" />
+
+            {/* Fullscreen */}
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+              className="text-white hover:text-brand-500 transition p-2 -m-2 touch-manipulation"
+              aria-label="Fullscreen"
+            >
+              <Maximize className="w-6 h-6 sm:w-5 sm:h-5" />
             </button>
           </div>
         </div>
@@ -1189,15 +1330,9 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
           ✓ Ad-free ·{" "}
           <span className="text-gray-300">{usingDash ? dashSource?.provider : activeSource?.provider}</span>
           {usingDash && dashSource
-            ? ` · ${currentDashHeight > 0 ? currentDashHeight + 'p' : dashSource.maxBitrate}${abrEnabled ? ' (auto)' : ' (locked)'}`
+            ? ` · ${currentDashHeight > 0 ? currentDashHeight + "p" : dashSource.maxBitrate}${abrEnabled ? " (auto)" : " (locked)"}`
             : ` · ${activeSource?.quality}`}
         </span>
-        {usingDash && abrEnabled && (
-          <span className="text-emerald-500/80">⚡ Adaptive — auto-adjusts quality to your connection</span>
-        )}
-        {usingDash && !abrEnabled && (
-          <span className="text-amber-500/80">🔒 Quality locked — click Auto to re-enable adaptive</span>
-        )}
       </div>
     </div>
   );

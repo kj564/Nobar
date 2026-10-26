@@ -48,10 +48,10 @@ async function searchMzfi(
   try {
     const res = await fetch(`${MZFI_BASE}/wefeed-h5api-bff/subject/search`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        Cookie: `token=${token}`,
       },
       body: JSON.stringify({ keyword: title, page: 1, perPage: 5 }),
     });
@@ -78,6 +78,8 @@ async function searchMzfi(
 }
 
 // Get play URLs for a movie.
+// KEY: must use credentials: 'include' to send mb_token cookie!
+// Without the cookie, API returns hasResource:false (empty streams).
 async function playMzfi(
   token: string,
   subjectId: string,
@@ -93,10 +95,12 @@ async function playMzfi(
     const se = kind === "tv" ? season : 0;
     const ep = kind === "tv" ? episode : 0;
     const playUrl = `${MZFI_BASE}/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${detailPath}&streamSignType=1&supportCodecs[h264]=1`;
+    // KEY: credentials: 'include' sends mb_token cookie (set by /home response).
+    // Without this, API returns hasResource:false (no streams).
     const res = await fetch(playUrl, {
+      credentials: "include",
       headers: {
         Authorization: `Bearer ${token}`,
-        Cookie: `token=${token}`,
         Accept: "application/json",
       },
     });

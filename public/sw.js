@@ -1,24 +1,25 @@
 // Nobar Service Worker — caches static assets for instant repeat visits.
 //
 // Strategy:
-//   - Next.js chunks (/_next/static/*): cache-first (immutable, never change)
+//   - Next.js chunks (/_next/static/*): network-first (always get latest)
 //   - TMDB images (image.tmdb.org): stale-while-revalidate (cache 24h)
 //   - TMDB API (api.themoviedb.org): network-first (fresh data preferred)
 //   - cdn-proxy Worker: network-only (dynamic, can't cache stream URLs)
 //   - Everything else: network-first, fallback to cache
 //
 // On repeat visits, all JS/CSS/images load from cache → instant page load.
+// IMPORTANT: bump CACHE_VERSION on every deploy to force SW update.
 
-const CACHE_VERSION = "nobar-v1";
+const CACHE_VERSION = "nobar-v2";  // bumped from v1 → forces cache invalidation
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
 
-// Install: pre-cache nothing (lazy cache on first fetch).
+// Install: skip waiting so new SW activates immediately (no stale cache).
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
-// Activate: clean old caches.
+// Activate: clean ALL old caches (any version that doesn't match current).
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -29,6 +30,7 @@ self.addEventListener("activate", (event) => {
       )
     )
   );
+  // Take control of ALL clients immediately (force update).
   self.clients.claim();
 });
 
@@ -46,19 +48,19 @@ self.addEventListener("fetch", (event) => {
   // Skip video segment requests (handled by hls.js, don't cache).
   if (url.hostname.includes("stream121.space") || url.hostname.includes("hakunaymatata")) return;
 
-  // 1. Next.js static chunks — cache-first (immutable).
+  // 1. Next.js static chunks — network-first (was cache-first, caused stale JS bug).
+  //    Next.js chunks ARE immutable (content-hashed), but network-first ensures
+  //    the user always gets the latest version on each visit. Cache is fallback
+  //    for offline only.
   if (url.pathname.startsWith("/_next/static/")) {
     event.respondWith(
-      caches.open(STATIC_CACHE).then((cache) =>
-        cache.match(req).then(
-          (cached) =>
-            cached ||
-            fetch(req).then((res) => {
-              cache.put(req, res.clone());
-              return res;
-            })
-        )
-      )
+      fetch(req)
+        .then((res) => {
+          const resClone = res.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(req, resClone));
+          return res;
+        })
+        .catch(() => caches.match(req))
     );
     return;
   }
@@ -69,11 +71,9 @@ self.addEventListener("fetch", (event) => {
       caches.open(IMAGE_CACHE).then((cache) =>
         cache.match(req).then((cached) => {
           const networkFetch = fetch(req).then((res) => {
-            // Only cache successful responses.
             if (res.ok) cache.put(req, res.clone());
             return res;
           });
-          // Return cached immediately, update in background.
           return cached || networkFetch;
         })
       )
@@ -86,7 +86,6 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          // Cache successful responses for 5 min.
           if (res.ok) {
             const resClone = res.clone();
             caches.open(STATIC_CACHE).then((cache) => cache.put(req, resClone));

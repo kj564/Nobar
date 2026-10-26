@@ -555,6 +555,14 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
     // hls-direct = vidlink.pro zero-egress path (CloudFront signed URL query auth)
     // hls        = proxied HLS (vidsrc.buzz etc. — goes through /api/proxy)
     const isHlsDirect = activeSource.type === "hls-direct";
+    const hasAuth = !!(activeSource as any).auth;
+
+    // On iOS Safari, use NATIVE HLS when possible (no blob URL = better battery +
+    // smoother playback). Only use hls.js when we NEED custom fLoader (vidlink
+    // CloudFront auth injection). lk21 HLS is CORS-open → native works!
+    const canNativeHls = v.canPlayType("application/vnd.apple.mpegurl") === "probably";
+    const useNativeHls = canNativeHls && (!isHlsDirect || !hasAuth);
+
     if (activeSource.type === "hls" || isHlsDirect) {
       // Cleanup previous hls.js instance
       if (hlsRef.current) {
@@ -562,14 +570,13 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
         hlsRef.current = null;
       }
 
-      // Native HLS support (Safari returns 'probably', Chrome returns 'maybe').
-      // Only use native for PLAIN hls — NOT for hls-direct (Safari can't inject
-      // CloudFront auth query params into segment URLs, segments would 403).
-      // For hls-direct we ALWAYS use hls.js (with custom fLoader below).
-      if (!isHlsDirect && v.canPlayType("application/vnd.apple.mpegurl") === "probably") {
+      // Native HLS (Safari/iOS) — no blob URL, better battery, smoother.
+      // Works for: lk21 HLS (CORS-open, no auth needed)
+      // Does NOT work for: vidlink HLS (needs CloudFront auth in segment URLs)
+      if (useNativeHls) {
         v.src = activeSource.url;
         v.load();
-        console.log("[NOBAR] HLS native playback (Safari)");
+        console.log("[NOBAR] HLS native playback (Safari/iOS)");
         // Autoplay after metadata
         const t = setTimeout(async () => {
           try { await v.play(); setPlaying(true); } catch { setPlaying(false); }
@@ -595,32 +602,26 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
           // ── Build hls.js config (tuned for fast start + smooth playback) ──
           const hlsConfig: any = {
             // Buffering: smaller initial buffer = faster playback start.
-            // hls.js waits until it has maxBufferLength seconds buffered
-            // before starting playback. Lower = faster start, more rebuffer risk.
             maxBufferLength: 10,        // start playback after 10s buffered (was 30)
             maxMaxBufferLength: 30,     // allow up to 30s if bandwidth allows (was 60)
-            // Worker: parse m3u8 in a Web Worker (doesn't block main thread)
             enableWorker: true,
-            // Low latency mode off (we're VOD, not live)
             lowLatencyMode: false,
-            // Start at a low level for fast initial load (auto-upgrades after).
-            // Without this, hls.js may start at 1080p → slow first segment.
             startLevel: -1,             // -1 = auto (hls.js picks based on bandwidth)
-            // ABR tuning: faster upgrade/downgrade for smoother experience
-            abrEwmaDefaultEstimate: 2_000_000,  // assume 2 Mbps initial (was 500kbps default)
-            // Backbuffer: drop old buffer to save memory
+            abrEwmaDefaultEstimate: 2_000_000,  // assume 2 Mbps initial
             backBufferLength: 30,        // keep 30s behind playhead (default 90s)
-            // Manifest loading: faster timeout = quicker fallback if CDN slow
             manifestLoadingTimeOut: 10000,
             manifestLoadingMaxRetry: 2,
-            // Fragment loading: retry quickly on network blips
             fragLoadingTimeOut: 20000,
             fragLoadingMaxRetry: 4,
             fragLoadingRetryDelay: 500,
-            // XHR: don't send cookies (CORS-clean, faster)
             xhrSetup: (xhr: XMLHttpRequest) => {
               xhr.withCredentials = false;
             },
+            // iOS Safari compatibility: use ManagedMediaSource when available,
+            // and don't use MSE for native HLS-capable browsers.
+            // iOS Safari can play HLS natively — we should use native playback
+            // instead of hls.js for better performance + battery life.
+            // (Handled below: check v.canPlayType before hls.js)
           };
 
           if (isHlsDirect && activeSource.auth) {
@@ -1097,32 +1098,30 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
           className="w-full h-full object-contain"
           onClick={handleVideoTap}
           onDoubleClick={!isTouchDevice ? toggleFullscreen : undefined}
-          onTouchStart={isTouchDevice ? () => showControls() : undefined}
+          onTouchStart={isTouchDevice ? (e) => { e.preventDefault(); showControls(); } : undefined}
           playsInline
           autoPlay
           muted
           preload="auto"
-          crossOrigin="anonymous"
         />
 
-        {/* Buffering spinner — always visible during buffering */}
+        {/* Buffering spinner */}
         {buffering && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <Loader2 className="w-12 h-12 text-white/80 animate-spin" />
           </div>
         )}
 
-        {/* Play button overlay — shows when paused (not buffering) */}
+        {/* Play button — CENTERED, not full overlay (was 342x192px = entire video) */}
         {!playing && !buffering && (
-          <button
+          <div
+            className="absolute inset-0 flex items-center justify-center"
             onClick={togglePlay}
-            className="absolute inset-0 flex items-center justify-center bg-black/20"
-            aria-label="Play"
           >
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-2xl transition-transform hover:scale-110">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-2xl transition-transform hover:scale-110 pointer-events-none">
               <Play className="w-8 h-8 sm:w-10 sm:h-10 fill-white text-white ml-1" />
             </div>
-          </button>
+          </div>
         )}
 
         {/* Controls bar — mobile: tap to show/hide + auto-hide after 3s */}

@@ -75,9 +75,25 @@ export async function resolveStream(
   //
   // In dev, the local Bun cdn-proxy doesn't have cloudflare:sockets, so we
   // fall back to /mp4 (fetch-based, strips UA — works for local testing).
+  //
+  // IMPORTANT: bcdnxw.hakunaymatata.com blocks CF Worker IP entirely (427
+  // even with raw TCP socket + correct Referer/UA). Only bcdn. works via
+  // socket proxy. So we FILTER OUT bcdnxw sources — they can't be proxied.
+  // If ALL sources are bcdnxw → fall through to vidlink embed (has ads, but
+  // at least plays).
   const mp4ProxyPath = isStaticMode ? "/mp4-socket" : "/mp4";
   const mp4Sources = (data.sources || [])
     .filter((s: any) => s.type === "mp4" && s.url)
+    .filter((s: any) => {
+      // bcdn. → works via TCP socket proxy (no UA, no CF headers)
+      // bcdnxw. → BLOCKED by CF Worker IP (427 even via socket)
+      // other   → try anyway (might work)
+      if (s.url.includes("bcdnxw.")) {
+        console.warn("[NOBAR] bcdnxw MP4 cannot be proxied by CF Worker, skipping:", s.quality);
+        return false;
+      }
+      return true;
+    })
     .map((s: any) => ({
       quality: s.quality,
       url: proxyUrl(`${mp4ProxyPath}?url=${encodeURIComponent(s.url)}`),
@@ -94,7 +110,10 @@ export async function resolveStream(
   }
 
   // Last resort: vidlink.pro embed iframe (plays video, but HAS ADS).
-  return { sources: [], subtitles: [], embedUrl: embedFallback(tmdbId, kind, season, episode) };
+  // This happens when: lk21 doesn't have it + all MP4 sources are bcdnxw.
+  // Better to play with ads than not play at all.
+  console.log("[NOBAR] No playable sources, using vidlink embed (has ads)");
+  return { sources: [], subtitles: data.subtitles || [], embedUrl: embedFallback(tmdbId, kind, season, episode) };
 }
 
 // Try lk21 resolver — returns null if not found or no title provided.

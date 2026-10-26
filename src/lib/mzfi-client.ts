@@ -146,22 +146,32 @@ async function playMzfi(
   }
 }
 
-// Full pipeline: title → playable stream URLs.
-export async function resolveMzfiClient(
+// Full pipeline: title → mzfi embed URL (iframe, same-origin to mzfi.me).
+//
+// mzfi API is CORS-open (ACAO:*) BUT credentials:include is rejected
+// (CORS spec: ACAO:* + credentials = error). So we CANNOT call /subject/play
+// cross-origin with cookies. The mb_token cookie is needed for play API.
+//
+// SOLUTION: Instead of calling /subject/play ourselves, we construct the
+// mzfi SPA play page URL and use it as an iframe embed (like vidlink embed).
+// The iframe is same-origin to mzfi.me → cookies work → video plays.
+// mzfi has ads (popunders, banners) but at least the video plays.
+//
+// Flow:
+//   1. Browser → mzfi.me/wefeed-h5api-bff/home → get token (x-user, CORS-open)
+//   2. Browser → mzfi.me/wefeed-h5api-bff/subject/search → find movie
+//   3. Construct: https://mzfi.me/spa/videoPlayPage/movies/{detailPath}?id={subjectId}
+//   4. Return as embedUrl → NativePlayer renders <iframe src={mzfi play page}>
+export async function resolveMzfiEmbed(
   title: string,
   year?: string,
-  kind: "movie" | "tv" = "movie",
-  season: number = 1,
-  episode: number = 1
-): Promise<{
-  sources: Array<{ quality: string; url: string; provider: string; type: string }>;
-  subtitles: any[];
-} | null> {
+  kind: "movie" | "tv" = "movie"
+): Promise<string | null> {
   try {
-    console.log("[MZFI] Resolving:", title, year || "", kind);
+    console.log("[MZFI] Resolving embed:", title, year || "", kind);
     const token = await getMzfiToken();
     if (!token) {
-      console.log("[MZFI] Token failed — mzfi API unreachable");
+      console.log("[MZFI] Token failed");
       return null;
     }
     console.log("[MZFI] Token OK");
@@ -173,23 +183,32 @@ export async function resolveMzfiClient(
     }
     console.log("[MZFI] Found:", searchResult.title, "| subjectId:", searchResult.subjectId);
 
-    const playResult = await playMzfi(
-      token,
-      searchResult.subjectId,
-      searchResult.detailPath,
-      kind,
-      season,
-      episode
-    );
-    if (!playResult || playResult.sources.length === 0) {
-      console.log("[MZFI] No streams (geo-locked or unavailable)");
-      return null;
-    }
-    console.log("[MZFI] Streams:", playResult.sources.length, "| first CDN:", playResult.sources[0].provider);
-
-    return playResult;
+    // Construct mzfi SPA play page URL — this works as iframe embed.
+    // The iframe is same-origin to mzfi.me → mb_token cookie sent → video plays.
+    const embedUrl = `${MZFI_BASE}/spa/videoPlayPage/movies/${searchResult.detailPath}?id=${searchResult.subjectId}&detailSe=&detailEp=&lang=en&type=/movie/detail&page_from=home`;
+    console.log("[MZFI] Embed URL:", embedUrl.slice(0, 80));
+    return embedUrl;
   } catch (e) {
     console.warn("[MZFI] Error:", e);
     return null;
   }
+}
+
+// Legacy: full pipeline returning stream URLs (DOES NOT WORK cross-origin
+// due to CORS credentials restriction — kept for reference/future use).
+export async function resolveMzfiClient(
+  title: string,
+  year?: string,
+  kind: "movie" | "tv" = "movie",
+  season: number = 1,
+  episode: number = 1
+): Promise<{
+  sources: Array<{ quality: string; url: string; provider: string; type: string }>;
+  subtitles: any[];
+} | null> {
+  // This does NOT work from nobar.pages.dev because:
+  // 1. /subject/play needs mb_token cookie (same-origin only)
+  // 2. credentials:include + ACAO:* = CORS rejection
+  // Use resolveMzfiEmbed() instead (returns iframe URL).
+  return null;
 }

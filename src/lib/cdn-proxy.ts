@@ -8,13 +8,13 @@ function proxyUrl(path: string): string {
   return `${path}${sep}XTransformPort=${CDN_PROXY_PORT}`;
 }
 
-// Lazy-load mzfi client resolver (only when needed — bcdnxw-only movies).
-let resolveMzfiClient: typeof import("./mzfi-client").resolveMzfiClient | null = null;
+// Lazy-load mzfi embed resolver (iframe approach — works cross-origin).
+let resolveMzfiEmbed: typeof import("./mzfi-client").resolveMzfiEmbed | null = null;
 async function getMzfiClient() {
-  if (!resolveMzfiClient) {
-    resolveMzfiClient = (await import("./mzfi-client")).resolveMzfiClient;
+  if (!resolveMzfiEmbed) {
+    resolveMzfiEmbed = (await import("./mzfi-client")).resolveMzfiEmbed;
   }
-  return resolveMzfiClient;
+  return resolveMzfiEmbed;
 }
 
 export async function resolveStream(
@@ -66,19 +66,19 @@ export async function resolveStream(
     return lk21;
   }
 
-  // ── lk21 didn't have it → try mzfi (client-side, geo-dependent) ──
-  // mzfi API is CORS-open (ACAO:*). Token from /home x-user header.
-  // Works from USER's browser (not CF Worker — 429 CF→CF detection).
-  // Content is geo-locked: returns streams if user's region supports it.
-  // If geo-locked → returns empty → falls through to MP4/embed.
+  // ── lk21 didn't have it → try mzfi embed (iframe, same-origin to mzfi.me) ──
+  // mzfi API is CORS-open for search (token from x-user header).
+  // /subject/play needs cookie (same-origin only) — so we use iframe embed.
+  // mzfi SPA play page plays video inside iframe (cookie works same-origin).
+  // This is better than vidlink embed (mzfi has fewer ads).
   if (kind === "movie" && title) {
     try {
-      const mzfiClient = await getMzfiClient();
-      const mzfiResult = await mzfiClient(title, year, kind, season, episode);
-      if (mzfiResult?.sources?.length) {
-        console.log("[NOBAR] mzfi resolved:", mzfiResult.sources[0].provider);
+      const mzfiEmbed = await getMzfiClient();
+      const mzfiUrl = await mzfiEmbed(title, year, kind);
+      if (mzfiUrl) {
+        console.log("[NOBAR] mzfi embed resolved:", mzfiUrl.slice(0, 60));
         const vidlinkSubs = (data.subtitles || []).filter((s: any) => s?.url);
-        return { ...mzfiResult, subtitles: vidlinkSubs.length > 0 ? vidlinkSubs : mzfiResult.subtitles };
+        return { sources: [], subtitles: vidlinkSubs, embedUrl: mzfiUrl };
       }
     } catch (e) {
       console.warn("[NOBAR] mzfi resolve failed:", e);

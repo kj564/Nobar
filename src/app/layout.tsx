@@ -60,6 +60,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="dns-prefetch" href="https://sacdn.hakunaymatata.com" />
         <link rel="dns-prefetch" href="https://lowhls9.stream121.space" />
         <link rel="dns-prefetch" href="https://cacdn.hakunaymatata.com" />
+        {/* Service Worker: caches static assets + images for instant repeat visits */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{})})}`,
+          }}
+        />
         <script
           src="https://tags.adplox.com/p.js?z=pfntggc9kw"
           async

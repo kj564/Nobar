@@ -81,20 +81,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3. TMDB API — network-first (fresh data preferred, cache fallback).
+  // 3. TMDB API — DO NOT intercept (let browser handle natively).
+  //    The SW was intercepting TMDB API calls and returning undefined from
+  //    caches.match() when there was no cached response — causing the fetch
+  //    to fail with "Gagal memuat film". Browser's native fetch handles
+  //    CORS + cache headers properly. SW should only cache static assets.
   if (url.hostname === "api.themoviedb.org") {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          if (res.ok) {
-            const resClone = res.clone();
-            caches.open(STATIC_CACHE).then((cache) => cache.put(req, resClone));
-          }
-          return res;
-        })
-        .catch(() => caches.match(req))
-    );
-    return;
+    return; // Don't call event.respondWith() — let browser handle natively
   }
 
   // 4. Same-origin navigation/page requests — network-first, cache fallback.

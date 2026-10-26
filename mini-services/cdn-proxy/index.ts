@@ -677,7 +677,7 @@ async function handleRequestInner(req: Request): Promise<Response> {
   // ─── mzfi play proxy (browser sends token, Worker calls play API) ──
   // GET /mzfi-play?subjectId={id}&detailPath={path}&token={token}&kind={kind}
   // Browser gets token from mzfi /home (x-user header, CORS-open)
-  // Worker calls mzfi /subject/play with Cookie header (browser can't set it)
+  // Worker calls mzfi /subject/play with mb_token cookie (browser can't set it)
   if (path === "/mzfi-play" || path === "/mzfi-play/") {
     const subjectId = url.searchParams.get("subjectId") || "";
     const detailPath = url.searchParams.get("detailPath") || "";
@@ -692,12 +692,17 @@ async function handleRequestInner(req: Request): Promise<Response> {
     const epParam = kind === "tv" ? "1" : "0";
     const playUrl = `https://mzfi.me/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${seParam}&ep=${epParam}&detailPath=${detailPath}&streamSignType=1&supportCodecs%5Bh264%5D=1`;
     
+    // mb_token = URL-encoded JSON string: %22<jwt>%22
+    // mzfi SPA sets: document.cookie = "mb_token=" + JSON.stringify(token)
+    const mbTokenValue = encodeURIComponent(JSON.stringify(token));
+    
     try {
       const playRes = await fetch(playUrl, {
         headers: {
           ...MZFI_HEADERS,
           Authorization: `Bearer ${token}`,
-          Cookie: `token=${token}`,
+          // KEY: mb_token cookie is required — without it hasResource=false
+          Cookie: `mb_token=${mbTokenValue}; mb_guest_token=${mbTokenValue}; token=${token}`,
           Referer: `https://mzfi.me/spa/videoPlayPage/movies/${detailPath}?id=${subjectId}`,
         },
       });
@@ -714,13 +719,11 @@ async function handleRequestInner(req: Request): Promise<Response> {
       
       for (const s of streams) {
         if (s.url) {
-          // Wrap through /mp4 proxy
-          const proxyUrl = `/mp4?url=${encodeURIComponent(s.url)}`;
-          const fullProxyUrl = isStaticMode ? `${CDN_PROXY_URL}${proxyUrl}` : `${proxyUrl}&XTransformPort=${CDN_PROXY_PORT}`;
+          // Return DIRECT URL — SW will inject Referer: mzfi.me
           sources.push({
-            quality: `${s.id || "auto"}p`,
-            url: fullProxyUrl,
-            provider: "mzfi.me",
+            quality: `${s.resolutions || s.id || "auto"}p`,
+            url: s.url,
+            provider: "mzfi.me (bcdnxw)",
             type: "mp4",
           });
         }

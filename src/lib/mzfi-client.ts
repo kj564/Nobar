@@ -88,12 +88,10 @@ async function searchMzfi(
   }
 }
 
-// Get play URLs for a movie.
-// KEY: mzfi /subject/play needs mb_token cookie (set by SPA JavaScript).
-// Cross-origin: can't use credentials:include (ACAO:* rejects it).
-// WORKAROUND: Call /subject/play with Cookie header manually.
-// The mb_token value = URL-encoded JSON string: %22<jwt>%22
-// This is set by mzfi SPA: document.cookie = "mb_token=" + JSON.stringify(token)
+// Get play URLs for a movie via Worker proxy (Worker sets mb_token cookie).
+// Browser CANNOT set Cookie header in cross-origin fetch (CORS security).
+// Worker CAN set Cookie header freely (server-side, no CORS restriction).
+// Worker also gets 429 from mzfi /home — BUT /subject/play might work.
 async function playMzfi(
   token: string,
   subjectId: string,
@@ -106,52 +104,26 @@ async function playMzfi(
   | null
 > {
   try {
-    const se = kind === "tv" ? season : 0;
-    const ep = kind === "tv" ? episode : 0;
-    const playUrl = `${MZFI_BASE}/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${detailPath}&streamSignType=1&supportCodecs[h264]=1`;
+    // Call Worker /mzfi-play which proxies to mzfi /subject/play with mb_token cookie.
+    const CDN_PROXY_URL = process.env.NEXT_PUBLIC_CDN_PROXY_URL || "";
+    const isStatic = CDN_PROXY_URL.length > 0;
+    const workerUrl = isStatic
+      ? `${CDN_PROXY_URL}/mzfi-play?subjectId=${subjectId}&detailPath=${detailPath}&token=${encodeURIComponent(token)}&kind=${kind}`
+      : `/mzfi-play?subjectId=${subjectId}&detailPath=${detailPath}&token=${encodeURIComponent(token)}&kind=${kind}&XTransformPort=3003`;
 
-    // Construct mb_token cookie value (URL-encoded JSON string with quotes).
-    // mzfi SPA sets: document.cookie = "mb_token=" + JSON.stringify(token)
-    // → mb_token = "eyJ..." (with double quotes, URL-encoded as %22eyJ...%22)
-    const mbTokenValue = encodeURIComponent(JSON.stringify(token));
-
-    const res = await fetch(playUrl, {
-      credentials: "omit",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-        // mb_token cookie is the KEY — without it, hasResource=false.
-        // mzfi SPA sets this via JavaScript (document.cookie), not Set-Cookie.
-        Cookie: `mb_token=${mbTokenValue}; mb_guest_token=${mbTokenValue}; token=${token}`,
-      },
-    });
+    const res = await fetch(workerUrl, { credentials: "omit" });
     const data = (await res.json())?.data || {};
-    const streams = data.streams || [];
-
-    if (streams.length === 0 || data.hasResource === false) {
-      console.log("[MZFI] No streams (hasResource=" + data.hasResource + ", vipLocked=" + data.vipLocked + ") — probably geo-locked");
+    // Worker returns { sources: [...], subtitles: [] }
+    const result = await res.json();
+    const sources = result?.sources || [];
+    if (sources.length === 0) {
+      console.log("[MZFI] Worker play: no streams (hasResource=" + result?.data?.hasResource + ")");
       return null;
     }
-
-    const sources = streams.map((s: any) => {
-      const url = s.url || "";
-      const cdn = url.includes("bcdnxw")
-        ? "bcdnxw"
-        : url.includes("bcdn.")
-        ? "bcdn"
-        : url.includes("sbcdn")
-        ? "sbcdn"
-        : "other";
-      return {
-        quality: `${s.id || "auto"}p`,
-        url, // direct URL — <video> doesn't need CORS for media playback
-        provider: `mzfi (${cdn})`,
-        type: "mp4",
-      };
-    });
-
+    console.log("[MZFI] Worker play: " + sources.length + " streams");
     return { sources, subtitles: [] };
-  } catch {
+  } catch (e) {
+    console.warn("[MZFI] Worker play error:", e);
     return null;
   }
 }

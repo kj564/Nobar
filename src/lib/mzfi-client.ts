@@ -89,8 +89,11 @@ async function searchMzfi(
 }
 
 // Get play URLs for a movie.
-// KEY: must use credentials: 'include' to send mb_token cookie!
-// Without the cookie, API returns hasResource:false (empty streams).
+// KEY: mzfi /subject/play needs mb_token cookie (set by SPA JavaScript).
+// Cross-origin: can't use credentials:include (ACAO:* rejects it).
+// WORKAROUND: Call /subject/play with Cookie header manually.
+// The mb_token value = URL-encoded JSON string: %22<jwt>%22
+// This is set by mzfi SPA: document.cookie = "mb_token=" + JSON.stringify(token)
 async function playMzfi(
   token: string,
   subjectId: string,
@@ -106,13 +109,20 @@ async function playMzfi(
     const se = kind === "tv" ? season : 0;
     const ep = kind === "tv" ? episode : 0;
     const playUrl = `${MZFI_BASE}/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${detailPath}&streamSignType=1&supportCodecs[h264]=1`;
-    // KEY: credentials: 'include' sends mb_token cookie (set by /home response).
-    // Without this, API returns hasResource:false (no streams).
+
+    // Construct mb_token cookie value (URL-encoded JSON string with quotes).
+    // mzfi SPA sets: document.cookie = "mb_token=" + JSON.stringify(token)
+    // → mb_token = "eyJ..." (with double quotes, URL-encoded as %22eyJ...%22)
+    const mbTokenValue = encodeURIComponent(JSON.stringify(token));
+
     const res = await fetch(playUrl, {
       credentials: "omit",
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
+        // mb_token cookie is the KEY — without it, hasResource=false.
+        // mzfi SPA sets this via JavaScript (document.cookie), not Set-Cookie.
+        Cookie: `mb_token=${mbTokenValue}; mb_guest_token=${mbTokenValue}; token=${token}`,
       },
     });
     const data = (await res.json())?.data || {};
@@ -194,8 +204,9 @@ export async function resolveMzfiEmbed(
   }
 }
 
-// Legacy: full pipeline returning stream URLs (DOES NOT WORK cross-origin
-// due to CORS credentials restriction — kept for reference/future use).
+// Legacy: full pipeline returning stream URLs.
+// NOW WORKS: mb_token cookie set manually via Cookie header.
+// SW intercepts bcdnxw requests + adds Referer: mzfi.me → ad-free playback!
 export async function resolveMzfiClient(
   title: string,
   year?: string,
@@ -206,9 +217,38 @@ export async function resolveMzfiClient(
   sources: Array<{ quality: string; url: string; provider: string; type: string }>;
   subtitles: any[];
 } | null> {
-  // This does NOT work from nobar.pages.dev because:
-  // 1. /subject/play needs mb_token cookie (same-origin only)
-  // 2. credentials:include + ACAO:* = CORS rejection
-  // Use resolveMzfiEmbed() instead (returns iframe URL).
-  return null;
+  try {
+    console.log("[MZFI] Resolving:", title, year || "", kind);
+    const token = await getMzfiToken();
+    if (!token) {
+      console.log("[MZFI] Token failed");
+      return null;
+    }
+    console.log("[MZFI] Token OK");
+
+    const searchResult = await searchMzfi(token, title);
+    if (!searchResult) {
+      console.log("[MZFI] Search: no results for", title);
+      return null;
+    }
+    console.log("[MZFI] Found:", searchResult.title, "| subjectId:", searchResult.subjectId);
+
+    const playResult = await playMzfi(
+      token,
+      searchResult.subjectId,
+      searchResult.detailPath,
+      kind,
+      season,
+      episode
+    );
+    if (!playResult || playResult.sources.length === 0) {
+      console.log("[MZFI] No streams (unavailable in region)");
+      return null;
+    }
+    console.log("[MZFI] Streams:", playResult.sources.length, "| first:", playResult.sources[0].provider);
+    return playResult;
+  } catch (e) {
+    console.warn("[MZFI] Error:", e);
+    return null;
+  }
 }

@@ -10,7 +10,7 @@
 // On repeat visits, all JS/CSS/images load from cache → instant page load.
 // IMPORTANT: bump CACHE_VERSION on every deploy to force SW update.
 
-const CACHE_VERSION = "nobar-v2";  // bumped from v1 → forces cache invalidation
+const CACHE_VERSION = "nobar-v3";  // v3: bcdnxw Referer injection via SW
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
 
@@ -90,7 +90,25 @@ self.addEventListener("fetch", (event) => {
     return; // Don't call event.respondWith() — let browser handle natively
   }
 
-  // 4. Same-origin navigation/page requests — network-first, cache fallback.
+  // 5. bcdnxw.hakunaymatata.com — inject Referer: mzfi.me (anti-leech bypass)
+  // mzfi/movieboxhd stream URLs need Referer: https://mzfi.me/ to play.
+  // <video> element sends page Referer (nobar.pages.dev) → bcdnxw returns 429.
+  // SW intercepts bcdnxw requests → rewrites Referer to mzfi.me → 206 ✓
+  if (url.hostname === "bcdnxw.hakunaymatata.com") {
+    event.respondWith(
+      fetch(req, {
+        headers: {
+          ...Object.fromEntries(req.headers.entries()),
+          "Referer": "https://mzfi.me/",
+          "Origin": "https://mzfi.me",
+        },
+        redirect: "follow",
+      })
+    );
+    return;
+  }
+
+  // 6. Same-origin navigation/page requests — network-first, cache fallback.
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req)

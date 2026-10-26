@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Menu UI & Tab Controller System — Asset-Driven Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #0a0a1a;
+    color: #e8e8e8;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  /* Parent wrapper — canvas & UI menu both anchored here */
+  #game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #game-canvas {
+    display: block;
+    background: #000;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ===== UI Menu Overlay ===== */
+  #ui-menu {
+    position: absolute;
+    inset: 0;
+    display: none;            /* hidden by default */
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    z-index: 10;
+    pointer-events: none;    /* let canvas keep focus when hidden */
+  }
+  #ui-menu.open {
+    display: flex;
+    pointer-events: auto;
+  }
+
+  /* 9-slice-ish panel */
+  .panel {
+    width: min(720px, 92vw);
+    max-height: 86vh;
+    background: linear-gradient(180deg, #1a2a1a 0%, #0f1a0f 100%);
+    border: 3px solid rgba(180, 220, 120, 0.65);
+    border-radius: 14px;
+    box-shadow: 0 16px 50px rgba(0, 0, 0, 0.75), inset 0 0 40px rgba(124, 92, 255, 0.06);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    background: rgba(180, 220, 120, 0.08);
+    border-bottom: 2px solid rgba(180, 220, 120, 0.4);
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #c8d8b0;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .tab-btn:hover { background: rgba(180, 220, 120, 0.12); }
+  .tab-btn.active {
+    background: rgba(180, 220, 120, 0.22);
+    border-color: rgba(180, 220, 120, 0.7);
+    color: #fff;
+  }
+  .panel-body {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .panel-body::-webkit-scrollbar { width: 8px; }
+  .panel-body::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+  .panel-body::-webkit-scrollbar-thumb {
+    background: rgba(180, 220, 120, 0.4);
+    border-radius: 4px;
+  }
+  .tab-page { display: none; }
+  .tab-page.active { display: block; animation: pageIn 0.18s ease-out; }
+  @keyframes pageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .panel-footer {
+    padding: 8px 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 11px;
+    color: #88a06a;
+    text-align: right;
+  }
+  .panel-footer kbd {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    color: #c4dcff;
+    font-weight: 700;
+  }
+
+  /* ===== Tab page content styles ===== */
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .status-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .status-row .label { color: #88a06a; font-weight: 600; }
+  .status-row .value { color: #ffe04a; font-weight: 700; }
+  .portrait-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .portrait {
+    width: 64px; height: 64px;
+    background: rgba(0,0,0,0.4);
+    border: 2px solid rgba(180, 220, 120, 0.5);
+    border-radius: 8px;
+    image-rendering: pixelated;
+  }
+  .portrait-name { font-size: 18px; font-weight: 800; color: #fff; }
+  .portrait-title { font-size: 11px; color: #88a06a; }
+
+  .bag-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+  }
+  .bag-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    transition: background 0.12s;
+    cursor: pointer;
+  }
+  .bag-slot:hover { background: rgba(180, 220, 120, 0.1); }
+  .bag-slot .icon {
+    width: 36px; height: 36px;
+    image-rendering: pixelated;
+    margin-bottom: 6px;
+  }
+  .bag-slot .name { font-size: 11px; color: #e8f0d8; font-weight: 600; text-align: center; }
+  .bag-slot .count { font-size: 10px; color: #ffe04a; font-weight: 700; margin-top: 2px; }
+
+  .map-info {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #c8d8b0;
+  }
+  .map-info h3 { color: #ffe04a; font-size: 14px; margin: 10px 0 6px; font-weight: 800; }
+  .map-info ul { padding-left: 18px; }
+  .map-info li { margin: 3px 0; }
+
+  /* ===== HUD ===== */
+  #hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(10, 10, 26, 0.85);
+    border: 1px solid rgba(136, 192, 255, 0.4);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: #c8d8ff;
+    font-family: 'Consolas', monospace;
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #hud .label { color: #88a0c0; }
+  #hud .val { color: #ffe04a; font-weight: 700; }
+
+  /* ===== Loading screen ===== */
+  #loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #0a0a1a;
+    color: #b8e986;
+    z-index: 100;
+    gap: 14px;
+    transition: opacity 0.4s ease;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  #loading .title {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+  }
+  #loading .bar-bg {
+    width: 280px;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(180, 220, 120, 0.4);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  #loading .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2ee6a8, #b8e986);
+    width: 0%;
+    transition: width 0.2s ease;
+  }
+  #loading .status { font-size: 12px; color: #88a06a; }
+
+  /* ===== Toast for feedback ===== */
+  #toast {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 26, 0.92);
+    border: 2px solid rgba(180, 220, 120, 0.6);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 8;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  #toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-4px);
+  }
+
+  /* ===== Hint ===== */
+  #hint {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 26, 0.85);
+    border: 1px solid rgba(136, 192, 255, 0.4);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 11px;
+    color: #c8d8ff;
+    z-index: 5;
+    pointer-events: none;
+  }
+  #hint kbd {
+    background: rgba(136, 192, 255, 0.18);
+    border: 1px solid rgba(136, 192, 255, 0.4);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    color: #88c0ff;
+    font-weight: 700;
+  }
+</style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div><span class="label">player.px:</span> <span class="val" id="hud-px">0,0</span></div>
+      <div><span class="label">camera.xy:</span> <span class="val" id="hud-cam">0,0</span></div>
+      <div><span class="label">menu:</span> <span class="val" id="hud-menu">closed</span></div>
+      <div><span class="label">assets:</span> <span class="val" id="hud-assets">0/0</span></div>
+      <div><span class="label">fps:</span> <span class="val" id="hud-fps">60</span></div>
+    </div>
+
+    <!-- Hint -->
+    <div id="hint">
+      Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑↓←→</kbd> ·
+      Toggle Menu: <kbd>Tab</kbd> · Switch Tab: <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> ·
+      Close: <kbd>Esc</kbd>
+    </div>
+
+    <!-- UI Menu (overlay, toggled by Tab) -->
+    <div id="ui-menu">
+      <div class="panel">
+        <div class="panel-header">
+          <button class="tab-btn active" data-tab="status">📊 Status</button>
+          <button class="tab-btn" data-tab="bag">🎒 Bag</button>
+          <button class="tab-btn" data-tab="map">🗺️ Map Info</button>
+        </div>
+        <div class="panel-body">
+          <!-- Tab page 1: Status -->
+          <div class="tab-page active" data-tab="status">
+            <div class="portrait-row">
+              <canvas class="portrait" id="portrait-canvas" width="64" height="64"></canvas>
+              <div>
+                <div class="portrait-name">Petani Boy</div>
+                <div class="portrait-title">HARVEST VALE — Spring, Day 3</div>
+              </div>
+            </div>
+            <div class="status-grid">
+              <div class="status-row"><span class="label">💰 Gold</span><span class="value">1,240g</span></div>
+              <div class="status-row"><span class="label">⚡ Energy</span><span class="value">85 / 100</span></div>
+              <div class="status-row"><span class="label">📅 Day</span><span class="value">3</span></div>
+              <div class="status-row"><span class="label">🌿 Season</span><span class="value">Spring</span></div>
+              <div class="status-row"><span class="label">🕐 Time</span><span class="value" id="status-time">08:30</span></div>
+              <div class="status-row"><span class="label">🌾 Crops planted</span><span class="value">7</span></div>
+              <div class="status-row"><span class="label">🏆 Harvested</span><span class="value">23</span></div>
+              <div class="status-row"><span class="label">❤️ Friendship</span><span class="value">Lv. 2</span></div>
+            </div>
+          </div>
+
+          <!-- Tab page 2: Bag -->
+          <div class="tab-page" data-tab="bag">
+            <div class="bag-grid" id="bag-grid"></div>
+          </div>
+
+          <!-- Tab page 3: Map Info -->
+          <div class="tab-page" data-tab="map">
+            <div class="map-info">
+              <h3>🌍 Harvest Vale</h3>
+              <p>Sebuah lembah subur di pinggir dunia, rumah bagi petani muda dan para tetua desa.</p>
+              <h3>📍 Lokasi Penting</h3>
+              <ul>
+                <li><strong>Pondok Pemain</strong> — bottom-left, tempat tidur & istirahat</li>
+                <li><strong>Toko Benih</strong> — top-right, beli benih & jual panen</li>
+                <li><strong>Kolam</strong> — top-left, isi ulang penyiram air</li>
+                <li><strong>Area Bertani</strong> — tengah peta, dikelilingi pagar kayu</li>
+              </ul>
+              <h3>🎯 Tips Bertani</h3>
+              <ul>
+                <li>Tanaman perlu disiram setiap hari agar tumbuh</li>
+                <li>Tidur di rumah untuk ganti hari & pulihkan energi</li>
+                <li>Isi penyiram di kolam (tile biru) saat air habis</li>
+                <li>Panen tanaman matang (indikator sparkle ✨) lalu jual di toko</li>
+              </ul>
+              <h3>🗺️ Koordinat Pemain</h3>
+              <ul>
+                <li>Tile: <span class="value" id="map-tile">—</span></li>
+                <li>Pixel: <span class="value" id="map-px">—</span></li>
+                <li>Kamera: <span class="value" id="map-cam">—</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="panel-footer">
+          <kbd>Tab</kbd> atau <kbd>Esc</kbd> untuk menutup · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> ganti tab
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast"></div>
+
+    <!-- Loading screen -->
+    <div id="loading">
+      <div class="title">🌾 Loading Assets</div>
+      <div class="bar-bg"><div class="bar-fill" id="loading-bar"></div></div>
+      <div class="status" id="loading-status">Initializing...</div>
+    </div>
+  </div>
+
+<script>
+'use strict';
+/* ============================================================
+   MENU UI & TAB CONTROLLER SYSTEM — Asset-Driven Demo
+   Combines: 20×20 grid map + Cinemachine camera (lerp + confiner)
+            + async asset loading + modular Tab UI overlay
+   ============================================================ */
+
+// ---------- Config ----------
+const TILE = 48;              // tile size in pixels
+const COLS = 20, ROWS = 20;   // grid size (per spec)
+const MAP_W_PX = COLS * TILE;  // 960px
+const MAP_H_PX = ROWS * TILE;  // 960px
+
+// Camera config (Cinemachine style)
+const CAMERA_CONFIG = {
+  dampening: 0.08,  // lerp factor — 8% per frame toward target
+};
+
+// Player stats
+const PLAYER = {
+  x: 240, y: 240,    // spawn in open area near top-left
+  speed: 4,
+  radius: 16,
+  dir: 'down',        // facing direction
+  walkFrame: 0,       // for animation
+  walkTime: 0,
+};
+
+// Camera state
+const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
+
+// ===== UI State =====
+// isMenuOpen controls whether the Tab UI overlay is shown.
+// When true: player movement is FROZEN (input bypassed).
+let isMenuOpen = false;
+let activeTab = 'status';   // 'status' | 'bag' | 'map'
+
+// ===== Asset Registry =====
+// Maps logical asset key → file path (relative to repo root).
+// These are REAL asset files that already exist in the repo.
+const ASSET_PATHS = {
+  // Player character (Ninja Adventure complete sprite, 4×4 grid of 16px frames)
+  // Format: Walk.png is 64x64 = 4 cols (down/up/left/right) × 4 rows (stand/rfoot/lfoot/stand)
+  player_walk:   'assets/ninja-adventure/Characters/Boy_walk.png',
+  player_idle:   'assets/ninja-adventure/Characters/Boy_idle.png',
+  player_faceset:'assets/ninja-adventure/Characters/Boy_faceset.png',
+
+  // NPCs
+  npc_princess_walk: 'assets/ninja-adventure/Characters/Princess_walk.png',
+  npc_oldman_walk:   'assets/ninja-adventure/Characters/OldMan_walk.png',
+
+  // Tree (Sunnyside — 4-frame animated strip, 32×34 per frame)
+  tree: 'assets/Elements/Plants/spr_deco_tree_01_strip4.png',
+
+  // Sunnyside soil tiles (16×12 — used for tilled/watered overlays)
+  soil_dry: 'assets/Elements/Crops/soil_00.png',
+  soil_wet: 'assets/Elements/Crops/soil_04.png',
+
+  // Crop sprites (6 growth stages each, 16×12 — we use stage 5 = mature for decor)
+  crop_carrot:    'assets/Elements/Crops/carrot_05.png',
+  crop_parsnip:   'assets/Elements/Crops/parsnip_05.png',
+  crop_potato:    'assets/Elements/Crops/potato_05.png',
+  crop_pumpkin:   'assets/Elements/Crops/pumpkin_05.png',
+  crop_cabbage:   'assets/Elements/Crops/cabbage_05.png',
+
+  // UI tool icons (Ninja Adventure Items/Tool/, ~16×16 each)
+  tool_hoe:    'assets/ninja-adventure/Items/Tool/Hoe.png',
+  tool_axe:    'assets/ninja-adventure/Items/Tool/Axe.png',
+  tool_sickle: 'assets/ninja-adventure/Items/Tool/Sickle.png',
+  tool_water:  'assets/ninja-adventure/Items/Tool/WateringCan.png',
+  tool_pickaxe:'assets/ninja-adventure/Items/Tool/Pickaxe.png',
+
+  // Food items (for Bag inventory display)
+  food_egg:    'assets/Elements/Crops/egg.png',
+  food_fish:   'assets/Elements/Crops/fish.png',
+  food_milk:   'assets/Elements/Crops/milk.png',
+};
+
+// Loaded Image objects — populated by loadAssets()
+const assets = {};
+
+// ===== 5 Modular Layer Arrays (20×20 each) =====
+// Layer 1: Ground — grass everywhere
+const Layer_Ground = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+
+// Layer 2: WalkInFront — paths (2) + flowers (5) under player feet
+const Layer_WalkInFront = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+// Cross paths
+for (let i = 0; i < COLS; i++) Layer_WalkInFront[10][i] = 2;
+for (let i = 0; i < ROWS; i++) Layer_WalkInFront[i][10] = 2;
+// Scattered "flower" decor (will render crop sprites as potted plants)
+const flowerSpots = [[3,3],[3,6],[5,3],[6,8],[14,4],[15,7],[4,14],[6,15],[14,14],[15,16],[3,16],[16,3]];
+flowerSpots.forEach(([y, x]) => { if (Layer_WalkInFront[y][x] === 0) Layer_WalkInFront[y][x] = 5; });
+
+// Layer 3: Collision — stone fortress ring in center with wide gaps
+const Layer_Collision = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+for (let y = 7; y <= 12; y++) {
+  for (let x = 7; x <= 12; x++) {
+    if (y === 7 || y === 12 || x === 7 || x === 12) {
+      if ((y === 7 || y === 12) && (x === 9 || x === 10)) continue;
+      if ((x === 7 || x === 12) && (y === 9 || y === 10)) continue;
+      Layer_Collision[y][x] = 3;
+    }
+  }
+}
+
+// Layer 4: WalkBehind — tree canopies + roof overhangs
+const Layer_WalkBehind = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+// Tree trunk positions (Layer 3 will draw trunk, Layer 4 will draw canopy above)
+const treePositions = [
+  [2, 2], [17, 2], [2, 17], [17, 17],  // corners
+  [5, 14], [14, 5], [6, 6], [13, 13],  // mid-scattered
+];
+// Add tree trunks to collision layer (so player can't walk through)
+treePositions.forEach(([y, x]) => {
+  if (Layer_Collision[y][x] === 0) Layer_Collision[y][x] = 6;  // 6 = tree trunk (custom)
+  // Canopy goes 1 tile above trunk
+  if (y - 1 >= 0) Layer_WalkBehind[y - 1][x] = 4;
+});
+
+// Layer 5: Decor — topmost sparkles
+const Layer_Decor = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+// Place sparkles on some flower tiles
+for (let y = 0; y < ROWS; y++) {
+  for (let x = 0; x < COLS; x++) {
+    if (Layer_WalkInFront[y][x] === 5 && Math.random() < 0.5) {
+      Layer_Decor[y][x] = 7;  // 7 = sparkle
+    }
+  }
+}
+
+// ===== Tile type → render function mapping =====
+// Numeric IDs map to colors (fallback if asset not loaded yet)
+const TilePalette = {
+  1: '#3a5f43',  // grass
+  2: '#557a46',  // path
+  3: '#7c81ad',  // fortress wall
+  4: '#2f5233',  // canopy (fallback only — normally sprite)
+  5: '#f4ce14',  // flower (fallback only — normally crop sprite)
+  6: '#5a3a1a',  // tree trunk (fallback)
+  7: '#fff5a0',  // sparkle
+};
+
+// ===== Async Asset Loading =====
+// Loads all images via new Image(). Engine starts ONLY after all assets
+// are loaded (Promise.all). Progress bar updates during load.
+function loadAssets() {
+  return new Promise((resolve) => {
+    const keys = Object.keys(ASSET_PATHS);
+    let loadedCount = 0;
+    const totalCount = keys.length;
+    const loadingBar = document.getElementById('loading-bar');
+    const loadingStatus = document.getElementById('loading-status');
+
+    if (totalCount === 0) {
+      resolve();
+      return;
+    }
+
+    keys.forEach((key) => {
+      const img = new Image();
+      img.onload = () => {
+        loadedCount++;
+        assets[key] = img;
+        const pct = Math.round((loadedCount / totalCount) * 100);
+        loadingBar.style.width = pct + '%';
+        loadingStatus.textContent = `Loaded ${loadedCount}/${totalCount} — ${key}`;
+        if (loadedCount === totalCount) {
+          loadingStatus.textContent = 'All assets ready ✓';
+          setTimeout(resolve, 300);  // brief pause for polish
+        }
+      };
+      img.onerror = () => {
+        // On error, still count as "loaded" so engine doesn't hang.
+        // Renderer will fall back to procedural colors for missing assets.
+        loadedCount++;
+        const pct = Math.round((loadedCount / totalCount) * 100);
+        loadingBar.style.width = pct + '%';
+        loadingStatus.textContent = `Failed: ${key} (using fallback)`;
+        if (loadedCount === totalCount) {
+          setTimeout(resolve, 300);
+        }
+      };
+      img.src = ASSET_PATHS[key];
+    });
+  });
+}
+
+// ===== Input Handling =====
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+
+  // Tab key — toggle menu (preventing default browser tab focus)
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    isMenuOpen = !isMenuOpen;
+    document.getElementById('ui-menu').classList.toggle('open', isMenuOpen);
+    showToast(isMenuOpen ? '📜 Menu dibuka — pergerakan di-freeze' : '✅ Menu ditutup — lanjut main');
+    updateHUD();
+    return;
+  }
+
+  // Esc — close menu
+  if (e.key === 'Escape' && isMenuOpen) {
+    isMenuOpen = false;
+    document.getElementById('ui-menu').classList.remove('open');
+    showToast('✅ Menu ditutup');
+    updateHUD();
+    return;
+  }
+
+  // Number keys 1/2/3 — switch tab (only when menu open)
+  if (isMenuOpen && (k === '1' || k === '2' || k === '3')) {
+    const tabMap = { '1': 'status', '2': 'bag', '3': 'map' };
+    switchTab(tabMap[k]);
+    return;
+  }
+
+  // Movement keys — only register if menu is CLOSED (input blocking!)
+  if (!isMenuOpen) {
+    keys[k] = true;
+    if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) {
+      e.preventDefault();
+    }
+  }
+});
+window.addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  keys[k] = false;
+});
+
+// ===== Tab Switching =====
+function switchTab(tabName) {
+  activeTab = tabName;
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tabName);
+  });
+  document.querySelectorAll('.tab-page').forEach((page) => {
+    page.classList.toggle('active', page.dataset.tab === tabName);
+  });
+}
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+// ===== Collision Check (multi-point hitbox) =====
+function checkCollision(targetX, targetY) {
+  const r = PLAYER.radius;
+  const samples = [
+    [targetX, targetY - r], [targetX, targetY + r],
+    [targetX - r, targetY], [targetX + r, targetY],
+    [targetX - r * 0.7, targetY - r * 0.7], [targetX + r * 0.7, targetY - r * 0.7],
+    [targetX - r * 0.7, targetY + r * 0.7], [targetX + r * 0.7, targetY + r * 0.7],
+  ];
+  for (const [px, py] of samples) {
+    const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+    if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) return true;
+    if (Layer_Collision[ty][tx] > 0) return true;
+  }
+  return false;
+}
+
+// ===== Player Movement (pixel-based, diagonal-aware, input-blockable) =====
+function updatePlayer(dt) {
+  // INPUT BLOCKING — when menu is open, skip movement entirely
+  if (isMenuOpen) {
+    PLAYER.walkFrame = 0;
+    PLAYER.walkTime = 0;
+    return;
+  }
+
+  let dx = 0, dy = 0;
+  if (keys['arrowup']    || keys['w']) dy -= 1;
+  if (keys['arrowdown']  || keys['s']) dy += 1;
+  if (keys['arrowleft']  || keys['a']) dx -= 1;
+  if (keys['arrowright'] || keys['d']) dx += 1;
+  if (dx !== 0 && dy !== 0) { dx *= 0.7071; dy *= 0.7071; }
+
+  if (dx === 0 && dy === 0) {
+    PLAYER.walkFrame = 0;
+    PLAYER.walkTime = 0;
+    return;
+  }
+
+  // Update facing direction
+  if (Math.abs(dx) > Math.abs(dy)) {
+    PLAYER.dir = dx > 0 ? 'right' : 'left';
+  } else {
+    PLAYER.dir = dy > 0 ? 'down' : 'up';
+  }
+
+  // Attempt movement on each axis separately (allows wall sliding)
+  const newPx = PLAYER.x + dx * PLAYER.speed;
+  if (!checkCollision(newPx, PLAYER.y)) PLAYER.x = newPx;
+  const newPy = PLAYER.y + dy * PLAYER.speed;
+  if (!checkCollision(PLAYER.x, newPy)) PLAYER.y = newPy;
+
+  // Walk animation cycle
+  PLAYER.walkTime += dt;
+  PLAYER.walkFrame = Math.floor(PLAYER.walkTime * 8) % 4;
+}
+
+// ===== Camera Update (Lerp + Confiner) =====
+function updateCamera() {
+  const vw = canvas.width, vh = canvas.height;
+  // Step 1: target = player - viewport/2 (center player)
+  camera.targetX = PLAYER.x - vw / 2;
+  camera.targetY = PLAYER.y - vh / 2;
+  // Step 2: Lerp toward target (smooth dampening)
+  camera.x += (camera.targetX - camera.x) * CAMERA_CONFIG.dampening;
+  camera.y += (camera.targetY - camera.y) * CAMERA_CONFIG.dampening;
+  // Step 3: Confiner — clamp to MapBounds (no black bleed)
+  const maxX = MAP_W_PX - vw;
+  const maxY = MAP_H_PX - vh;
+  camera.x = Math.max(0, Math.min(maxX, camera.x));
+  camera.y = Math.max(0, Math.min(maxY, camera.y));
+}
+
+// ===== Render Engine =====
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function resizeCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(window.innerWidth * dpr);
+  canvas.height = Math.floor(window.innerHeight * dpr);
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ===== drawLayer: renders tile sprites or procedural fallback =====
+function drawLayer(layer) {
+  const vw = canvas.clientWidth, vh = canvas.clientHeight;
+  const startX = Math.max(0, Math.floor(camera.x / TILE));
+  const endX = Math.min(COLS - 1, Math.ceil((camera.x + vw) / TILE));
+  const startY = Math.max(0, Math.floor(camera.y / TILE));
+  const endY = Math.min(ROWS - 1, Math.ceil((camera.y + vh) / TILE));
+
+  for (let y = startY; y <= endY; y++) {
+    for (let x = startX; x <= endX; x++) {
+      const id = layer[y][x];
+      if (id === 0) continue;
+      const px = x * TILE - camera.x;
+      const py = y * TILE - camera.y;
+      drawTile(id, px, py, x, y);
+    }
+  }
+}
+
+function drawTile(id, px, py, gridX, gridY) {
+  switch (id) {
+    case 1: // Grass
+      ctx.fillStyle = '#3a5f43';
+      ctx.fillRect(px, py, TILE, TILE);
+      // subtle grass texture variation
+      if ((gridX + gridY) % 3 === 0) {
+        ctx.fillStyle = '#346024';
+        ctx.fillRect(px + 6, py + 8, 2, 4);
+        ctx.fillRect(px + 24, py + 22, 2, 4);
+      }
+      break;
+    case 2: // Path
+      ctx.fillStyle = '#557a46';
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = '#658a56';
+      ctx.fillRect(px + 4, py + 4, 4, 4);
+      ctx.fillRect(px + 24, py + 12, 4, 4);
+      ctx.fillRect(px + 12, py + 28, 4, 4);
+      break;
+    case 3: // Fortress wall (stone)
+      ctx.fillStyle = '#7c81ad';
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = '#5c61a0';
+      ctx.fillRect(px, py, TILE, 4);
+      ctx.fillRect(px, py + TILE - 4, TILE, 4);
+      ctx.fillStyle = '#9ca1bd';
+      ctx.fillRect(px + 6, py + 8, 8, 8);
+      ctx.fillRect(px + 22, py + 18, 8, 8);
+      ctx.fillRect(px + 14, py + 28, 6, 6);
+      break;
+    case 4: // Tree canopy (Layer 4 — uses real tree sprite top portion)
+      if (assets.tree && assets.tree.complete) {
+        // Crop top portion of tree sprite (leaves only) — overhangs down to meet trunk
+        const fw = assets.tree.naturalWidth / 4;  // 4-frame strip
+        const fh = assets.tree.naturalHeight;     // 34
+        const fi = Math.floor(performance.now() / 360) % 4;
+        ctx.drawImage(assets.tree, fi * fw, 0, fw, 24, px - 4, py, TILE + 8, TILE + 16);
+      } else {
+        ctx.fillStyle = '#2f5233';
+        ctx.fillRect(px, py, TILE, TILE);
+      }
+      break;
+    case 5: // Flower — render real crop sprite (carrot mature) as potted plant decor
+      if (assets.crop_carrot && assets.crop_carrot.complete) {
+        // Crop sprite is small (~12×12). Scale up to ~24×24 and center on tile.
+        const cw = assets.crop_carrot.naturalWidth;
+        const ch = assets.crop_carrot.naturalHeight;
+        const scale = 2;
+        const dw = cw * scale, dh = ch * scale;
+        ctx.drawImage(assets.crop_carrot, 0, 0, cw, ch,
+                      px + (TILE - dw) / 2, py + (TILE - dh) / 2, dw, dh);
+      } else {
+        ctx.fillStyle = '#f4ce14';
+        ctx.fillRect(px + 12, py + 12, 8, 8);
+      }
+      break;
+    case 6: // Tree trunk (Layer 3)
+      // Draw grass base, then trunk from tree sprite (bottom portion)
+      ctx.fillStyle = '#3a5f43';
+      ctx.fillRect(px, py, TILE, TILE);
+      if (assets.tree && assets.tree.complete) {
+        const fw = assets.tree.naturalWidth / 4;
+        const fh = assets.tree.naturalHeight;
+        const fi = Math.floor(performance.now() / 360) % 4;
+        ctx.drawImage(assets.tree, fi * fw, 20, fw, 14, px + 6, py + 16, TILE - 12, 18);
+      } else {
+        ctx.fillStyle = '#5a3a1a';
+        ctx.fillRect(px + 18, py + 18, 12, 22);
+      }
+      break;
+    case 7: // Sparkle (Layer 5 — topmost)
+      const t = performance.now() / 1000;
+      const flicker = 0.5 + 0.5 * Math.sin(t * 4 + gridX * 3 + gridY * 7);
+      ctx.globalAlpha = flicker;
+      ctx.fillStyle = '#fff5a0';
+      const cx = px + 24, cy = py + 12;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 5);
+      ctx.lineTo(cx + 2, cy - 2); ctx.lineTo(cx + 5, cy);
+      ctx.lineTo(cx + 2, cy + 2); ctx.lineTo(cx, cy + 5);
+      ctx.lineTo(cx - 2, cy + 2); ctx.lineTo(cx - 5, cy);
+      ctx.lineTo(cx - 2, cy - 2); ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      break;
+  }
+}
+
+// ===== drawPlayer: renders player sprite from Ninja Adventure sheet =====
+// Boy_walk.png format: 64×64 = 4 cols (down/up/left/right) × 4 rows (stand/rfoot/lfoot/stand)
+// Boy_idle.png format: 64×16 = 1 row × 4 cols (4 directions)
+const CHAR_NINJA_TILE = 16;  // native sprite frame size
+const DIR_COL = { down: 0, up: 1, left: 2, right: 3 };
+const WALK_CYCLE = [0, 1, 0, 2];  // stand → rfoot → stand → lfoot
+
+function drawPlayer() {
+  const sx = PLAYER.x - camera.x;
+  const sy = PLAYER.y - camera.y;
+  const r = PLAYER.radius;
+  const isMoving = PLAYER.walkFrame !== 0 && !isMenuOpen;
+
+  // Shadow ellipse at feet
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(sx, sy + r * 0.7, r * 0.9, r * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Player sprite (32×32 on screen = 2× scale of 16×16 native)
+  const sprite = isMoving ? assets.player_walk : (assets.player_idle || assets.player_walk);
+  if (sprite && sprite.complete) {
+    const col = DIR_COL[PLAYER.dir] ?? 0;
+    let row = 0;
+    if (isMoving) {
+      row = WALK_CYCLE[PLAYER.walkFrame % 4];
+    }
+    const srcX = col * CHAR_NINJA_TILE;
+    const srcY = row * CHAR_NINJA_TILE;
+    ctx.drawImage(sprite, srcX, srcY, CHAR_NINJA_TILE, CHAR_NINJA_TILE,
+                  sx - 16, sy - 16, 32, 32);
+  } else {
+    // Fallback: orange circle
+    ctx.fillStyle = '#ff5722';
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2a1500';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+// ===== drawPortrait: render player faceset in Status tab =====
+function drawPortrait() {
+  const pc = document.getElementById('portrait-canvas');
+  if (!pc) return;
+  const pctx = pc.getContext('2d');
+  pctx.imageSmoothingEnabled = false;
+  pctx.clearRect(0, 0, 64, 64);
+  if (assets.player_faceset && assets.player_faceset.complete) {
+    // Faceset is typically 16×16 or 32×32. Scale to 64×64.
+    const fw = assets.player_faceset.naturalWidth;
+    const fh = assets.player_faceset.naturalHeight;
+    pctx.drawImage(assets.player_faceset, 0, 0, fw, fh, 0, 0, 64, 64);
+  } else {
+    pctx.fillStyle = '#ff5722';
+    pctx.fillRect(20, 20, 24, 24);
+  }
+}
+
+// ===== Populate Bag grid with real item sprites =====
+function populateBagGrid() {
+  const grid = document.getElementById('bag-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const items = [
+    { key: 'tool_hoe',     name: 'Cangkul',     count: 1 },
+    { key: 'tool_axe',     name: 'Kapak',       count: 1 },
+    { key: 'tool_sickle',  name: 'Sabit',       count: 1 },
+    { key: 'tool_water',   name: 'Penyiram',    count: 1 },
+    { key: 'tool_pickaxe', name: 'Pickaxe',     count: 1 },
+    { key: 'crop_carrot',  name: 'Wortel',      count: 12 },
+    { key: 'crop_parsnip', name: 'Parsnip',     count: 8 },
+    { key: 'crop_potato',  name: 'Kentang',     count: 5 },
+    { key: 'crop_pumpkin', name: 'Labu',        count: 3 },
+    { key: 'crop_cabbage', name: 'Kubis',       count: 6 },
+    { key: 'food_egg',     name: 'Telur',       count: 4 },
+    { key: 'food_fish',    name: 'Ikan',        count: 2 },
+    { key: 'food_milk',    name: 'Susu',        count: 1 },
+  ];
+  items.forEach((item) => {
+    const slot = document.createElement('div');
+    slot.className = 'bag-slot';
+    const icon = document.createElement('canvas');
+    icon.className = 'icon';
+    icon.width = 36; icon.height = 36;
+    const ictx = icon.getContext('2d');
+    ictx.imageSmoothingEnabled = false;
+    if (assets[item.key] && assets[item.key].complete) {
+      const img = assets[item.key];
+      const sw = img.naturalWidth, sh = img.naturalHeight;
+      // Center-fit the sprite into 36×36
+      const scale = Math.min(36 / sw, 36 / sh, 3);
+      const dw = sw * scale, dh = sh * scale;
+      ictx.drawImage(img, 0, 0, sw, sh, (36 - dw) / 2, (36 - dh) / 2, dw, dh);
+    } else {
+      ictx.fillStyle = '#444';
+      ictx.fillRect(0, 0, 36, 36);
+    }
+    slot.appendChild(icon);
+    const nameEl = document.createElement('div');
+    nameEl.className = 'name';
+    nameEl.textContent = item.name;
+    slot.appendChild(nameEl);
+    const countEl = document.createElement('div');
+    countEl.className = 'count';
+    countEl.textContent = '×' + item.count;
+    slot.appendChild(countEl);
+    slot.addEventListener('click', () => {
+      showToast(`🎒 ${item.name} ×${item.count}`);
+    });
+    grid.appendChild(slot);
+  });
+}
+
+// ===== Main render =====
+function render() {
+  const vw = canvas.clientWidth, vh = canvas.clientHeight;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, vw, vh);
+
+  // Layer 1: Ground
+  drawLayer(Layer_Ground);
+  // Layer 2: WalkInFront (paths, flowers)
+  drawLayer(Layer_WalkInFront);
+  // Layer 3: Collision (walls, tree trunks)
+  drawLayer(Layer_Collision);
+  // Layer 3.5: Player (camera-offset)
+  drawPlayer();
+  // Layer 4: WalkBehind (canopies — cover player)
+  drawLayer(Layer_WalkBehind);
+  // Layer 5: Decor (sparkles — topmost)
+  drawLayer(Layer_Decor);
+}
+
+// ===== HUD update =====
+const hudPx = document.getElementById('hud-px');
+const hudCam = document.getElementById('hud-cam');
+const hudMenu = document.getElementById('hud-menu');
+const hudAssets = document.getElementById('hud-assets');
+const hudFps = document.getElementById('hud-fps');
+let frameCount = 0, lastFpsTime = performance.now(), fps = 60;
+
+function updateHUD() {
+  hudPx.textContent = `${Math.round(PLAYER.x)},${Math.round(PLAYER.y)}`;
+  hudCam.textContent = `${Math.round(camera.x)},${Math.round(camera.y)}`;
+  hudMenu.textContent = isMenuOpen ? `OPEN (${activeTab})` : 'closed';
+  hudMenu.style.color = isMenuOpen ? '#ff8a5c' : '#ffe04a';
+  hudAssets.textContent = `${Object.keys(assets).length}/${Object.keys(ASSET_PATHS).length}`;
+  hudFps.textContent = Math.round(fps);
+
+  // Update Map tab live coords
+  const mapTile = document.getElementById('map-tile');
+  const mapPx = document.getElementById('map-px');
+  const mapCam = document.getElementById('map-cam');
+  if (mapTile) mapTile.textContent = `(${Math.floor(PLAYER.x / TILE)}, ${Math.floor(PLAYER.y / TILE)})`;
+  if (mapPx) mapPx.textContent = `(${Math.round(PLAYER.x)}, ${Math.round(PLAYER.y)})`;
+  if (mapCam) mapCam.textContent = `(${Math.round(camera.x)}, ${Math.round(camera.y)})`;
+}
+
+// ===== Toast =====
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+function showToast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
+}
+
+// ===== Game Loop =====
+function loop(now) {
+  const dt = Math.min(0.05, (now - (loop.lastFrame || now)) / 1000);
+  loop.lastFrame = now;
+
+  frameCount++;
+  if (now - lastFpsTime >= 500) {
+    fps = (frameCount * 1000) / (now - lastFpsTime);
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+
+  updatePlayer(dt);    // input-blocked when isMenuOpen
+  updateCamera();      // lerp + confiner
+  render();
+  updateHUD();
+  if (isMenuOpen && activeTab === 'status') drawPortrait();
+
+  requestAnimationFrame(loop);
+}
+
+// ===== Boot =====
+// Async IIFE — loads all assets, THEN starts the engine.
+// Engine does NOT start until Promise.all completes (synchronous start guarantee).
+(async () => {
+  const loadingEl = document.getElementById('loading');
+  const loadingStatus = document.getElementById('loading-status');
+  loadingStatus.textContent = 'Loading ' + Object.keys(ASSET_PATHS).length + ' assets...';
+
+  // Async load all assets, THEN start engine
+  await loadAssets();
+
+  // Pre-populate bag grid (uses loaded assets)
+  populateBagGrid();
+  // Initial portrait render
+  drawPortrait();
+
+  // Hide loading screen
+  loadingEl.classList.add('hidden');
+  setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
+
+  showToast('🎮 Game ready! Tekan Tab untuk buka menu');
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Drag-and-Drop Inventory System — Asset-Driven Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #0a0a1a;
+    color: #e8e8e8;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  #game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #game-canvas {
+    display: block;
+    background: #000;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ===== UI Menu Overlay ===== */
+  #ui-menu {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    z-index: 10;
+    pointer-events: none;
+  }
+  #ui-menu.open {
+    display: flex;
+    pointer-events: auto;
+  }
+
+  .panel {
+    width: min(560px, 92vw);
+    max-height: 86vh;
+    background: linear-gradient(180deg, #1a2a1a 0%, #0f1a0f 100%);
+    border: 3px solid rgba(180, 220, 120, 0.65);
+    border-radius: 14px;
+    box-shadow: 0 16px 50px rgba(0, 0, 0, 0.75), inset 0 0 40px rgba(124, 92, 255, 0.06);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: rgba(180, 220, 120, 0.08);
+    border-bottom: 2px solid rgba(180, 220, 120, 0.4);
+  }
+  .panel-header h2 {
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: 0.5px;
+  }
+  .panel-header .count {
+    font-size: 12px;
+    color: #88a06a;
+    font-weight: 600;
+  }
+  .panel-body {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  /* ===== Inventory Grid (12 slots, 4 cols × 3 rows) ===== */
+  #inventoryGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  /* Slot — drop target with visual feedback states */
+  .inv-slot {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: rgba(255, 255, 255, 0.04);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  }
+  .inv-slot:hover {
+    border-color: rgba(180, 220, 120, 0.4);
+    background: rgba(180, 220, 120, 0.05);
+  }
+  /* drag-over highlight — slot being targeted */
+  .inv-slot.drag-over {
+    border-color: #ffd54a;
+    background: rgba(255, 213, 74, 0.15);
+    transform: scale(1.04);
+    box-shadow: 0 0 16px rgba(255, 213, 74, 0.35);
+  }
+  /* dragged source slot fades */
+  .inv-slot.dragging {
+    opacity: 0.4;
+    transform: scale(0.95);
+  }
+
+  /* Item icon (real sprite canvas) — draggable element */
+  .inv-item {
+    width: 80%;
+    height: 80%;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s;
+  }
+  .inv-item:active {
+    cursor: grabbing;
+  }
+  .inv-item canvas {
+    max-width: 100%;
+    max-height: 100%;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    pointer-events: none;  /* let dragstart bubble to .inv-item */
+  }
+
+  /* Item count badge */
+  .inv-count {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.85);
+    color: #ffe04a;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 213, 74, 0.5);
+    pointer-events: none;
+  }
+  /* Item name tooltip on hover */
+  .inv-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-4px);
+    background: rgba(0, 0, 0, 0.92);
+    color: #fff;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(180, 220, 120, 0.5);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 5;
+  }
+  .inv-slot:hover .inv-tooltip {
+    opacity: 1;
+  }
+
+  /* ===== Drop zone hint (visual cue for empty slots) ===== */
+  .inv-slot.empty::before {
+    content: '';
+    width: 50%;
+    height: 50%;
+    border: 2px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+  }
+
+  /* ===== HUD ===== */
+  #hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(10, 10, 26, 0.85);
+    border: 1px solid rgba(136, 192, 255, 0.4);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: #c8d8ff;
+    font-family: 'Consolas', monospace;
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #hud .label { color: #88a0c0; }
+  #hud .val { color: #ffe04a; font-weight: 700; }
+
+  /* ===== Loading screen ===== */
+  #loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #0a0a1a;
+    color: #b8e986;
+    z-index: 100;
+    gap: 14px;
+    transition: opacity 0.4s ease;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  #loading .title {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+  }
+  #loading .bar-bg {
+    width: 280px;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(180, 220, 120, 0.4);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  #loading .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2ee6a8, #b8e986);
+    width: 0%;
+    transition: width 0.2s ease;
+  }
+  #loading .status { font-size: 12px; color: #88a06a; }
+
+  /* ===== Toast ===== */
+  #toast {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 26, 0.92);
+    border: 2px solid rgba(180, 220, 120, 0.6);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 8;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  #toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-4px);
+  }
+
+  /* ===== Hint ===== */
+  #hint {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 26, 0.85);
+    border: 1px solid rgba(136, 192, 255, 0.4);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 11px;
+    color: #c8d8ff;
+    z-index: 5;
+    pointer-events: none;
+  }
+  #hint kbd {
+    background: rgba(136, 192, 255, 0.18);
+    border: 1px solid rgba(136, 192, 255, 0.4);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    color: #88c0ff;
+    font-weight: 700;
+  }
+</style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div><span class="label">player.px:</span> <span class="val" id="hud-px">0,0</span></div>
+      <div><span class="label">camera.xy:</span> <span class="val" id="hud-cam">0,0</span></div>
+      <div><span class="label">menu:</span> <span class="val" id="hud-menu">closed</span></div>
+      <div><span class="label">assets:</span> <span class="val" id="hud-assets">0/0</span></div>
+      <div><span class="label">fps:</span> <span class="val" id="hud-fps">60</span></div>
+    </div>
+
+    <!-- Hint -->
+    <div id="hint">
+      Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑↓←→</kbd> ·
+      Toggle Bag: <kbd>Tab</kbd> · Drag items to swap slots
+    </div>
+
+    <!-- UI Menu (overlay, toggled by Tab) -->
+    <div id="ui-menu">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>🎒 Bag — Drag &amp; Drop</h2>
+          <span class="count" id="inv-count">0 / 12</span>
+        </div>
+        <div class="panel-body">
+          <div id="inventoryGrid"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast"></div>
+
+    <!-- Loading screen -->
+    <div id="loading">
+      <div class="title">🌾 Loading Assets</div>
+      <div class="bar-bg"><div class="bar-fill" id="loading-bar"></div></div>
+      <div class="status" id="loading-status">Initializing...</div>
+    </div>
+  </div>
+
+<script>
+'use strict';
+/* ============================================================
+   DRAG-AND-DROP INVENTORY SYSTEM — Asset-Driven Demo
+   HTML5 D&D API + real sprite rendering + 12-slot swapping grid
+   ============================================================ */
+
+// ---------- Config ----------
+const TILE = 48;
+const COLS = 20, ROWS = 20;
+const MAP_W_PX = COLS * TILE;
+const MAP_H_PX = ROWS * TILE;
+const CAMERA_CONFIG = { dampening: 0.08 };
+
+const PLAYER = {
+  x: 240, y: 240,
+  speed: 4,
+  radius: 16,
+  dir: 'down',
+  walkFrame: 0,
+  walkTime: 0,
+};
+
+const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
+
+// ===== UI State =====
+let isMenuOpen = false;
+const INV_SLOTS = 12;
+
+// ===== Asset Registry (REAL files from repo) =====
+const ASSET_PATHS = {
+  // Player character
+  player_walk:    'assets/ninja-adventure/Characters/Boy_walk.png',
+  player_idle:    'assets/ninja-adventure/Characters/Boy_idle.png',
+
+  // Map tiles
+  tree:           'assets/Elements/Plants/spr_deco_tree_01_strip4.png',
+  crop_carrot:    'assets/Elements/Crops/carrot_05.png',
+
+  // Inventory items — REAL asset files
+  // Weapons & tools from Ninja Adventure Items/Tool
+  item_sword:     'assets/ninja-adventure/Items/Tool/Sickle.png',         // Sword-like (sickle)
+  item_axe:       'assets/ninja-adventure/Items/Tool/Axe.png',             // Axe
+  item_pickaxe:   'assets/ninja-adventure/Items/Tool/Pickaxe.png',         // Pickaxe
+  item_hoe:       'assets/ninja-adventure/Items/Tool/Hoe.png',             // Hoe
+  item_watering:  'assets/ninja-adventure/Items/Tool/WateringCan.png',    // Watering can
+  item_shovel:    'assets/ninja-adventure/Items/Tool/Shovel.png',          // Shovel (= shield-like)
+
+  // Crops / food from Sunnyside Elements/Crops
+  item_potion:    'assets/Elements/Crops/milk.png',                       // Potion-like (milk bottle)
+  item_egg:       'assets/Elements/Crops/egg.png',
+  item_fish:      'assets/Elements/Crops/fish.png',
+  item_carrot:    'assets/Elements/Crops/carrot_05.png',
+  item_parsnip:   'assets/Elements/Crops/parsnip_05.png',
+  item_potato:    'assets/Elements/Crops/potato_05.png',
+  item_pumpkin:   'assets/Elements/Crops/pumpkin_05.png',
+};
+const assets = {};
+
+// ===== 5 Modular Layer Arrays (20×20) =====
+const Layer_Ground = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+const Layer_WalkInFront = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+for (let i = 0; i < COLS; i++) Layer_WalkInFront[10][i] = 2;
+for (let i = 0; i < ROWS; i++) Layer_WalkInFront[i][10] = 2;
+const flowerSpots = [[3,3],[3,6],[5,3],[6,8],[14,4],[15,7],[4,14],[6,15],[14,14],[15,16]];
+flowerSpots.forEach(([y, x]) => { if (Layer_WalkInFront[y][x] === 0) Layer_WalkInFront[y][x] = 5; });
+
+const Layer_Collision = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+for (let y = 7; y <= 12; y++) {
+  for (let x = 7; x <= 12; x++) {
+    if (y === 7 || y === 12 || x === 7 || x === 12) {
+      if ((y === 7 || y === 12) && (x === 9 || x === 10)) continue;
+      if ((x === 7 || x === 12) && (y === 9 || y === 10)) continue;
+      Layer_Collision[y][x] = 3;
+    }
+  }
+}
+
+const Layer_WalkBehind = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+const treePositions = [[2,2],[17,2],[2,17],[17,17],[5,14],[14,5],[6,6],[13,13]];
+treePositions.forEach(([y, x]) => {
+  if (Layer_Collision[y][x] === 0) Layer_Collision[y][x] = 6;
+  if (y - 1 >= 0) Layer_WalkBehind[y - 1][x] = 4;
+});
+
+const Layer_Decor = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+for (let y = 0; y < ROWS; y++) {
+  for (let x = 0; x < COLS; x++) {
+    if (Layer_WalkInFront[y][x] === 5 && Math.random() < 0.5) Layer_Decor[y][x] = 7;
+  }
+}
+
+// ===== INVENTORY DATA STATE =====
+// Array of 12 slots. Each slot: null (empty) OR
+//   { id, name, quantity, assetKey, type }
+// inventoryData[slotIndex] is the single source of truth.
+// UI DOM is re-rendered from this array after any swap.
+let inventoryData = [
+  { id: 'sword',    name: 'Sword (Sickle)',    quantity: 1,  assetKey: 'item_sword',    type: 'weapon' },
+  { id: 'shield',   name: 'Shield (Shovel)',   quantity: 1,  assetKey: 'item_shovel',   type: 'armor'  },
+  { id: 'potion',   name: 'Potion (Milk)',     quantity: 3,  assetKey: 'item_potion',   type: 'consumable' },
+  { id: 'axe',      name: 'Axe',                quantity: 1,  assetKey: 'item_axe',      type: 'tool' },
+  { id: 'carrot',   name: 'Carrot',            quantity: 8,  assetKey: 'item_carrot',   type: 'food' },
+  { id: 'pickaxe',  name: 'Pickaxe',           quantity: 1,  assetKey: 'item_pickaxe',  type: 'tool' },
+  null, null, null, null, null, null,
+];
+
+// ===== Async Asset Loading =====
+function loadAssets() {
+  return new Promise((resolve) => {
+    const keys = Object.keys(ASSET_PATHS);
+    let loadedCount = 0;
+    const totalCount = keys.length;
+    const loadingBar = document.getElementById('loading-bar');
+    const loadingStatus = document.getElementById('loading-status');
+
+    if (totalCount === 0) { resolve(); return; }
+
+    keys.forEach((key) => {
+      const img = new Image();
+      img.onload = () => {
+        loadedCount++;
+        assets[key] = img;
+        const pct = Math.round((loadedCount / totalCount) * 100);
+        loadingBar.style.width = pct + '%';
+        loadingStatus.textContent = `Loaded ${loadedCount}/${totalCount} — ${key}`;
+        if (loadedCount === totalCount) {
+          loadingStatus.textContent = 'All assets ready ✓';
+          setTimeout(resolve, 300);
+        }
+      };
+      img.onerror = () => {
+        loadedCount++;
+        const pct = Math.round((loadedCount / totalCount) * 100);
+        loadingBar.style.width = pct + '%';
+        loadingStatus.textContent = `Failed: ${key} (fallback)`;
+        if (loadedCount === totalCount) setTimeout(resolve, 300);
+      };
+      img.src = ASSET_PATHS[key];
+    });
+  });
+}
+
+// ===== Input Handling =====
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  // Tab — toggle menu (prevent browser tab focus)
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    isMenuOpen = !isMenuOpen;
+    document.getElementById('ui-menu').classList.toggle('open', isMenuOpen);
+    showToast(isMenuOpen ? '🎒 Bag dibuka — drag item untuk swap' : '✅ Bag ditutup');
+    updateHUD();
+    return;
+  }
+  // Esc — close menu
+  if (e.key === 'Escape' && isMenuOpen) {
+    isMenuOpen = false;
+    document.getElementById('ui-menu').classList.remove('open');
+    showToast('✅ Bag ditutup');
+    updateHUD();
+    return;
+  }
+  // Movement keys — only if menu is CLOSED (input blocking)
+  if (!isMenuOpen) {
+    keys[e.key.toLowerCase()] = true;
+    if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase())) {
+      e.preventDefault();
+    }
+  }
+});
+window.addEventListener('keyup', (e) => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+// ===== Collision Check =====
+function checkCollision(targetX, targetY) {
+  const r = PLAYER.radius;
+  const samples = [
+    [targetX, targetY - r], [targetX, targetY + r],
+    [targetX - r, targetY], [targetX + r, targetY],
+    [targetX - r * 0.7, targetY - r * 0.7], [targetX + r * 0.7, targetY - r * 0.7],
+    [targetX - r * 0.7, targetY + r * 0.7], [targetX + r * 0.7, targetY + r * 0.7],
+  ];
+  for (const [px, py] of samples) {
+    const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+    if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) return true;
+    if (Layer_Collision[ty][tx] > 0) return true;
+  }
+  return false;
+}
+
+// ===== Player Movement (input-blockable) =====
+function updatePlayer(dt) {
+  if (isMenuOpen) {           // INPUT BLOCKING
+    PLAYER.walkFrame = 0;
+    PLAYER.walkTime = 0;
+    return;
+  }
+  let dx = 0, dy = 0;
+  if (keys['arrowup']    || keys['w']) dy -= 1;
+  if (keys['arrowdown']  || keys['s']) dy += 1;
+  if (keys['arrowleft']  || keys['a']) dx -= 1;
+  if (keys['arrowright'] || keys['d']) dx += 1;
+  if (dx !== 0 && dy !== 0) { dx *= 0.7071; dy *= 0.7071; }
+  if (dx === 0 && dy === 0) {
+    PLAYER.walkFrame = 0; PLAYER.walkTime = 0;
+    return;
+  }
+  if (Math.abs(dx) > Math.abs(dy)) PLAYER.dir = dx > 0 ? 'right' : 'left';
+  else PLAYER.dir = dy > 0 ? 'down' : 'up';
+  const newPx = PLAYER.x + dx * PLAYER.speed;
+  if (!checkCollision(newPx, PLAYER.y)) PLAYER.x = newPx;
+  const newPy = PLAYER.y + dy * PLAYER.speed;
+  if (!checkCollision(PLAYER.x, newPy)) PLAYER.y = newPy;
+  PLAYER.walkTime += dt;
+  PLAYER.walkFrame = Math.floor(PLAYER.walkTime * 8) % 4;
+}
+
+// ===== Camera (Lerp + Confiner) =====
+function updateCamera() {
+  const vw = canvas.clientWidth, vh = canvas.clientHeight;
+  camera.targetX = PLAYER.x - vw / 2;
+  camera.targetY = PLAYER.y - vh / 2;
+  camera.x += (camera.targetX - camera.x) * CAMERA_CONFIG.dampening;
+  camera.y += (camera.targetY - camera.y) * CAMERA_CONFIG.dampening;
+  const maxX = MAP_W_PX - vw;
+  const maxY = MAP_H_PX - vh;
+  camera.x = Math.max(0, Math.min(maxX, camera.x));
+  camera.y = Math.max(0, Math.min(maxY, camera.y));
+}
+
+// ===== Canvas Setup =====
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function resizeCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(window.innerWidth * dpr);
+  canvas.height = Math.floor(window.innerHeight * dpr);
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ===== Tile Rendering (with real assets) =====
+function drawLayer(layer) {
+  const vw = canvas.clientWidth, vh = canvas.clientHeight;
+  const startX = Math.max(0, Math.floor(camera.x / TILE));
+  const endX = Math.min(COLS - 1, Math.ceil((camera.x + vw) / TILE));
+  const startY = Math.max(0, Math.floor(camera.y / TILE));
+  const endY = Math.min(ROWS - 1, Math.ceil((camera.y + vh) / TILE));
+  for (let y = startY; y <= endY; y++) {
+    for (let x = startX; x <= endX; x++) {
+      const id = layer[y][x];
+      if (id === 0) continue;
+      drawTile(id, x * TILE - camera.x, y * TILE - camera.y, x, y);
+    }
+  }
+}
+
+function drawTile(id, px, py, gridX, gridY) {
+  switch (id) {
+    case 1: // grass
+      ctx.fillStyle = '#3a5f43';
+      ctx.fillRect(px, py, TILE, TILE);
+      if ((gridX + gridY) % 3 === 0) {
+        ctx.fillStyle = '#346024';
+        ctx.fillRect(px + 6, py + 8, 2, 4);
+        ctx.fillRect(px + 24, py + 22, 2, 4);
+      }
+      break;
+    case 2: // path
+      ctx.fillStyle = '#557a46';
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = '#658a56';
+      ctx.fillRect(px + 4, py + 4, 4, 4);
+      ctx.fillRect(px + 24, py + 12, 4, 4);
+      break;
+    case 3: // fortress wall
+      ctx.fillStyle = '#7c81ad';
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = '#5c61a0';
+      ctx.fillRect(px, py, TILE, 4);
+      ctx.fillRect(px, py + TILE - 4, TILE, 4);
+      ctx.fillStyle = '#9ca1bd';
+      ctx.fillRect(px + 6, py + 8, 8, 8);
+      ctx.fillRect(px + 22, py + 18, 8, 8);
+      break;
+    case 4: // canopy (tree leaves, overhang down)
+      if (assets.tree && assets.tree.complete) {
+        const fw = assets.tree.naturalWidth / 4;
+        const fh = assets.tree.naturalHeight;
+        const fi = Math.floor(performance.now() / 360) % 4;
+        ctx.drawImage(assets.tree, fi * fw, 0, fw, 24, px - 4, py, TILE + 8, TILE + 16);
+      } else {
+        ctx.fillStyle = '#2f5233';
+        ctx.fillRect(px, py, TILE, TILE);
+      }
+      break;
+    case 5: // flower → real carrot sprite
+      if (assets.crop_carrot && assets.crop_carrot.complete) {
+        const cw = assets.crop_carrot.naturalWidth;
+        const ch = assets.crop_carrot.naturalHeight;
+        const scale = 2;
+        const dw = cw * scale, dh = ch * scale;
+        ctx.drawImage(assets.crop_carrot, 0, 0, cw, ch,
+                      px + (TILE - dw) / 2, py + (TILE - dh) / 2, dw, dh);
+      } else {
+        ctx.fillStyle = '#f4ce14';
+        ctx.fillRect(px + 12, py + 12, 8, 8);
+      }
+      break;
+    case 6: // tree trunk
+      ctx.fillStyle = '#3a5f43';
+      ctx.fillRect(px, py, TILE, TILE);
+      if (assets.tree && assets.tree.complete) {
+        const fw = assets.tree.naturalWidth / 4;
+        const fi = Math.floor(performance.now() / 360) % 4;
+        ctx.drawImage(assets.tree, fi * fw, 20, fw, 14, px + 6, py + 16, TILE - 12, 18);
+      } else {
+        ctx.fillStyle = '#5a3a1a';
+        ctx.fillRect(px + 18, py + 18, 12, 22);
+      }
+      break;
+    case 7: // sparkle
+      const t = performance.now() / 1000;
+      const flicker = 0.5 + 0.5 * Math.sin(t * 4 + gridX * 3 + gridY * 7);
+      ctx.globalAlpha = flicker;
+      ctx.fillStyle = '#fff5a0';
+      const cx = px + 24, cy = py + 12;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 5);
+      ctx.lineTo(cx + 2, cy - 2); ctx.lineTo(cx + 5, cy);
+      ctx.lineTo(cx + 2, cy + 2); ctx.lineTo(cx, cy + 5);
+      ctx.lineTo(cx - 2, cy + 2); ctx.lineTo(cx - 5, cy);
+      ctx.lineTo(cx - 2, cy - 2); ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      break;
+  }
+}
+
+// ===== Player Rendering (real sprite) =====
+const CHAR_NINJA_TILE = 16;
+const DIR_COL = { down: 0, up: 1, left: 2, right: 3 };
+const WALK_CYCLE = [0, 1, 0, 2];
+
+function drawPlayer() {
+  const sx = PLAYER.x - camera.x;
+  const sy = PLAYER.y - camera.y;
+  const r = PLAYER.radius;
+  const isMoving = PLAYER.walkFrame !== 0 && !isMenuOpen;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.beginPath();
+  ctx.ellipse(sx, sy + r * 0.7, r * 0.9, r * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const sprite = isMoving ? assets.player_walk : (assets.player_idle || assets.player_walk);
+  if (sprite && sprite.complete) {
+    const col = DIR_COL[PLAYER.dir] ?? 0;
+    const row = isMoving ? WALK_CYCLE[PLAYER.walkFrame % 4] : 0;
+    ctx.drawImage(sprite,
+      col * CHAR_NINJA_TILE, row * CHAR_NINJA_TILE, CHAR_NINJA_TILE, CHAR_NINJA_TILE,
+      sx - 16, sy - 16, 32, 32);
+  } else {
+    ctx.fillStyle = '#ff5722';
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2a1500';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+// ===== INVENTORY UI: Dynamic Grid Generator =====
+// Creates 12 .inv-slot divs inside #inventoryGrid.
+// Each slot gets drag event listeners (drop target).
+// If slot has item, generate .inv-item with canvas-rendered sprite.
+function renderInventory() {
+  const grid = document.getElementById('inventoryGrid');
+  grid.innerHTML = '';
+  let occupied = 0;
+  for (let i = 0; i < INV_SLOTS; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'inv-slot';
+    slot.dataset.slotIndex = i;
+    // Empty visual hint
+    if (!inventoryData[i]) slot.classList.add('empty');
+
+    // ===== Slot-level D&D listeners (drop target) =====
+    slot.addEventListener('dragover', handleDragOver);
+    slot.addEventListener('drop', handleDrop);
+    slot.addEventListener('dragleave', handleDragLeave);
+
+    const item = inventoryData[i];
+    if (item) {
+      occupied++;
+      const itemEl = document.createElement('div');
+      itemEl.className = 'inv-item';
+      itemEl.draggable = true;           // make item draggable
+      itemEl.dataset.slotIndex = i;       // secure source slot ID
+      itemEl.dataset.itemId = item.id;
+
+      // Render real sprite into canvas (no placeholder colors!)
+      const itemCanvas = document.createElement('canvas');
+      itemCanvas.width = 48;
+      itemCanvas.height = 48;
+      const ictx = itemCanvas.getContext('2d');
+      ictx.imageSmoothingEnabled = false;
+      const img = assets[item.assetKey];
+      if (img && img.complete) {
+        const sw = img.naturalWidth, sh = img.naturalHeight;
+        // Center-fit with max scale 4x (keeps pixel art crisp)
+        const scale = Math.min(48 / sw, 48 / sh, 4);
+        const dw = sw * scale, dh = sh * scale;
+        ictx.drawImage(img, 0, 0, sw, sh, (48 - dw) / 2, (48 - dh) / 2, dw, dh);
+      } else {
+        ictx.fillStyle = '#444';
+        ictx.fillRect(8, 8, 32, 32);
+      }
+      itemEl.appendChild(itemCanvas);
+
+      // ===== Item-level D&D listeners (drag source) =====
+      itemEl.addEventListener('dragstart', handleDragStart);
+      itemEl.addEventListener('dragend', handleDragEnd);
+
+      // Count badge (only if quantity > 1)
+      if (item.quantity > 1) {
+        const count = document.createElement('div');
+        count.className = 'inv-count';
+        count.textContent = '×' + item.quantity;
+        slot.appendChild(count);
+      }
+
+      // Tooltip with item name
+      const tip = document.createElement('div');
+      tip.className = 'inv-tooltip';
+      tip.textContent = `${item.name} (${item.type})`;
+      slot.appendChild(tip);
+
+      slot.appendChild(itemEl);
+    }
+    grid.appendChild(slot);
+  }
+  document.getElementById('inv-count').textContent = `${occupied} / ${INV_SLOTS}`;
+}
+
+// ===== DRAG-AND-DROP EVENT HANDLERS =====
+// Mimics Unity IBeginDragHandler / IDragHandler / IEndDragHandler lifecycle:
+//   dragstart → IBeginDragHandler (secure source slot ID via dataTransfer)
+//   dragover  → IDragHandler (allow drop, highlight target)
+//   drop      → IEndDragHandler (perform swap, re-render)
+
+let draggedFromSlot = null;   // fallback in case dataTransfer fails
+
+function handleDragStart(e) {
+  const slotIndex = parseInt(e.target.dataset.slotIndex, 10);
+  draggedFromSlot = slotIndex;
+  // Secure source slot ID via dataTransfer API
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(slotIndex));
+  // Visual feedback: mark source slot as "dragging"
+  e.target.closest('.inv-slot').classList.add('dragging');
+  showToast(`📤 Picked up: ${inventoryData[slotIndex]?.name || 'item'}`);
+}
+
+function handleDragOver(e) {
+  e.preventDefault();   // MUST preventDefault to allow drop
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  const targetSlot = parseInt(e.currentTarget.dataset.slotIndex, 10);
+  // Retrieve source slot ID from dataTransfer (with fallback)
+  const sourceSlot = parseInt(e.dataTransfer.getData('text/plain') || draggedFromSlot, 10);
+
+  // Clear visual feedback
+  e.currentTarget.classList.remove('drag-over');
+  document.querySelectorAll('.inv-slot.dragging').forEach((s) => s.classList.remove('dragging'));
+
+  if (isNaN(sourceSlot) || sourceSlot === targetSlot) {
+    draggedFromSlot = null;
+    return;
+  }
+
+  // ===== SWAP LOGIC =====
+  // Exchange inventoryData[sourceSlot] ↔ inventoryData[targetSlot]
+  // Works whether target is empty (just move) or occupied (true swap).
+  const tmp = inventoryData[targetSlot];
+  inventoryData[targetSlot] = inventoryData[sourceSlot];
+  inventoryData[sourceSlot] = tmp;
+
+  // Re-render UI so visual syncs with data array
+  renderInventory();
+
+  const moved = inventoryData[targetSlot];
+  showToast(moved
+    ? `🔄 Swapped: ${moved.name} → slot ${targetSlot + 1}`
+    : `🔄 Moved to slot ${targetSlot + 1}`);
+  draggedFromSlot = null;
+}
+
+function handleDragEnd(e) {
+  // Cleanup any lingering visual state
+  document.querySelectorAll('.inv-slot.dragging, .inv-slot.drag-over').forEach((s) => {
+    s.classList.remove('dragging', 'drag-over');
+  });
+  draggedFromSlot = null;
+}
+
+// ===== Main Render =====
+function render() {
+  const vw = canvas.clientWidth, vh = canvas.clientHeight;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, vw, vh);
+  drawLayer(Layer_Ground);
+  drawLayer(Layer_WalkInFront);
+  drawLayer(Layer_Collision);
+  drawPlayer();
+  drawLayer(Layer_WalkBehind);
+  drawLayer(Layer_Decor);
+}
+
+// ===== HUD =====
+const hudPx = document.getElementById('hud-px');
+const hudCam = document.getElementById('hud-cam');
+const hudMenu = document.getElementById('hud-menu');
+const hudAssets = document.getElementById('hud-assets');
+const hudFps = document.getElementById('hud-fps');
+let frameCount = 0, lastFpsTime = performance.now(), fps = 60;
+
+function updateHUD() {
+  hudPx.textContent = `${Math.round(PLAYER.x)},${Math.round(PLAYER.y)}`;
+  hudCam.textContent = `${Math.round(camera.x)},${Math.round(camera.y)}`;
+  hudMenu.textContent = isMenuOpen ? 'OPEN (bag)' : 'closed';
+  hudMenu.style.color = isMenuOpen ? '#ff8a5c' : '#ffe04a';
+  hudAssets.textContent = `${Object.keys(assets).length}/${Object.keys(ASSET_PATHS).length}`;
+  hudFps.textContent = Math.round(fps);
+}
+
+// ===== Toast =====
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+function showToast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
+}
+
+// ===== Game Loop =====
+function loop(now) {
+  const dt = Math.min(0.05, (now - (loop.lastFrame || now)) / 1000);
+  loop.lastFrame = now;
+  frameCount++;
+  if (now - lastFpsTime >= 500) {
+    fps = (frameCount * 1000) / (now - lastFpsTime);
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+  updatePlayer(dt);
+  updateCamera();
+  render();
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+
+// ===== Boot (async IIFE) =====
+(async () => {
+  const loadingEl = document.getElementById('loading');
+  const loadingStatus = document.getElementById('loading-status');
+  loadingStatus.textContent = 'Loading ' + Object.keys(ASSET_PATHS).length + ' assets...';
+  await loadAssets();
+
+  // Build initial inventory UI (uses loaded assets)
+  renderInventory();
+
+  loadingEl.classList.add('hidden');
+  setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
+  showToast('🎮 Ready! Tekan Tab untuk buka Bag, drag item untuk swap');
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -25,6 +25,17 @@
 const MZFI_BASE = "https://mzfi.me";
 
 // Get token from mzfi /home endpoint (x-user header, CORS-exposed).
+// NOTE: mzfi returns ACAO:* but rejects credentials:include cross-origin.
+// So we CANNOT use credentials here — use credentials:omit + extract token
+// from x-user header. For /subject/play, we pass the token as Authorization
+// header + Cookie header manually (via setRequestHeader trick won't work
+// cross-origin either). So mzfi play ONLY works same-origin (from mzfi.me).
+//
+// SOLUTION: Two-step approach:
+//   1. Fetch /home with credentials:omit → get token from x-user header
+//   2. Fetch /subject/play with credentials:omit + Authorization: Bearer
+//   3. If play returns hasResource:false (no cookie), try the /detail
+//      endpoint which returns stream URLs in some regions
 async function getMzfiToken(): Promise<string | null> {
   try {
     const res = await fetch(`${MZFI_BASE}/wefeed-h5api-bff/home?page=1`, {
@@ -48,7 +59,7 @@ async function searchMzfi(
   try {
     const res = await fetch(`${MZFI_BASE}/wefeed-h5api-bff/subject/search`, {
       method: "POST",
-      credentials: "include",
+      credentials: "omit",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
@@ -98,7 +109,7 @@ async function playMzfi(
     // KEY: credentials: 'include' sends mb_token cookie (set by /home response).
     // Without this, API returns hasResource:false (no streams).
     const res = await fetch(playUrl, {
-      credentials: "include",
+      credentials: "omit",
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",

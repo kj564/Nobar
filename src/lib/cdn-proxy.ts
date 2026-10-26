@@ -36,36 +36,14 @@ export async function resolveStream(
   subtitles: Array<{ language: string; url: string }>;
   embedUrl?: string | null;
 }> {
-  // ── FIRST: try client-side lk21 resolution (no Nobar server needed) ──
-  // Applies lk21's own approach: fetch encrypted config + AES key via CORS
-  // proxy, decrypt IN THE BROWSER via WebCrypto.
+  // ── PRIMARY: vidlink.pro via cdn-proxy Worker (reliable, server-side) ──
+  // The Worker handles vidlink token mint + lk21 AES decryption + idlix scrape.
+  // In static mode (CF Pages / GitHub Pages), NEXT_PUBLIC_CDN_PROXY_URL points
+  // to the Worker; in dev, Next.js rewrites forward to localhost:3003.
   //
-  // REALITY CHECK: public CORS proxies (corsproxy.io, allorigins, codetabs)
-  // are mostly dead or require API keys now. So this path USUALLY fails and
-  // we fall through to the server-based resolver below. It's still here as
-  // a "zero-infrastructure" fallback for static-export mode if a working
-  // public CORS proxy becomes available.
-  //
-  // The server-based path (cdn-proxy on :3003 or the CF Worker in prod) is
-  // the reliable primary — it does the same AES decryption but server-side.
-  if (kind === "movie" && title && !isStaticMode) {
-    // In dev mode, skip client-side (cdn-proxy is local + reliable).
-    // Only try client-side in static mode (GitHub Pages) if the CF Worker
-    // is unreachable — handled by the isStaticMode check below.
-  } else if (kind === "movie" && title && isStaticMode) {
-    try {
-      const lk21Client = await getLk21Client();
-      const lk21Result = await lk21Client(title, year);
-      if (lk21Result?.sources?.length) {
-        console.log("[NOBAR] lk21 resolved CLIENT-SIDE (no server):", lk21Result.sources[0].provider);
-        return lk21Result;
-      }
-    } catch (e) {
-      console.warn("[NOBAR] client-side lk21 failed (CORS proxies unreliable), trying server:", e);
-    }
-  }
-
-  // ── PRIMARY: vidlink.pro via cdn-proxy server ──
+  // Client-side lk21 (via CORS proxy) is in lk21-client.ts but NOT used here —
+  // public CORS proxies are dead (corsproxy.io 401, allorigins/codetabs timeout).
+  // The Worker is the only reliable path.
   const params = new URLSearchParams({ kind, season: String(season), episode: String(episode) });
   const url = proxyUrl(`/vidlink/${tmdbId}?${params}`);
   const res = await fetch(url);

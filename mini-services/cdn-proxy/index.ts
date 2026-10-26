@@ -897,6 +897,46 @@ async function lk21Resolve(
       // Try next variant
     }
   }
+
+  // FALLBACK: If search returned 0 (lk21 rate-limits CF IP after ~4 requests),
+  // try the direct URL pattern. lk21 uses predictable slugs:
+  //   "Top Gun: Maverick" → /top-gun-maverick/
+  //   "Oppenheimer" → /oppenheimer/
+  // We construct the slug from the title + year, then HEAD-check the URL.
+  if (results.length === 0) {
+    const slugGuess = title
+      .toLowerCase()
+      .replace(/[''`]/g, "")
+      .replace(/[:;,\(\)\.\!\?]/g, "")
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    // Try with and without year suffix
+    const guesses = year ? [slugGuess, `${slugGuess}-${year}`] : [slugGuess];
+    for (const slug of guesses) {
+      const directUrl = `${LK21_BASE}/${slug}/`;
+      try {
+        // HEAD request — if 200, the movie exists at this URL.
+        const checkRes = await fetch(directUrl, {
+          method: "GET",
+          headers: LK21_HEADERS,
+          signal: AbortSignal.timeout(8000),
+        });
+        if (checkRes.ok) {
+          // Verify it's actually a movie page (has putarin embed).
+          const html = await checkRes.text();
+          if (html.includes("putarin.")) {
+            results = [{ slug, title, url: directUrl }];
+            break;
+          }
+        }
+      } catch {
+        // Try next guess
+      }
+    }
+  }
+
   if (results.length === 0) {
     return { sources: [], subtitles: [] };
   }

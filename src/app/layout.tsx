@@ -53,6 +53,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="id" data-scroll-behavior="smooth" className={`${inter.variable} ${jakarta.variable}`}>
       <head>
+        {/* Preconnect to CDNs used on every page for faster TTFB */}
+        <link rel="preconnect" href="https://image.tmdb.org" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://api.themoviedb.org" />
+        <link rel="preconnect" href="https://nobar-cdn-proxy.ukhelda.workers.dev" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://sacdn.hakunaymatata.com" />
+        <link rel="dns-prefetch" href="https://lowhls9.stream121.space" />
+        <link rel="dns-prefetch" href="https://cacdn.hakunaymatata.com" />
         <script
           src="https://tags.adplox.com/p.js?z=pfntggc9kw"
           async

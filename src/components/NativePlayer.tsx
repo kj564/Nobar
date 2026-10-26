@@ -144,7 +144,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
         // Cast to any — shaka-player's clutz-generated types are broken
         // and cause "Property 'polyfill' does not exist" build errors.
         // The runtime API is correct; only the .d.ts is wrong.
-        const shaka: any = await import("shaka-player");
+        const shaka: any = null; // shaka-player removed (DASH disabled)
         if (cancelled) return;
         // Polyfills must run before Player construction.
         shaka.polyfill.installAll();
@@ -195,7 +195,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
       return false;
     }
 
-    const shaka: any = await import("shaka-player");
+    const shaka: any = null; // shaka-player removed (DASH disabled)
 
     // Destroy existing shaka instance if any
     if (shakaRef.current) {
@@ -501,7 +501,12 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
     // ── Attach video event listeners FIRST (works for both MP4 and HLS) ──
     // HLS.js / native HLS set video.src which fires the same events as MP4.
     // Without these, time display = 0:00, duration = 0, play/pause broken.
+    //
+    // AUTOPLAY POLICY: Browsers block unmuted autoplay without user gesture.
+    // We start MUTED (guaranteed to autoplay), then the user clicks unmute.
+    // This is the standard pattern (YouTube, Netflix, etc. all do this).
     v.muted = true;
+    v.volume = 0.7;  // 70% volume (ready for when user unmutes)
     setMuted(true);
 
     const notifyVideoTogether = () => {
@@ -568,13 +573,35 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
       import("hls.js").then((Hls) => {
         const HlsClass = Hls.default || Hls;
         if (HlsClass.isSupported()) {
-          // ── Build hls.js config ──
-          // For hls-direct: custom fLoader injects auth into .ts URLs.
+          // ── Build hls.js config (tuned for fast start + smooth playback) ──
           const hlsConfig: any = {
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
+            // Buffering: smaller initial buffer = faster playback start.
+            // hls.js waits until it has maxBufferLength seconds buffered
+            // before starting playback. Lower = faster start, more rebuffer risk.
+            maxBufferLength: 10,        // start playback after 10s buffered (was 30)
+            maxMaxBufferLength: 30,     // allow up to 30s if bandwidth allows (was 60)
+            // Worker: parse m3u8 in a Web Worker (doesn't block main thread)
             enableWorker: true,
+            // Low latency mode off (we're VOD, not live)
             lowLatencyMode: false,
+            // Start at a low level for fast initial load (auto-upgrades after).
+            // Without this, hls.js may start at 1080p → slow first segment.
+            startLevel: -1,             // -1 = auto (hls.js picks based on bandwidth)
+            // ABR tuning: faster upgrade/downgrade for smoother experience
+            abrEwmaDefaultEstimate: 2_000_000,  // assume 2 Mbps initial (was 500kbps default)
+            // Backbuffer: drop old buffer to save memory
+            backBufferLength: 30,        // keep 30s behind playhead (default 90s)
+            // Manifest loading: faster timeout = quicker fallback if CDN slow
+            manifestLoadingTimeOut: 10000,
+            manifestLoadingMaxRetry: 2,
+            // Fragment loading: retry quickly on network blips
+            fragLoadingTimeOut: 20000,
+            fragLoadingMaxRetry: 4,
+            fragLoadingRetryDelay: 500,
+            // XHR: don't send cookies (CORS-clean, faster)
+            xhrSetup: (xhr: XMLHttpRequest) => {
+              xhr.withCredentials = false;
+            },
           };
 
           if (isHlsDirect && activeSource.auth) {

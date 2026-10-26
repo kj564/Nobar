@@ -1,7 +1,5 @@
 import type { NextConfig } from "next";
 
-// Static export for GitHub Pages — only during build.
-// In dev mode, use the standard Next.js server (dynamic routes).
 const isBuild = process.env.BUILD_STATIC === "true";
 
 const nextConfig: NextConfig = {

@@ -24,4 +24,3 @@ export function generateStaticParams() {
   return [{ id: "preview" }];
 }
 
-export const dynamicParams = true;

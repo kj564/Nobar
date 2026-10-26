@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
             { source: "/mp4", destination: "http://localhost:3003/mp4" },
             { source: "/mzfi-play", destination: "http://localhost:3003/mzfi-play" },
             { source: "/lk21/:path*", destination: "http://localhost:3003/lk21/:path*" },
+            { source: "/subtitle", destination: "http://localhost:3003/subtitle" },
           ];
         },
       }

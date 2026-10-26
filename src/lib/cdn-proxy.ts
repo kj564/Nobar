@@ -66,8 +66,20 @@ export async function resolveStream(
   // lk21 returns CORS-open HLS that plays directly via hls.js — same zero-
   // egress path as vidlink HLS, but a different source. Skips all ads
   // because we never execute the putarin embed page's ad JS.
+  //
+  // IMPORTANT: lk21 returns NO subtitles (putarin doesn't embed them).
+  // But vidlink.pro DID return subtitles (on cacdn.hakunaymatata.com,
+  // CORS-open). So we MERGE vidlink's subtitles into the lk21 source.
+  // This gives us lk21 video + vidlink subs — best of both.
   const lk21 = await tryLk21(title, year, kind);
-  if (lk21) return lk21;
+  if (lk21) {
+    const vidlinkSubs = (data.subtitles || []).filter((s: any) => s?.url);
+    if (vidlinkSubs.length > 0) {
+      console.log(`[NOBAR] Merged ${vidlinkSubs.length} vidlink subtitles into lk21 source`);
+      return { ...lk21, subtitles: vidlinkSubs };
+    }
+    return lk21;
+  }
 
   // ── lk21 didn't have it → try MP4-through-proxy (ad-free) ──
   // vidlink.pro returns MP4 sources on bcdn/bcdnxw.hakunaymatata.com, which

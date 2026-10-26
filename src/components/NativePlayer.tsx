@@ -2,7 +2,22 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Subtitles, Loader2, Gauge, Wifi } from "lucide-react";
-import { resolveStream, resolveIdlix, buildIdlixSlug } from "@/lib/cdn-proxy";
+import { resolveStream, resolveIdlix, buildIdlixSlug, isStaticMode } from "@/lib/cdn-proxy";
+
+// Build a subtitle proxy URL that routes through the cdn-proxy Worker's
+// /subtitle endpoint. This converts SRT → WebVTT on the fly (browsers
+// reject .srt for <track> elements).
+const CDN_PROXY_URL = process.env.NEXT_PUBLIC_CDN_PROXY_URL || "";
+const CDN_PROXY_PORT = "3003";
+function proxySubtitleUrl(subtitleUrl: string): string {
+  const proxyPath = `/subtitle?url=${encodeURIComponent(subtitleUrl)}`;
+  if (isStaticMode && CDN_PROXY_URL) {
+    return `${CDN_PROXY_URL}${proxyPath}`;
+  }
+  // Dev mode: use Next.js rewrite via XTransformPort
+  const sep = proxyPath.includes("?") ? "&" : "?";
+  return `${proxyPath}${sep}XTransformPort=${CDN_PROXY_PORT}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // NativePlayer — buttery smooth playback via Shaka Player (DASH adaptive)
@@ -332,11 +347,19 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
         setSources(data.sources || []);
         setDashSource(null); // DASH not supported in static mode (needs /api/proxy)
         // Subtitle URL handling:
-        //  - URLs on cacdn.hakunaymatata.com → vidlink.pro direct CDN, CORS-open
-        //  - All other absolute URLs → use directly (CDN proxy returns direct URLs)
+        // vidlink.pro returns .srt files on cacdn.hakunaymatata.com. Browsers
+        // reject .srt for <track> elements (require WebVTT). We route ALL
+        // subtitle URLs through the cdn-proxy /subtitle endpoint which:
+        //   1. Fetches the .srt from cacdn (CORS-open)
+        //   2. Converts SRT → WebVTT (adds WEBVTT header, converts ,→. in timestamps)
+        //   3. Returns with Content-Type: text/vtt + CORS headers
+        // This makes subtitles render correctly in the native <video> player.
         const normalizeSub = (s: Subtitle): Subtitle => {
-          if (s.url.includes("cacdn.hakunaymatata.com")) return s; // direct CDN
-          if (s.url.startsWith("http") || s.url.startsWith("//")) return s; // direct URL
+          if (s.url.includes("cacdn.hakunaymatata.com") || s.url.endsWith(".srt") || s.url.includes(".srt?")) {
+            // Route through /subtitle proxy for SRT→VTT conversion.
+            return { ...s, url: proxySubtitleUrl(s.url) };
+          }
+          if (s.url.startsWith("http") || s.url.startsWith("//")) return s; // already VTT
           return s;
         };
         const subs = (data.subtitles || []).map(normalizeSub);

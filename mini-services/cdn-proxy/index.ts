@@ -287,6 +287,45 @@ async function handleRequestInner(req: Request): Promise<Response> {
     );
   }
 
+  // ─── Subtitle proxy + SRT→VTT converter ──────────────────────────────
+  // GET /subtitle?url={encoded_srt_or_vtt_url}
+  // Fetches the subtitle file from cacdn.hakunaymatata.com (CORS-open but
+  // returns .srt which browsers reject for <track>). Converts SRT → WebVTT:
+  //   - Prepends "WEBVTT\n\n" header
+  //   - Converts timestamps: 00:00:01,000 → 00:00:01.000 (comma → period)
+  // Returns with Content-Type: text/vtt + CORS headers.
+  if (path === "/subtitle" || path === "/subtitle/") {
+    const targetUrl = url.searchParams.get("url");
+    if (!targetUrl) {
+      return Response.json({ error: "url parameter required" }, { status: 400, headers: corsHeaders });
+    }
+    try {
+      const subRes = await fetch(targetUrl, {
+        headers: { ...MZFI_HEADERS, Accept: "text/plain,*/*" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!subRes.ok) {
+        return Response.json({ error: `Subtitle fetch HTTP ${subRes.status}` }, { status: 502, headers: corsHeaders });
+      }
+      let text = await subRes.text();
+
+      // Convert SRT → WebVTT (only if it looks like SRT, not already VTT)
+      if (!text.startsWith("WEBVTT")) {
+        // SRT format: timestamps use comma for milliseconds (00:00:01,000)
+        // VTT format: timestamps use period (00:00:01.000)
+        // Also need WEBVTT header at the start.
+        text = "WEBVTT\n\n" + text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
+      }
+
+      const vttHeaders = new Headers(corsHeaders);
+      vttHeaders.set("Content-Type", "text/vtt; charset=utf-8");
+      vttHeaders.set("Cache-Control", "public, max-age=86400"); // cache 24h
+      return new Response(text, { status: 200, headers: vttHeaders });
+    } catch (e: any) {
+      return Response.json({ error: "Subtitle proxy failed: " + e.message }, { status: 502, headers: corsHeaders });
+    }
+  }
+
   // ─── MP4 proxy via raw TCP socket (bypasses CF header injection) ─────
   // This is the KEY: bcdn.hakunaymatata.com blocks CF Workers (427) because
   // fetch() auto-adds Cf-Worker/Cdn-Loop headers. But connect() from

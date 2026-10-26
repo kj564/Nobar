@@ -8,6 +8,15 @@ function proxyUrl(path: string): string {
   return `${path}${sep}XTransformPort=${CDN_PROXY_PORT}`;
 }
 
+// Lazy-load mzfi client resolver (only when needed — bcdnxw-only movies).
+let resolveMzfiClient: typeof import("./mzfi-client").resolveMzfiClient | null = null;
+async function getMzfiClient() {
+  if (!resolveMzfiClient) {
+    resolveMzfiClient = (await import("./mzfi-client")).resolveMzfiClient;
+  }
+  return resolveMzfiClient;
+}
+
 export async function resolveStream(
   tmdbId: number,
   kind: "movie" | "tv" = "movie",
@@ -47,14 +56,6 @@ export async function resolveStream(
   }
 
   // ── No HLS → try lk21 first (ad-free HLS from putarin) ──
-  // lk21 returns CORS-open HLS that plays directly via hls.js — same zero-
-  // egress path as vidlink HLS, but a different source. Skips all ads
-  // because we never execute the putarin embed page's ad JS.
-  //
-  // IMPORTANT: lk21 returns NO subtitles (putarin doesn't embed them).
-  // But vidlink.pro DID return subtitles (on cacdn.hakunaymatata.com,
-  // CORS-open). So we MERGE vidlink's subtitles into the lk21 source.
-  // This gives us lk21 video + vidlink subs — best of both.
   const lk21 = await tryLk21(title, year, kind);
   if (lk21) {
     const vidlinkSubs = (data.subtitles || []).filter((s: any) => s?.url);
@@ -63,6 +64,25 @@ export async function resolveStream(
       return { ...lk21, subtitles: vidlinkSubs };
     }
     return lk21;
+  }
+
+  // ── lk21 didn't have it → try mzfi (client-side, geo-dependent) ──
+  // mzfi API is CORS-open (ACAO:*). Token from /home x-user header.
+  // Works from USER's browser (not CF Worker — 429 CF→CF detection).
+  // Content is geo-locked: returns streams if user's region supports it.
+  // If geo-locked → returns empty → falls through to MP4/embed.
+  if (kind === "movie" && title) {
+    try {
+      const mzfiClient = await getMzfiClient();
+      const mzfiResult = await mzfiClient(title, year, kind, season, episode);
+      if (mzfiResult?.sources?.length) {
+        console.log("[NOBAR] mzfi resolved:", mzfiResult.sources[0].provider);
+        const vidlinkSubs = (data.subtitles || []).filter((s: any) => s?.url);
+        return { ...mzfiResult, subtitles: vidlinkSubs.length > 0 ? vidlinkSubs : mzfiResult.subtitles };
+      }
+    } catch (e) {
+      console.warn("[NOBAR] mzfi resolve failed:", e);
+    }
   }
 
   // ── lk21 didn't have it → try MP4-through-proxy (ad-free) ──

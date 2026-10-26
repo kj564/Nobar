@@ -1,0 +1,69 @@
+# Deploy Nobar to Cloudflare Pages (replaces Vercel + GitHub Pages)
+#
+# Why: Vercel Hobby paused us for "Fast Origin Transfer" fair use limit.
+# Cloudflare Pages is unlimited (bandwidth + requests) on the free plan.
+#
+# Prerequisites (set these as GitHub repo Secrets → Actions):
+#   CLOUDFLARE_API_TOKEN    — from https://dash.cloudflare.com/profile/api-tokens
+#   CLOUDFLARE_ACCOUNT_ID   — from Workers & Pages dashboard URL
+#   NEXT_PUBLIC_TMDB_API_KEY     — a3ce3ae3ddb29e9417ffcc2889becf9b
+#   NEXT_PUBLIC_CDN_PROXY_URL    — https://nobar-cdn-proxy.<sub>.workers.dev
+#
+# On push to main:
+#   1. Build Next.js static export (out/)
+#   2. Copy out/index.html → out/404.html (SPA fallback for /movie/[slug])
+#   3. Deploy to Cloudflare Pages via wrangler
+#
+# Production URL: https://nobar.pages.dev (or custom domain)
+
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build static export
+        env:
+          NEXT_PUBLIC_TMDB_API_KEY: ${{ secrets.NEXT_PUBLIC_TMDB_API_KEY }}
+          NEXT_PUBLIC_BASE_PATH: ""
+          NEXT_PUBLIC_CDN_PROXY_URL: ${{ secrets.NEXT_PUBLIC_CDN_PROXY_URL }}
+          BUILD_STATIC: "true"
+        run: bun run build
+
+      - name: SPA fallback (404.html = index.html)
+        run: |
+          cp out/index.html out/404.html
+          touch out/.nojekyll
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy out --project-name=nobar
+
+      - name: Print deployment URL
+        run: |
+          echo "=== Deployment complete ==="
+          echo "Production URL: https://nobar.pages.dev"
+          echo "Worker URL: ${{ secrets.NEXT_PUBLIC_CDN_PROXY_URL }}"
+          echo ""
+          echo "If first deploy, the nobar.pages.dev subdomain is created automatically."
+          echo "To add custom domain: Cloudflare dashboard → Pages → nobar → Custom domains."

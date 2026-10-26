@@ -2,3 +2,23 @@ name = "nobar-cdn-proxy"
 main = "worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+
+# Deploy via: wrangler deploy
+# The worker handles:
+#   /vidlink/*  — vidlink.pro token mint + stream resolve (HLS + MP4)
+#   /idlix/*    — idlix.tv HTML scrape (direct IP, CF bypass)
+#   /mzfi/*     — mzfi.me catalog + stream resolve
+#   /mp4        — MP4 proxy (strips User-Agent for bcdn.hakunaymatata.com)
+#   /lk21/*     — lk21 resolver (search → putarin → AES-256-GCM decrypt → HLS)
+# All responses include Access-Control-Allow-Origin: * (CORS-open for browser).
+
+# Observability (free, helps debug production issues)
+[observability]
+enabled = true
+
+# The worker is deployed to a *.workers.dev subdomain.
+# Production URL: https://nobar-cdn-proxy.<your-subdomain>.workers.dev
+# Custom domain (optional): add routes below + configure in CF dashboard.
+# [routes]
+# route = "cdn.nobar.xyz/*"
+# zone_name = "nobar.xyz"

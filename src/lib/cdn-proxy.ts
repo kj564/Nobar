@@ -93,13 +93,23 @@ export async function resolveStream(
 
   // ── lk21 didn't have it → try MP4-through-proxy (ad-free) ──
   // vidlink.pro returns MP4 sources on bcdn.hakunaymatata.com, which blocks
-  // browser User-Agent (HTTP 428). The cdn-proxy /mp4 endpoint fetches with
-  // NO User-Agent header, so the browser can play the proxied URL directly.
+  // browser User-Agent (HTTP 428). We route MP4 through a proxy that fetches
+  // with NO User-Agent header, so the browser can play the proxied URL directly.
+  //
+  // IMPORTANT: Cloudflare Worker can't proxy bcdn (it detects Cf-Worker/
+  // Cdn-Loop headers → HTTP 427). So in production (static mode on CF Pages),
+  // we use the Deno Deploy MP4 proxy instead (nobar-mp4-proxy.deno.dev).
+  // In dev, we use the local cdn-proxy /mp4 endpoint (Bun, no CF headers).
+  const mp4ProxyBase = isStaticMode
+    ? "https://nobar-mp4-proxy.deno.dev"
+    : "";
   const mp4Sources = (data.sources || [])
     .filter((s: any) => s.type === "mp4" && s.url)
     .map((s: any) => ({
       quality: s.quality,
-      url: proxyUrl(`/mp4?url=${encodeURIComponent(s.url)}`),
+      url: isStaticMode
+        ? `${mp4ProxyBase}/mp4?url=${encodeURIComponent(s.url)}`
+        : proxyUrl(`/mp4?url=${encodeURIComponent(s.url)}`),
       provider: s.provider || "vidlink.pro",
       type: "mp4",
     }));

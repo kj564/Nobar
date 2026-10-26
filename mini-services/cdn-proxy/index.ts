@@ -509,7 +509,265 @@ async function handleRequestInner(req: Request): Promise<Response> {
     }
   }
 
+  // ─── lk21 resolver endpoints ──────────────────────────────────────
+  // RE'd flow: see RESEARCH.md for the full write-up.
+  //   /lk21/health              → health check
+  //   /lk21/search?q={query}    → search lk21official.fun, return slugs
+  //   /lk21/resolve?title=&year=&kind= → full pipeline → CORS-open HLS URL
+  //
+  // The browser plays the resolved HLS DIRECTLY from putarin.{biz|xyz} +
+  // lowhls9.stream121.space (both CORS-open, ACAO:*). Zero proxy egress.
+  if (path === "/lk21/health") {
+    return Response.json(
+      { ok: true, version: "1.0.0", service: "lk21-resolver (merged into cdn-proxy)" },
+      { headers: corsHeaders }
+    );
+  }
+
+  if (path === "/lk21/search") {
+    const q = url.searchParams.get("q") || "";
+    if (!q) {
+      return Response.json({ error: "q parameter required" }, { status: 400, headers: corsHeaders });
+    }
+    try {
+      const results = await lk21Search(q);
+      return Response.json({ query: q, count: results.length, results }, { headers: corsHeaders });
+    } catch (e: any) {
+      return Response.json({ error: e.message }, { status: 502, headers: corsHeaders });
+    }
+  }
+
+  if (path === "/lk21/resolve") {
+    const title = url.searchParams.get("title") || "";
+    const year = url.searchParams.get("year") || undefined;
+    const kind = (url.searchParams.get("kind") || "movie") as "movie" | "tv";
+
+    if (!title) {
+      return Response.json({ error: "title parameter required" }, { status: 400, headers: corsHeaders });
+    }
+
+    try {
+      const result = await lk21Resolve(title, year, kind);
+      return Response.json({ title, year, kind, ...result }, { headers: corsHeaders });
+    } catch (e: any) {
+      return Response.json(
+        { sources: [], subtitles: [], error: e.message },
+        { status: 502, headers: corsHeaders }
+      );
+    }
+  }
+
   return Response.json({ error: "Not found" }, { status: 404, headers: corsHeaders });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// lk21 Resolver — merged into cdn-proxy (single Bun process, port 3003)
+// ════════════════════════════════════════════════════════════════════
+// Reverse-engineered flow for lk21official.fun → putarin.{biz|xyz} → HLS.
+// See RESEARCH.md for the full write-up + verification results.
+//
+// Pipeline:
+//   1. Search lk21official.fun/?s={title} → parse <a href> for slug
+//   2. Fetch lk21official.fun/{slug}/ → extract <iframe src="putarin.{biz|xyz}/e/{code}">
+//   3. Fetch putarin.{biz|xyz}/e/{code} → extract window.__PX = {n, d, v}
+//   4. GET putarin.{biz|xyz}/api/pk?n={n} → 64-hex AES-256 key
+//   5. AES-256-GCM decrypt (IV = d[0:12], ct = d[12:]) → {file:"/api/hls?t={JWT}", type:"hls"}
+//   6. Return https://putarin.{biz|xyz}/api/hls?t={JWT} (CORS-open, plays via hls.js)
+
+const LK21_BASE = "https://lk21official.fun";
+const PUTARIN_BIZ = "https://putarin.biz";
+const PUTARIN_XYZ = "https://putarin.xyz";
+
+async function lk21FetchText(targetUrl: string, referer?: string): Promise<string> {
+  const res = await fetch(targetUrl, {
+    headers: referer
+      ? { ...MZFI_HEADERS, Referer: referer }
+      : MZFI_HEADERS,
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${targetUrl}`);
+  return res.text();
+}
+
+// base64 → Uint8Array (handles JSON-escaped \/ and URL-safe chars)
+function lk21B64ToBytes(s: string): Uint8Array {
+  const clean = s.replace(/\\\//g, "/").replace(/-/g, "+").replace(/_/g, "/");
+  const b = atob(clean);
+  const u = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+  return u;
+}
+
+// hex string → Uint8Array
+function lk21HexToBytes(s: string): Uint8Array {
+  const u = new Uint8Array(s.length >> 1);
+  for (let i = 0; i < u.length; i++) {
+    u[i] = parseInt(s.substr(i << 1, 2), 16);
+  }
+  return u;
+}
+
+// Step 1+2: Search lk21 → array of {slug, title, url}
+async function lk21Search(query: string): Promise<
+  Array<{ slug: string; title: string; url: string }>
+> {
+  const html = await lk21FetchText(`${LK21_BASE}/?s=${encodeURIComponent(query)}`);
+  const results: Array<{ slug: string; title: string; url: string }> = [];
+  const seen = new Set<string>();
+
+  // Match: <a href="https://lk21official.fun/{slug}/" ...>
+  // Skip nav/genre/country/year/wp-* paths.
+  const re = /href="https:\/\/lk21official\.fun\/([^"/]+)\/"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const slug = m[1];
+    if (seen.has(slug)) continue;
+    if (
+      /^(wp-json|wp-admin|wp-content|wp-includes|wp-login|feed|rss|search|page|category|tag|abjad|genre|country|year|populer|latest|rating|release|most-commented|top-movie-today|quality|series-terbaru|privacy-policy|dmca|about|contact|disclaimer|sitemap|serial-terbaru|film-terbaru)$/i.test(
+        slug
+      )
+    ) {
+      continue;
+    }
+    seen.add(slug);
+    const title = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    results.push({ slug, title, url: `${LK21_BASE}/${slug}/` });
+  }
+  return results;
+}
+
+// Step 3: Fetch movie detail page, extract putarin embed code + domain
+async function lk21ExtractPutarinCode(
+  movieUrl: string
+): Promise<{ code: string; base: string } | null> {
+  const html = await lk21FetchText(movieUrl, LK21_BASE + "/");
+  // <iframe src="https://putarin.{biz|xyz}/e/{code}" ...>
+  const m = html.match(
+    /src="(https?:\/\/putarin\.(biz|xyz)\/e\/([A-Za-z0-9_-]+))"/
+  );
+  if (!m) return null;
+  const base = m[2] === "xyz" ? PUTARIN_XYZ : PUTARIN_BIZ;
+  return { code: m[3], base };
+}
+
+// Step 4: Fetch putarin embed, extract __PX blob
+async function lk21ExtractPXBlob(
+  code: string,
+  base: string
+): Promise<{ n: string; d: string }> {
+  const html = await lk21FetchText(`${base}/e/${code}`, `${base}/`);
+  const m = html.match(
+    /window\.__PX\s*=\s*(\{"n":"([^"]+)","d":"([^"]+)","v":"[^"]*"\})/
+  );
+  if (!m) throw new Error("Could not parse __PX from putarin page");
+  return { n: m[2], d: m[3] };
+}
+
+// Step 5: Fetch AES-256 key from /api/pk
+async function lk21FetchPk(nonce: string, base: string): Promise<string> {
+  const res = await fetch(`${base}/api/pk?n=${encodeURIComponent(nonce)}`, {
+    headers: { ...MZFI_HEADERS, Referer: `${base}/` },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`/api/pk HTTP ${res.status}`);
+  const key = (await res.text()).trim();
+  if (key.length < 64) throw new Error(`Key too short: ${key.length} chars`);
+  return key;
+}
+
+// Step 6: AES-256-GCM decrypt → PLAYER config JSON
+async function lk21DecryptPlayer(
+  px: { n: string; d: string },
+  base: string
+): Promise<{ file: string; type: string }> {
+  const keyHex = await lk21FetchPk(px.n, base);
+  const raw = lk21B64ToBytes(px.d);
+  const iv = raw.slice(0, 12);
+  const ct = raw.slice(12);
+  const keyBytes = lk21HexToBytes(keyHex);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+  const ptBuffer = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    cryptoKey,
+    ct
+  );
+  const text = new TextDecoder().decode(ptBuffer);
+  return JSON.parse(text);
+}
+
+// Full pipeline: title → playable HLS URL
+async function lk21Resolve(
+  title: string,
+  year?: string,
+  kind: "movie" | "tv" = "movie"
+): Promise<{
+  sources: Array<{ quality: string; url: string; provider: string; type: string }>;
+  subtitles: Array<{ language: string; url: string }>;
+}> {
+  // 1. Search lk21 by title.
+  const results = await lk21Search(title);
+  if (results.length === 0) {
+    return { sources: [], subtitles: [] };
+  }
+
+  // 2. Pick the best match (normalized title match, year tiebreaker).
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const wantNorm = norm(title);
+
+  let best: { slug: string; title: string; url: string } | null = null;
+  let bestScore = 0;
+  for (const r of results) {
+    const slugNorm = norm(r.slug);
+    let score = 0;
+    if (slugNorm === wantNorm) score = 100;
+    else if (slugNorm.startsWith(wantNorm) || wantNorm.startsWith(slugNorm)) score = 80;
+    else if (slugNorm.includes(wantNorm) || wantNorm.includes(slugNorm)) score = 60;
+    if (year && slugNorm.endsWith(norm(year))) score += 10;
+    if (score > bestScore) {
+      bestScore = score;
+      best = r;
+    }
+  }
+  if (!best || bestScore < 60) {
+    return { sources: [], subtitles: [] };
+  }
+
+  // 3. Fetch the movie detail page → extract putarin embed code + domain.
+  const putarin = await lk21ExtractPutarinCode(best.url);
+  if (!putarin) {
+    return { sources: [], subtitles: [] };
+  }
+
+  // 4. Fetch the putarin embed page → extract __PX blob.
+  const px = await lk21ExtractPXBlob(putarin.code, putarin.base);
+
+  // 5. Decrypt the PLAYER config → get the HLS file URL.
+  const player = await lk21DecryptPlayer(px, putarin.base);
+
+  // The file is a relative URL like "/api/hls?t={JWT}". Make absolute.
+  let hlsUrl = player.file;
+  if (hlsUrl.startsWith("/")) {
+    hlsUrl = putarin.base + hlsUrl;
+  }
+
+  return {
+    sources: [
+      {
+        quality: "Auto",
+        url: hlsUrl,
+        provider: `lk21 (putarin.${putarin.base.includes(".xyz") ? "xyz" : "biz"})`,
+        type: "hls-direct", // CORS-open, browser plays via hls.js (zero proxy egress)
+      },
+    ],
+    subtitles: [], // putarin doesn't embed subs in the m3u8
+  };
 }
 
 // ─── Entry point: works as BOTH Cloudflare Worker AND Bun server ─────

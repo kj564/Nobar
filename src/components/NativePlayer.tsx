@@ -59,9 +59,10 @@ type NativePlayerProps = {
   kind?: "movie" | "tv";
   season?: number;
   episode?: number;
+  year?: string;
 };
 
-export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }: NativePlayerProps) {
+export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, year }: NativePlayerProps) {
   const [sources, setSources] = useState<StreamSource[]>([]);
   const [dashSource, setDashSource] = useState<DashSource | null>(null);
   const [activeSource, setActiveSource] = useState<StreamSource | null>(null);
@@ -313,8 +314,10 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode }:
     setEmbedUrl(null);
     setUsingDash(false);
 
-    // Use CDN proxy resolver (works in both dev + GitHub Pages static mode)
-    resolveStream(tmdbId, kind, season, episode)
+    // Use CDN proxy resolver (works in both dev + GitHub Pages static mode).
+    // Pass title + year so the resolver can try lk21 as a fallback source
+    // when vidlink.pro has no HLS stream for this title.
+    resolveStream(tmdbId, kind, season, episode, title, year)
       .then(async (data) => {
         if (cancelled) return;
         

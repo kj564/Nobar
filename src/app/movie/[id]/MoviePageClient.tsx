@@ -355,7 +355,12 @@ export function MoviePageClient() {
         {/* Player — native player (direct MP4, no ads) + embed fallback */}
         <div id="player" className="space-y-4 scroll-mt-20">
           <h2 className="text-lg font-bold text-white">Player</h2>
-          <NativePlayer tmdbId={detail.id} title={title} kind="movie" />
+          <NativePlayer
+            tmdbId={detail.id}
+            title={title}
+            kind="movie"
+            year={formatYear(detail.release_date)}
+          />
         </div>
 
         {/* Overview + Info grid */}

@@ -1,0 +1,2032 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>All-in-One Game Demo — Tilemap + Camera + Menu + Inventory + Pickup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; overflow: hidden;
+    background: #0a0a1a; color: #e8e8e8;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  #game-container { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+  #game-canvas {
+    display: block; background: #000;
+    image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges;
+    width: 100%; height: 100%;
+  }
+
+  /* ===== UI Menu Overlay (Tab key) ===== */
+  #ui-menu {
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
+    z-index: 10; pointer-events: none;
+  }
+  #ui-menu.open { display: flex; pointer-events: auto; }
+  .ui-panel {
+    width: min(560px, 92vw); max-height: 86vh;
+    background: linear-gradient(180deg, #1a2a1a 0%, #0f1a0f 100%);
+    border: 3px solid rgba(180,220,120,0.65);
+    border-radius: 14px;
+    box-shadow: 0 16px 50px rgba(0,0,0,0.75);
+    overflow: hidden; display: flex; flex-direction: column;
+    animation: panelIn 0.18s ease-out;
+  }
+  @keyframes panelIn { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .ui-panel-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 14px;
+    background: rgba(180,220,120,0.08);
+    border-bottom: 2px solid rgba(180,220,120,0.4);
+  }
+  .ui-tab-btn {
+    flex: 1; padding: 8px 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #c8d8b0; border-radius: 8px;
+    cursor: pointer; font-size: 12px; font-weight: 700;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .ui-tab-btn:hover { background: rgba(180,220,120,0.12); }
+  .ui-tab-btn.active {
+    background: rgba(180,220,120,0.22);
+    border-color: rgba(180,220,120,0.7); color: #fff;
+  }
+  .ui-panel-close {
+    cursor: pointer; color: #88a06a; font-size: 16px; font-weight: 800;
+    padding: 4px 8px; border-radius: 4px;
+  }
+  .ui-panel-close:hover { background: rgba(255,90,90,0.15); color: #ff8a8a; }
+  .ui-panel-body { padding: 16px; overflow-y: auto; flex: 1; }
+  .ui-panel-body::-webkit-scrollbar { width: 8px; }
+  .ui-panel-body::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+  .ui-panel-body::-webkit-scrollbar-thumb { background: rgba(180,220,120,0.4); border-radius: 4px; }
+  .ui-tab-page { display: none; }
+  .ui-tab-page.active { display: block; }
+  .ui-panel-footer {
+    padding: 8px 14px; border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 11px; color: #88a06a; text-align: right;
+  }
+  .ui-panel-footer kbd {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 3px; padding: 1px 5px;
+    font-size: 10px; color: #c4dcff; font-weight: 700;
+  }
+
+  /* Status tab */
+  .ui-status-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; }
+  .ui-status-row {
+    display: flex; justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px; font-size: 13px;
+  }
+  .ui-status-row .label { color: #88a06a; font-weight: 600; }
+  .ui-status-row .value { color: #ffe04a; font-weight: 700; }
+
+  /* Bag tab */
+  .ui-bag-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px; font-size: 12px; color: #88a06a;
+  }
+  .ui-bag-count { color: #ffe04a; font-weight: 700; }
+  .ui-inventory-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 8px;
+    background: rgba(0,0,0,0.3); border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .inv-slot {
+    position: relative; aspect-ratio: 1/1;
+    background: rgba(255,255,255,0.04);
+    border: 2px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  }
+  .inv-slot:hover { border-color: rgba(180,220,120,0.4); background: rgba(180,220,120,0.05); }
+  .inv-slot.drag-over {
+    border-color: #ffd54a; background: rgba(255,213,74,0.15);
+    transform: scale(1.04); box-shadow: 0 0 16px rgba(255,213,74,0.35);
+  }
+  .inv-slot.dragging { opacity: 0.4; transform: scale(0.95); }
+  .inv-slot.empty::before {
+    content: ''; width: 50%; height: 50%;
+    border: 2px dashed rgba(255,255,255,0.12); border-radius: 6px;
+  }
+  .inv-item { width: 80%; height: 80%; cursor: grab; display: flex; align-items: center; justify-content: center; }
+  .inv-item:active { cursor: grabbing; }
+  .inv-item canvas { max-width: 100%; max-height: 100%; image-rendering: pixelated; pointer-events: none; }
+  .inv-count {
+    position: absolute; bottom: 4px; right: 6px;
+    background: rgba(0,0,0,0.85); color: #ffe04a;
+    font-size: 11px; font-weight: 800; padding: 1px 5px;
+    border-radius: 4px; border: 1px solid rgba(255,213,74,0.5); pointer-events: none;
+  }
+  .inv-tooltip {
+    position: absolute; bottom: 100%; left: 50%;
+    transform: translateX(-50%) translateY(-4px);
+    background: rgba(0,0,0,0.92); color: #fff;
+    font-size: 11px; padding: 4px 8px; border-radius: 4px;
+    border: 1px solid rgba(180,220,120,0.5);
+    white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity 0.15s; z-index: 5;
+  }
+  .inv-slot:hover .inv-tooltip { opacity: 1; }
+
+  /* Map tab */
+  .ui-map-info { font-size: 12px; line-height: 1.6; color: #c8d8b0; }
+  .ui-map-info h3 { color: #ffe04a; font-size: 14px; margin: 10px 0 6px; font-weight: 800; }
+  .ui-map-info ul { padding-left: 18px; }
+  .ui-map-info li { margin: 3px 0; }
+  .ui-val { color: #ffe04a; font-weight: 700; }
+
+  /* ===== Dynamic Map Zone Display ===== */
+  .zone-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .zone-card {
+    padding: 14px;
+    background: rgba(255,255,255,0.04);
+    border: 2px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    transition: border-color 0.3s, background 0.3s, box-shadow 0.3s, transform 0.2s;
+    cursor: pointer;
+  }
+  .zone-card .zone-icon { font-size: 28px; margin-bottom: 6px; }
+  .zone-card .zone-name { font-size: 15px; font-weight: 800; color: #c8d8b0; }
+  .zone-card .zone-desc { font-size: 11px; color: #88a06a; margin-top: 4px; line-height: 1.4; }
+  .zone-card .zone-coords { font-size: 10px; color: #666; margin-top: 6px; font-family: monospace; }
+  /* Dynamic highlight — injected when player enters zone */
+  .zone-card.highlighted {
+    border-color: #88e06a;
+    background: rgba(136, 224, 106, 0.15);
+    box-shadow: 0 0 20px rgba(136, 224, 106, 0.35);
+    transform: scale(1.03);
+  }
+  .zone-card.highlighted .zone-name { color: #88e06a; }
+  .zone-card.highlighted .zone-icon { filter: drop-shadow(0 0 6px rgba(136, 224, 106, 0.6)); }
+  /* Non-highlighted zones are dimmed */
+  .zone-card:not(.highlighted) { opacity: 0.5; }
+
+  /* ===== Pause Menu Overlay ===== */
+  #pause-menu {
+    position: absolute; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(6px);
+    z-index: 40;
+    pointer-events: none;
+  }
+  #pause-menu.open { display: flex; pointer-events: auto; }
+  .pause-panel {
+    width: min(320px, 80vw);
+    background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+    border: 3px solid rgba(136, 192, 255, 0.6);
+    border-radius: 16px;
+    box-shadow: 0 16px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(136, 192, 255, 0.15);
+    padding: 28px 24px;
+    text-align: center;
+    animation: pauseIn 0.25s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  @keyframes pauseIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .pause-title {
+    font-size: 28px; font-weight: 900;
+    color: #88c0ff; letter-spacing: 2px;
+    margin-bottom: 6px;
+    text-shadow: 0 0 20px rgba(136, 192, 255, 0.4);
+  }
+  .pause-subtitle { font-size: 11px; color: #5a6a8a; margin-bottom: 20px; }
+  .pause-btn {
+    display: block; width: 100%;
+    padding: 12px 16px; margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 2px solid rgba(136, 192, 255, 0.3);
+    color: #c8d8ff; border-radius: 10px;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.08s;
+  }
+  .pause-btn:hover {
+    background: rgba(136, 192, 255, 0.15);
+    border-color: rgba(136, 192, 255, 0.6);
+    transform: translateY(-1px);
+  }
+  .pause-btn:active { transform: translateY(0) scale(0.98); }
+  .pause-btn.primary {
+    background: linear-gradient(180deg, rgba(136, 192, 255, 0.3), rgba(100, 150, 220, 0.3));
+    border-color: rgba(136, 192, 255, 0.7);
+    color: #fff;
+  }
+  .pause-btn.primary:hover { background: linear-gradient(180deg, rgba(136, 192, 255, 0.45), rgba(100, 150, 220, 0.45)); }
+  .pause-hint { font-size: 10px; color: #4a5a7a; margin-top: 14px; }
+
+  /* HUD */
+  #hud {
+    position: absolute; top: 10px; left: 10px;
+    background: rgba(10,10,26,0.85);
+    border: 1px solid rgba(136,192,255,0.4);
+    border-radius: 8px; padding: 8px 12px;
+    font-size: 11px; color: #c8d8ff;
+    font-family: 'Consolas', monospace;
+    line-height: 1.6; pointer-events: none; z-index: 5;
+  }
+  #hud .label { color: #88a0c0; }
+  #hud .val { color: #ffe04a; font-weight: 700; }
+
+  /* Loading */
+  #loading {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: #0a0a1a; color: #b8e986;
+    z-index: 100; gap: 14px;
+    transition: opacity 0.4s ease;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  #loading .title { font-size: 24px; font-weight: 800; letter-spacing: 1.5px; }
+  #loading .bar-bg {
+    width: 280px; height: 12px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(180,220,120,0.4);
+    border-radius: 6px; overflow: hidden;
+  }
+  #loading .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2ee6a8, #b8e986);
+    width: 0%; transition: width 0.2s ease;
+  }
+  #loading .status { font-size: 12px; color: #88a06a; }
+
+  /* Toast */
+  #toast {
+    position: absolute; bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10,10,26,0.92);
+    border: 2px solid rgba(180,220,120,0.6);
+    color: #fff; padding: 8px 16px; border-radius: 10px;
+    font-size: 13px; font-weight: 600;
+    z-index: 8; pointer-events: none;
+    opacity: 0; transition: opacity 0.2s, transform 0.2s;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+
+  /* ===== Popup Notification Queue (NEW) ===== */
+  /* Container = Vertical Layout Group via Flexbox */
+  #popup-container {
+    position: absolute;
+    top: 16px; right: 16px;
+    display: flex; flex-direction: column;  /* stack top-to-bottom */
+    gap: 8px;                                 /* spacing between popups */
+    z-index: 20;
+    pointer-events: none;                   /* don't block game input */
+    max-width: 280px;
+  }
+  .pickup-popup {
+    display: flex; align-items: center; gap: 10px;
+    background: linear-gradient(135deg, rgba(15,25,15,0.95), rgba(20,30,20,0.95));
+    border: 2px solid rgba(136,224,106,0.65);
+    border-radius: 10px;
+    padding: 8px 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5), 0 0 12px rgba(136,224,106,0.2);
+    /* Entry animation: slide in from right + fade in */
+    animation: popupIn 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
+    /* Transition for auto-fade (Coroutine-triggered) */
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  @keyframes popupIn {
+    from { transform: translateX(120%) scale(0.9); opacity: 0; }
+    to   { transform: translateX(0) scale(1); opacity: 1; }
+  }
+  /* Auto-fade state — injected by setTimeout after 1.5s */
+  .pickup-popup.fade {
+    opacity: 0;
+    transform: translateX(120%);  /* slide out to right */
+  }
+  /* Thumbnail image (real asset sprite, small) */
+  .pickup-popup .popup-thumb {
+    width: 32px; height: 32px;
+    image-rendering: pixelated; image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    object-fit: contain;
+    flex-shrink: 0;
+    background: rgba(0,0,0,0.4);
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .pickup-popup .popup-text {
+    flex: 1; min-width: 0;
+  }
+  .pickup-popup .popup-name {
+    font-size: 13px; font-weight: 800; color: #fff;
+    line-height: 1.2;
+  }
+  .pickup-popup .popup-action {
+    font-size: 10px; color: #88e06a; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-top: 2px;
+  }
+  .pickup-popup .popup-count {
+    font-size: 14px; font-weight: 800; color: #ffe04a;
+    margin-left: 4px;
+  }
+
+  /* Hint */
+  #hint {
+    position: absolute; bottom: 12px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10,10,26,0.85);
+    border: 1px solid rgba(136,192,255,0.4);
+    border-radius: 8px; padding: 6px 12px;
+    font-size: 11px; color: #c8d8ff;
+    z-index: 5; pointer-events: none;
+    text-align: center; max-width: 92vw;
+  }
+  #hint kbd {
+    background: rgba(136,192,255,0.18);
+    border: 1px solid rgba(136,192,255,0.4);
+    border-radius: 3px; padding: 1px 5px;
+    font-size: 10px; color: #88c0ff; font-weight: 700;
+  }
+
+  /* ===== Hotbar (bottom-center, mirrors inventoryData[0..4]) ===== */
+  #hotbar {
+    position: absolute;
+    bottom: 60px;
+    left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px;
+    padding: 6px 10px;
+    background: rgba(10,10,26,0.88);
+    border: 2px solid rgba(180,220,120,0.4);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    z-index: 15;
+    pointer-events: none;  /* display-only, don't intercept clicks */
+  }
+  .hotbar-slot {
+    position: relative;
+    width: 48px; height: 48px;
+    background: rgba(0,0,0,0.4);
+    border: 2px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  }
+  .hotbar-slot .hb-key {
+    position: absolute; top: 2px; left: 4px;
+    font-size: 9px; color: #88c0ff; font-weight: 800;
+    text-shadow: 1px 1px 0 #000;
+  }
+  .hotbar-slot .hb-thumb {
+    width: 32px; height: 32px;
+    image-rendering: pixelated; image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    object-fit: contain;
+  }
+  .hotbar-slot .hb-count {
+    position: absolute; bottom: 2px; right: 4px;
+    background: rgba(0,0,0,0.85); color: #ffe04a;
+    font-size: 10px; font-weight: 800; padding: 0 4px;
+    border-radius: 3px; border: 1px solid rgba(255,213,74,0.5);
+  }
+  .hotbar-slot.empty::after {
+    content: '—'; color: rgba(255,255,255,0.2); font-size: 14px;
+  }
+  /* Selected slot — highlight border (active slot via keys 1-5) */
+  .hotbar-slot.selected {
+    border-color: #ffd54a;
+    background: rgba(255,213,74,0.18);
+    transform: translateY(-4px) scale(1.08);
+    box-shadow: 0 0 16px rgba(255,213,74,0.5), 0 4px 12px rgba(0,0,0,0.4);
+  }
+</style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+
+    <div id="hud">
+      <div><span class="label">player.px:</span> <span class="val" id="hud-px">0,0</span></div>
+      <div><span class="label">camera.xy:</span> <span class="val" id="hud-cam">0,0</span></div>
+      <div><span class="label">menu:</span> <span class="val" id="hud-menu">closed</span></div>
+      <div><span class="label">world items:</span> <span class="val" id="hud-items">0</span></div>
+      <div><span class="label">inv:</span> <span class="val" id="hud-inv">0/12</span></div>
+      <div><span class="label">assets:</span> <span class="val" id="hud-assets">0/0</span></div>
+      <div><span class="label">zone:</span> <span class="val" id="hud-zone">—</span></div>
+      <div><span class="label">fps:</span> <span class="val" id="hud-fps">60</span></div>
+    </div>
+
+    <div id="hint">
+      Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑↓←→</kbd> ·
+      Walk over items to <strong style="color:#88e06a">auto-pickup</strong> ·
+      <kbd>Tab</kbd> Bag · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> switch tab ·
+      <kbd>1</kbd>-<kbd>5</kbd> select hotbar · Drag to swap ·
+      <kbd>Esc</kbd> pause · <kbd>R</kbd> respawn items
+    </div>
+
+    <!-- Hotbar (mirrors inventoryData[0..4]) -->
+    <div id="hotbar"></div>
+
+    <!-- UI Menu Overlay -->
+    <div id="ui-menu">
+      <div class="ui-panel">
+        <div class="ui-panel-header">
+          <button class="ui-tab-btn active" data-tab="status">📊 Status</button>
+          <button class="ui-tab-btn" data-tab="bag">🎒 Bag</button>
+          <button class="ui-tab-btn" data-tab="map">🗺️ Map</button>
+          <span class="ui-panel-close" id="ui-close">✕</span>
+        </div>
+        <div class="ui-panel-body">
+          <!-- Status -->
+          <div class="ui-tab-page active" data-tab="status">
+            <div class="ui-status-grid" id="ui-status-grid"></div>
+          </div>
+          <!-- Bag -->
+          <div class="ui-tab-page" data-tab="bag">
+            <div class="ui-bag-header">
+              <span>🎒 Drag item untuk swap slot</span>
+              <span class="ui-bag-count" id="ui-inv-count">0 / 12</span>
+            </div>
+            <div class="ui-inventory-grid" id="inventoryGrid"></div>
+          </div>
+          <!-- Map — Dynamic Zone Display -->
+          <div class="ui-tab-page" data-tab="map">
+            <div class="ui-map-info">
+              <h3>🗺️ Dynamic Map — Zone Detection</h3>
+              <p>Player berada di: <span class="ui-val" id="ui-current-zone">—</span></p>
+              <div class="zone-grid" id="zoneGrid"></div>
+              <h3>📍 Player Coordinates</h3>
+              <ul>
+                <li>Tile: <span class="ui-val" id="ui-map-tile">—</span></li>
+                <li>Pixel: <span class="ui-val" id="ui-map-px">—</span></li>
+                <li>Kamera: <span class="ui-val" id="ui-map-cam">—</span></li>
+                <li>Zona: <span class="ui-val" id="ui-map-zone">—</span></li>
+              </ul>
+              <h3>🧪 Test Zone Transition</h3>
+              <ul>
+                <li>Walk ke kiri (cols 0-9) → <strong style="color:#88c0ff">Town</strong></li>
+                <li>Walk ke kanan (cols 10-19) → <strong style="color:#2ee6a8">Forest</strong></li>
+                <li>Popup "Memasuki: [Area]" muncul saat crossing boundary</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="ui-panel-footer">
+          <kbd>Tab</kbd> / <kbd>Esc</kbd> tutup · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> ganti tab
+        </div>
+      </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <!-- ===== Pause Menu Overlay (Esc key) ===== -->
+    <div id="pause-menu">
+      <div class="pause-panel">
+        <div class="pause-title">⏸ PAUSED</div>
+        <div class="pause-subtitle">Gameplay dibekukan</div>
+        <button class="pause-btn primary" id="pause-resume">▶ RESUME</button>
+        <button class="pause-btn" id="pause-settings">⚙ SETTINGS</button>
+        <button class="pause-btn" id="pause-quit">✕ QUIT</button>
+        <div class="pause-hint">Tekan <kbd>Esc</kbd> untuk resume</div>
+      </div>
+    </div>
+
+    <!-- ===== Popup Notification Queue Container ===== -->
+    <!-- Vertical Layout Group via Flexbox — stacks popups top-to-bottom -->
+    <div id="popup-container"></div>
+
+    <div id="loading">
+      <div class="title">🌾 Loading Assets</div>
+      <div class="bar-bg"><div class="bar-fill" id="loading-bar"></div></div>
+      <div class="status" id="loading-status">Initializing...</div>
+    </div>
+  </div>
+
+<script>
+'use strict';
+/* ============================================================
+   ALL-IN-ONE GAME DEMO — Single file combines:
+   1. 5-Layer Tilemap (Ground/WalkInFront/Collision/Canopy/Decor)
+   2. Cinemachine Camera (lerp + confiner)
+   3. Tab-toggled Menu UI (3 pages: Status/Bag/Map)
+   4. Drag-Drop Inventory (12 slots, HTML5 D&D API)
+   5. Item Pickup System (ScriptableObject sim + circle collider
+      + stacking + destroy)
+   ============================================================ */
+
+// ---------- Config ----------
+const TILE = 48;
+const COLS = 20, ROWS = 20;
+const MAP_W_PX = COLS * TILE;   // 960
+const MAP_H_PX = ROWS * TILE;   // 960
+const CAMERA_CONFIG = { dampening: 0.08 };
+
+// Player
+const PLAYER = {
+  x: 480, y: 240,   // tile (10, 5) — open path area, clear in all directions
+  speed: 4,
+  radius: 16,
+  dir: 'down',
+  walkFrame: 0, walkTime: 0,
+  gold: 240,
+};
+
+// Camera state
+const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
+
+// UI state
+let isMenuOpen = false;
+let isPaused = false;   // Pause System: freezes all gameplay updates (Time.timeScale = 0 equiv)
+
+// ===== SFX System: Centralized Audio Manager (Real Audio Files + Web Audio API) =====
+// Uses REAL audio files from /assets/ninja-adventure/Audio/ (188 files available).
+// Falls back to Web Audio API synthesis if file not found.
+// Audio is "unscaled" — plays even when game is paused (independent of game loop).
+const SFX_PATHS = {
+  footstep:  'assets/ninja-adventure/Audio/Sounds/Jump & Bounce/Bounce.wav',
+  pickup:    'assets/ninja-adventure/Audio/Sounds/Bonus/Bonus.wav',
+  interact:  'assets/ninja-adventure/Audio/Sounds/Menu/Accept.wav',
+  ui:        'assets/ninja-adventure/Audio/Sounds/Menu/Select.wav',
+  drop:      'assets/ninja-adventure/Audio/Sounds/Hit & Impact/Hit1.wav',
+  zone:      'assets/ninja-adventure/Audio/Jingles/LevelUp1.wav',
+  chest:     'assets/ninja-adventure/Audio/Sounds/Bonus/Bonus2.wav',
+  sign:      'assets/ninja-adventure/Audio/Sounds/Menu/Accept2.wav',
+  bgm:       'assets/ninja-adventure/Audio/Musics/1 - Adventure Begin.ogg',
+};
+
+const AudioManager = {
+  ctx: null,
+  masterGain: null,
+  lastFootstep: 0,
+  audioCache: {},    // cache HTMLAudioElement per SFX key
+  bgmAudio: null,    // background music element
+
+  // Initialize AudioContext (must be triggered by user gesture — browser policy)
+  init() {
+    if (this.ctx) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.masterGain = this.ctx.createGain();
+      this.masterGain.gain.value = 0.4;
+      this.masterGain.connect(this.ctx.destination);
+    } catch (e) {
+      console.warn('Web Audio API not supported:', e);
+    }
+  },
+
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  },
+
+  // Play a real audio file via HTMLAudioElement (with Web Audio API gain control)
+  playFile(path, volume = 0.4, pitchVar = 0) {
+    if (!this.ctx) return;
+    this.resume();
+    // Cache audio element
+    if (!this.audioCache[path]) {
+      const audio = new Audio(path);
+      audio.preload = 'auto';
+      this.audioCache[path] = audio;
+    }
+    const audio = this.audioCache[path];
+    // Clone for overlapping playback (can't replay same element while playing)
+    const clone = audio.cloneNode(true);
+    clone.volume = volume;
+    // Random pitch variation via playbackRate (if pitchVar > 0)
+    if (pitchVar > 0) {
+      clone.playbackRate = 1 + (Math.random() - 0.5) * 2 * pitchVar;
+    }
+    // Connect through masterGain for volume control
+    try {
+      const source = this.ctx.createMediaElementSource(clone);
+      source.connect(this.masterGain);
+    } catch (e) {
+      // Fallback: just play without gain node (may already be connected)
+    }
+    clone.play().catch(() => {});  // silent fail if blocked
+  },
+
+  // Fallback: synthesized tone (if audio file fails)
+  playTone(type, freq, duration, volume = 0.3, pitchVar = 0) {
+    if (!this.ctx) return;
+    this.resume();
+    const now = this.ctx.currentTime;
+    const actualFreq = freq * (1 + (Math.random() - 0.5) * 2 * pitchVar);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(actualFreq, now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + duration);
+  },
+
+  // ===== SFX Library (real audio files + synth fallback) =====
+
+  // Footstep: real Bounce.wav with random pitch variation
+  playFootstep() {
+    const now = performance.now();
+    if (now - this.lastFootstep < 250) return;  // throttle: max 4 steps/sec
+    this.lastFootstep = now;
+    this.playFile(SFX_PATHS.footstep, 0.3, 0.1);  // ±10% pitch
+  },
+
+  // Pickup: real Bonus.wav
+  playPickup() {
+    this.playFile(SFX_PATHS.pickup, 0.4);
+  },
+
+  // Interact: real Accept.wav (chest open / signboard read)
+  playInteract() {
+    this.playFile(SFX_PATHS.interact, 0.4);
+  },
+
+  // UI click: real Select.wav
+  playUI() {
+    this.playFile(SFX_PATHS.ui, 0.3);
+  },
+
+  // Drop: real Hit1.wav
+  playDrop() {
+    this.playFile(SFX_PATHS.drop, 0.35);
+  },
+
+  // Zone transition: real LevelUp1.wav jingle
+  playZone() {
+    this.playFile(SFX_PATHS.zone, 0.35);
+  },
+
+  // Chest open: real Bonus2.wav
+  playChest() {
+    this.playFile(SFX_PATHS.chest, 0.4);
+  },
+
+  // Signboard: real Accept2.wav
+  playSign() {
+    this.playFile(SFX_PATHS.sign, 0.35);
+  },
+
+  // Background music: loop real .ogg music file
+  playBGM() {
+    if (this.bgmAudio) return;  // already playing
+    this.init();
+    this.bgmAudio = new Audio(SFX_PATHS.bgm);
+    this.bgmAudio.loop = true;
+    this.bgmAudio.volume = 0.15;  // low volume for BGM
+    this.bgmAudio.play().catch(() => {});  // silent fail if blocked
+  },
+
+  stopBGM() {
+    if (this.bgmAudio) {
+      this.bgmAudio.pause();
+      this.bgmAudio = null;
+    }
+  },
+};
+let activeTab = 'status';
+const INV_SLOTS = 12;
+
+// ===== Hotbar state =====
+// activeHotbarIndex: which hotbar slot (0-4) is currently selected.
+// Updated by keys 1-5. Visual highlight applied via .selected CSS class.
+let activeHotbarIndex = 0;
+const HOTBAR_SIZE = 5;  // hotbar mirrors inventoryData[0..4]
+
+// ===== ScriptableObject Simulation: ItemDatabase =====
+// Static blueprint DB. World items only store itemID reference.
+// Maps itemID → {name, assetKey (file path), maxStack, type}
+const ItemDatabase = {
+  sword:    { name: 'Sword',     assetKey: 'item_sword',    maxStack: 1,  type: 'weapon' },
+  axe:      { name: 'Axe',       assetKey: 'item_axe',      maxStack: 1,  type: 'tool' },
+  pickaxe:  { name: 'Pickaxe',   assetKey: 'item_pickaxe',  maxStack: 1,  type: 'tool' },
+  hoe:      { name: 'Hoe',       assetKey: 'item_hoe',      maxStack: 1,  type: 'tool' },
+  watering: { name: 'Watering',  assetKey: 'item_water',    maxStack: 1,  type: 'tool' },
+  sickle:   { name: 'Sickle',    assetKey: 'item_sickle',  maxStack: 1,  type: 'tool' },
+  potion:   { name: 'Potion',    assetKey: 'item_potion',   maxStack: 10, type: 'consumable' },
+  carrot:   { name: 'Carrot',    assetKey: 'item_carrot',   maxStack: 99, type: 'food' },
+  parsnip:  { name: 'Parsnip',   assetKey: 'item_parsnip',  maxStack: 99, type: 'food' },
+  potato:   { name: 'Potato',    assetKey: 'item_potato',   maxStack: 99, type: 'food' },
+  pumpkin:  { name: 'Pumpkin',   assetKey: 'item_pumpkin',  maxStack: 99, type: 'food' },
+  cabbage:  { name: 'Cabbage',   assetKey: 'item_cabbage',  maxStack: 99, type: 'food' },
+  egg:      { name: 'Egg',       assetKey: 'item_egg',      maxStack: 99, type: 'food' },
+  fish:     { name: 'Fish',      assetKey: 'item_fish',     maxStack: 99, type: 'food' },
+  milk:     { name: 'Milk',      assetKey: 'item_milk',     maxStack: 99, type: 'food' },
+};
+
+// ===== Asset Registry (REAL files from /assets/) =====
+const ASSET_PATHS = {
+  player_walk: 'assets/ninja-adventure/Characters/Boy_walk.png',
+  player_idle: 'assets/ninja-adventure/Characters/Boy_idle.png',
+  tree: 'assets/Elements/Plants/spr_deco_tree_01_strip4.png',
+  crop_carrot: 'assets/Elements/Crops/carrot_05.png',
+  // Inventory item icons
+  item_sword:   'assets/ninja-adventure/Items/Tool/Sickle.png',
+  item_axe:     'assets/ninja-adventure/Items/Tool/Axe.png',
+  item_pickaxe: 'assets/ninja-adventure/Items/Tool/Pickaxe.png',
+  item_hoe:     'assets/ninja-adventure/Items/Tool/Hoe.png',
+  item_water:   'assets/ninja-adventure/Items/Tool/WateringCan.png',
+  item_sickle:  'assets/ninja-adventure/Items/Tool/Sickle.png',
+  item_potion:  'assets/Elements/Crops/milk.png',
+  item_carrot:  'assets/Elements/Crops/carrot_05.png',
+  item_parsnip: 'assets/Elements/Crops/parsnip_05.png',
+  item_potato:  'assets/Elements/Crops/potato_05.png',
+  item_pumpkin: 'assets/Elements/Crops/pumpkin_05.png',
+  item_cabbage: 'assets/Elements/Crops/cabbage_05.png',
+  item_egg:     'assets/Elements/Crops/egg.png',
+  item_fish:    'assets/Elements/Crops/fish.png',
+  item_milk:    'assets/Elements/Crops/milk.png',
+  // Chest sprites (Ninja Adventure Items/Treasure)
+  // LittleTreasureChest has 2 frames: closed (x=1-14) + open (x=17-30)
+  chest_big:    'assets/ninja-adventure/Items/Treasure/BigTreasureChest.png',
+  chest_small:  'assets/ninja-adventure/Items/Treasure/LittleTreasureChest.png',
+  // Signboard sprite (Book.png as signboard/post)
+  signboard:    'assets/ninja-adventure/Items/Object/Book.png',
+};
+const assets = {};  // populated by loadAssets()
+
+// ===== HAND-CRAFTED TILEMAP MATRIX (20×20) =====
+// Each layer is a manually-designed 20×20 array — NO procedural generation.
+// Design: cross paths, fortress walls with gates, tree clusters, flowers.
+
+// Layer 1: Ground — grass everywhere (1=grass)
+const Layer_Ground = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+];
+
+// Layer 2: WalkInFront — paths (2) + flowers (5)
+// Cross paths at row 10 (horizontal) and col 10 (vertical)
+// Flower clusters scattered
+const Layer_WalkInFront = [
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,5,0,0,0,0,0,0,0,0,0,0,0,0,5,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [0,0,0,5,0,0,0,0,0,0,2,0,0,0,0,0,5,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+];
+
+// Layer 3: Collision — fortress walls (3) + tree trunks (6)
+// Fortress ring at rows 6-13, cols 6-13 with 2-tile gates
+const Layer_Collision = [
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,6,0,0,0,0,0,0,0,0,0,0,6,0,0,0,0],
+  [0,0,0,0,0,3,3,3,3,0,0,3,3,3,3,0,0,0,0,0],
+  [0,0,0,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,0],
+  [0,0,0,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,0],
+  [0,0,0,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,0],
+  [0,0,0,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,0],
+  [0,0,0,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,0],
+  [0,0,0,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,0],
+  [0,0,0,0,0,3,3,3,3,0,0,3,3,3,3,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,6,0,0,0,0,0,0,0,0,0,0,6,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+];
+
+// Layer 4: WalkBehind — tree canopies (4) above tree trunks
+const Layer_WalkBehind = [
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+];
+
+// Layer 5: Decor — sparkles (7) on flower tiles
+const Layer_Decor = [
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,7,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+];
+
+// ===== IInteractable Interface Simulation (Polymorphism via Duck-Typing) =====
+// Each interactable object has a .interact() method. Engine calls
+// closestObject.interact() without knowing the specific type.
+// Chest → opens + gives loot. Signboard → shows dialog text.
+
+// Modular Prefab: Chest objects
+const chestDefs = [
+  { gridCol: 8,  gridRow: 8,  rewardId: 'potion',  rewardQty: 2 },
+  { gridCol: 11, gridRow: 8,  rewardId: 'carrot',   rewardQty: 5 },
+  { gridCol: 8,  gridRow: 11, rewardId: 'sword',    rewardQty: 1 },
+  { gridCol: 11, gridRow: 11, rewardId: 'pickaxe',  rewardQty: 1 },
+];
+
+// Modular Prefab: Signboard objects
+const signboardDefs = [
+  { gridCol: 5,  gridRow: 5,  text: 'Selamat datang di Town! Area aman untuk berdagang & bertani.' },
+  { gridCol: 14, gridRow: 14, text: 'Hutan Forest — Hati-hati! Banyak peti harta tersembunyi di sini.' },
+  { gridCol: 10, gridRow: 2,  text: 'Jalan utara menuju pertanian. Siram tanaman tiap hari!' },
+];
+
+// Build interactableObjects[] — unified array with polymorphic .interact()
+const interactableObjects = [];
+
+// Create chest instances with .interact() method
+for (const def of chestDefs) {
+  const obj = {
+    type: 'chest',
+    gridCol: def.gridCol,
+    gridRow: def.gridRow,
+    x: def.gridCol * TILE,
+    y: def.gridRow * TILE,
+    interactionRadius: 48,
+    isOpened: false,
+    rewardId: def.rewardId,
+    rewardQty: def.rewardQty,
+    // IInteractable.interact() — polymorphic method
+    interact() {
+      if (this.isOpened) { toast('Peti sudah dibuka', 'warn'); return; }
+      this.isOpened = true;
+      AudioManager.playChest();   // SFX: chest open sound
+      const db = ItemDatabase[this.rewardId];
+      // Add reward to inventory (stacking + first empty)
+      for (let i = 0; i < this.rewardQty; i++) {
+        let stacked = false;
+        for (let j = 0; j < INV_SLOTS; j++) {
+          if (inventoryData[j] && inventoryData[j].id === this.rewardId && inventoryData[j].quantity < db.maxStack) {
+            inventoryData[j].quantity++;
+            stacked = true; break;
+          }
+        }
+        if (!stacked) {
+          for (let j = 0; j < INV_SLOTS; j++) {
+            if (!inventoryData[j]) {
+              inventoryData[j] = { id: this.rewardId, quantity: 1 };
+              break;
+            }
+          }
+        }
+      }
+      showPickupPopup({ id: this.rewardId, x: this.x, y: this.y }, this.rewardQty, 'pickup');
+      toast(`📦 Peti dibuka! Dapat: ${db.name} ×${this.rewardQty}`, 'info');
+      renderInventory();
+    },
+  };
+  interactableObjects.push(obj);
+}
+
+// Create signboard instances with .interact() method
+for (const def of signboardDefs) {
+  const obj = {
+    type: 'signboard',
+    gridCol: def.gridCol,
+    gridRow: def.gridRow,
+    x: def.gridCol * TILE,
+    y: def.gridRow * TILE,
+    interactionRadius: 48,
+    text: def.text,
+    // IInteractable.interact() — polymorphic method (different behavior)
+    interact() {
+      // Show dialog text via toast (simulated dialog box)
+      toast(`📜 ${this.text}`, 'info');
+      AudioManager.playSign();   // SFX: signboard read sound
+      showPickupPopup({ id: 'egg', x: this.x, y: this.y }, 0, 'sign');
+    },
+  };
+  interactableObjects.push(obj);
+}
+
+// Keep chests[] reference for backward compat (R key reset)
+const chests = interactableObjects.filter(o => o.type === 'chest');
+
+// ===== Inventory Data State (Drag-Drop source of truth) =====
+let inventoryData = [
+  { id: 'hoe',     quantity: 1 },
+  { id: 'watering', quantity: 1 },
+  { id: 'sickle',  quantity: 1 },
+  { id: 'axe',     quantity: 1 },
+  null, null, null, null, null, null, null, null,
+];
+
+// ===== World Items (entities on ground) =====
+// Each: {id, x, y, pickupRadius, bobOffset}
+// Spawned via spawnWorldItems(). Checked each frame for pickup.
+let itemsInWorld = [];
+
+function spawnWorldItems() {
+  itemsInWorld = [
+    { id: 'sword',   x: 400, y: 200, pickupRadius: 22, bobOffset: 0 },
+    { id: 'potion',  x: 600, y: 280, pickupRadius: 22, bobOffset: 0.5 },
+    { id: 'potion',  x: 700, y: 350, pickupRadius: 22, bobOffset: 1.0 },
+    { id: 'carrot',  x: 300, y: 500, pickupRadius: 22, bobOffset: 1.5 },
+    { id: 'carrot',  x: 350, y: 550, pickupRadius: 22, bobOffset: 2.0 },
+    { id: 'carrot',  x: 250, y: 600, pickupRadius: 22, bobOffset: 2.5 },
+    { id: 'axe',     x: 750, y: 700, pickupRadius: 22, bobOffset: 3.0 },
+    { id: 'pickaxe', x: 200, y: 750, pickupRadius: 22, bobOffset: 3.5 },
+    { id: 'pumpkin', x: 500, y: 800, pickupRadius: 22, bobOffset: 4.0 },
+    { id: 'egg',     x: 850, y: 200, pickupRadius: 22, bobOffset: 4.5 },
+  ];
+}
+
+// ===== Async Asset Loading =====
+function loadAssets() {
+  return new Promise((resolve) => {
+    const keys = Object.keys(ASSET_PATHS);
+    let loaded = 0;
+    const total = keys.length;
+    const bar = document.getElementById('loading-bar');
+    const status = document.getElementById('loading-status');
+    if (total === 0) { resolve(); return; }
+    keys.forEach((key) => {
+      const img = new Image();
+      img.onload = () => {
+        loaded++; assets[key] = img;
+        bar.style.width = Math.round(loaded/total*100) + '%';
+        status.textContent = `Loaded ${loaded}/${total} — ${key}`;
+        if (loaded === total) { status.textContent = 'All assets ready ✓'; setTimeout(resolve, 300); }
+      };
+      img.onerror = () => {
+        loaded++;
+        bar.style.width = Math.round(loaded/total*100) + '%';
+        status.textContent = `Failed: ${key} (fallback)`;
+        if (loaded === total) setTimeout(resolve, 300);
+      };
+      img.src = ASSET_PATHS[key];
+    });
+  });
+}
+
+// ===== Input Handling =====
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  // Initialize AudioContext on first user gesture (browser policy)
+  AudioManager.init();
+  AudioManager.resume();
+  // Tab — toggle menu
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    isMenuOpen = !isMenuOpen;
+    AudioManager.playUI();   // SFX: UI toggle
+    document.getElementById('ui-menu').classList.toggle('open', isMenuOpen);
+    if (isMenuOpen) {
+      renderInventory(); renderStatusTab();
+      toast('🎒 Bag dibuka — pergerakan di-freeze');
+    } else {
+      toast('✅ Bag ditutup');
+    }
+    return;
+  }
+  // Esc — Pause toggle (top priority, works even when menu open)
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    // If Bag menu open, close it first (don't pause)
+    if (isMenuOpen) {
+      isMenuOpen = false;
+      document.getElementById('ui-menu').classList.remove('open');
+      toast('✅ Bag ditutup');
+      return;
+    }
+    // Toggle pause
+    isPaused = !isPaused;
+    AudioManager.playUI();   // SFX: pause toggle
+    document.getElementById('pause-menu').classList.toggle('open', isPaused);
+    if (isPaused) {
+      toast('⏸ Game dijeda', 'info');
+    } else {
+      toast('▶ Game dilanjutkan', 'info');
+    }
+    return;
+  }
+  // Tab switch when menu open (keys 1-3 reserved for tab switching)
+  if (isMenuOpen) {
+    const k = e.key.toLowerCase();
+    if (k === '1') { switchTab('status'); return; }
+    if (k === '2') { switchTab('bag'); return; }
+    if (k === '3') { switchTab('map'); return; }
+    e.preventDefault();
+    return;  // block all other input while menu open
+  }
+  // Hotbar selection (keys 1-5) — only when menu CLOSED
+  if (e.key >= '1' && e.key <= '5') {
+    activeHotbarIndex = parseInt(e.key, 10) - 1;
+    renderHotbarUI();
+    const item = inventoryData[activeHotbarIndex];
+    if (item) {
+      toast(`🔧 Selected: ${ItemDatabase[item.id].name} (slot ${activeHotbarIndex + 1})`);
+    } else {
+      toast(`Slot ${activeHotbarIndex + 1} kosong`);
+    }
+    return;
+  }
+  // Spasi/E → interact (chest/signboard or use item)
+  if (e.key === ' ' || e.key.toLowerCase() === 'e') {
+    e.preventDefault();
+    if (!tryInteract()) {
+      // No interactable nearby → try use hotbar item (if active slot has item)
+      const item = inventoryData[activeHotbarIndex];
+      if (item) {
+        toast(`🔧 Used: ${ItemDatabase[item.id].name}`, 'info');
+      }
+    }
+    return;
+  }
+  // Respawn items
+  if (e.key.toLowerCase() === 'r') {
+    spawnWorldItems();
+    // Also reset chests
+    chests.forEach(c => { c.isOpened = false; });
+    toast('🔄 Items & chests respawned!');
+    return;
+  }
+  // Movement keys
+  keys[e.key.toLowerCase()] = true;
+  if (['arrowup','arrowdown','arrowleft','arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
+});
+window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+// ===== Tab switching =====
+function switchTab(tabName) {
+  activeTab = tabName;
+  document.querySelectorAll('.ui-tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tabName);
+  });
+  document.querySelectorAll('.ui-tab-page').forEach((page) => {
+    page.classList.toggle('active', page.dataset.tab === tabName);
+  });
+  if (tabName === 'bag') renderInventory();
+  else if (tabName === 'status') renderStatusTab();
+  else if (tabName === 'map') { renderZoneCards(); updateMapTab(); }
+}
+document.querySelectorAll('.ui-tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+document.getElementById('ui-close').addEventListener('click', () => {
+  isMenuOpen = false;
+  document.getElementById('ui-menu').classList.remove('open');
+});
+
+// ===== Pause Menu Button Handlers =====
+document.getElementById('pause-resume').addEventListener('click', () => {
+  AudioManager.init(); AudioManager.playUI();
+  isPaused = false;
+  document.getElementById('pause-menu').classList.remove('open');
+  toast('▶ Game dilanjutkan', 'info');
+});
+document.getElementById('pause-settings').addEventListener('click', () => {
+  AudioManager.playUI();
+  toast('⚙ Settings — belum tersedia di demo ini', 'warn');
+});
+document.getElementById('pause-quit').addEventListener('click', () => {
+  AudioManager.playUI();
+  toast('✕ Quit — refresh halaman untuk restart', 'warn');
+});
+// Also init AudioContext on first mouse click (browser gesture policy)
+document.addEventListener('click', () => { AudioManager.init(); AudioManager.resume(); }, { once: true });
+
+// ===== Collision check (multi-point hitbox) =====
+function checkCollision(targetX, targetY) {
+  const r = PLAYER.radius;
+  const samples = [
+    [targetX, targetY - r], [targetX, targetY + r],
+    [targetX - r, targetY], [targetX + r, targetY],
+    [targetX - r*0.7, targetY - r*0.7], [targetX + r*0.7, targetY - r*0.7],
+    [targetX - r*0.7, targetY + r*0.7], [targetX + r*0.7, targetY + r*0.7],
+  ];
+  for (const [px, py] of samples) {
+    const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+    if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) return true;
+    if (Layer_Collision[ty][tx] > 0) return true;
+  }
+  return false;
+}
+
+// ===== Player movement (input-blockable) =====
+function updatePlayer(dt) {
+  if (isMenuOpen) { PLAYER.walkFrame = 0; PLAYER.walkTime = 0; return; }
+  let dx = 0, dy = 0;
+  if (keys['arrowup']    || keys['w']) dy -= 1;
+  if (keys['arrowdown']  || keys['s']) dy += 1;
+  if (keys['arrowleft']  || keys['a']) dx -= 1;
+  if (keys['arrowright'] || keys['d']) dx += 1;
+  if (dx !== 0 && dy !== 0) { dx *= 0.7071; dy *= 0.7071; }
+  if (dx === 0 && dy === 0) { PLAYER.walkFrame = 0; PLAYER.walkTime = 0; return; }
+  if (Math.abs(dx) > Math.abs(dy)) PLAYER.dir = dx > 0 ? 'right' : 'left';
+  else PLAYER.dir = dy > 0 ? 'down' : 'up';
+  const newPx = PLAYER.x + dx * PLAYER.speed;
+  if (!checkCollision(newPx, PLAYER.y)) PLAYER.x = newPx;
+  const newPy = PLAYER.y + dy * PLAYER.speed;
+  if (!checkCollision(PLAYER.x, newPy)) PLAYER.y = newPy;
+  PLAYER.walkTime += dt;
+  PLAYER.walkFrame = Math.floor(PLAYER.walkTime * 8) % 4;
+  AudioManager.playFootstep();   // SFX: footstep with random pitch
+}
+
+// ===== Camera update (lerp + confiner) =====
+function updateCamera() {
+  const vw = canvas.clientWidth, vh = canvas.clientHeight;
+  camera.targetX = PLAYER.x - vw / 2;
+  camera.targetY = PLAYER.y - vh / 2;
+  camera.x += (camera.targetX - camera.x) * CAMERA_CONFIG.dampening;
+  camera.y += (camera.targetY - camera.y) * CAMERA_CONFIG.dampening;
+  const maxX = MAP_W_PX - vw, maxY = MAP_H_PX - vh;
+  camera.x = Math.max(0, Math.min(maxX, camera.x));
+  camera.y = Math.max(0, Math.min(maxY, camera.y));
+}
+
+// ===== Canvas setup =====
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function resizeCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(window.innerWidth * dpr);
+  canvas.height = Math.floor(window.innerHeight * dpr);
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ===== Tile rendering =====
+function drawLayer(layer) {
+  const vw = canvas.clientWidth, vh = canvas.clientHeight;
+  const startX = Math.max(0, Math.floor(camera.x / TILE));
+  const endX = Math.min(COLS - 1, Math.ceil((camera.x + vw) / TILE));
+  const startY = Math.max(0, Math.floor(camera.y / TILE));
+  const endY = Math.min(ROWS - 1, Math.ceil((camera.y + vh) / TILE));
+  for (let y = startY; y <= endY; y++) {
+    for (let x = startX; x <= endX; x++) {
+      const id = layer[y][x];
+      if (id === 0) continue;
+      drawTile(id, x * TILE - camera.x, y * TILE - camera.y, x, y);
+    }
+  }
+}
+
+function drawTile(id, px, py, gridX, gridY) {
+  switch (id) {
+    case 1: // grass
+      ctx.fillStyle = '#3a5f43'; ctx.fillRect(px, py, TILE, TILE);
+      if ((gridX + gridY) % 3 === 0) {
+        ctx.fillStyle = '#346024';
+        ctx.fillRect(px + 6, py + 8, 2, 4);
+        ctx.fillRect(px + 24, py + 22, 2, 4);
+      }
+      break;
+    case 2: // path
+      ctx.fillStyle = '#557a46'; ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = '#658a56';
+      ctx.fillRect(px + 4, py + 4, 4, 4);
+      ctx.fillRect(px + 24, py + 12, 4, 4);
+      break;
+    case 3: // fortress wall
+      ctx.fillStyle = '#7c81ad'; ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = '#5c61a0';
+      ctx.fillRect(px, py, TILE, 4);
+      ctx.fillRect(px, py + TILE - 4, TILE, 4);
+      ctx.fillStyle = '#9ca1bd';
+      ctx.fillRect(px + 6, py + 8, 8, 8);
+      ctx.fillRect(px + 22, py + 18, 8, 8);
+      break;
+    case 4: // tree canopy (Layer 4 — overhangs down)
+      if (assets.tree && assets.tree.complete) {
+        const fw = assets.tree.naturalWidth / 4;
+        const fi = Math.floor(performance.now() / 360) % 4;
+        ctx.drawImage(assets.tree, fi * fw, 0, fw, 24, px - 4, py, TILE + 8, TILE + 16);
+      } else { ctx.fillStyle = '#2f5233'; ctx.fillRect(px, py, TILE, TILE); }
+      break;
+    case 5: // flower → real carrot sprite
+      if (assets.crop_carrot && assets.crop_carrot.complete) {
+        const cw = assets.crop_carrot.naturalWidth;
+        const ch = assets.crop_carrot.naturalHeight;
+        const scale = 2;
+        ctx.drawImage(assets.crop_carrot, 0, 0, cw, ch,
+          px + (TILE - cw*scale)/2, py + (TILE - ch*scale)/2, cw*scale, ch*scale);
+      } else { ctx.fillStyle = '#f4ce14'; ctx.fillRect(px + 12, py + 12, 8, 8); }
+      break;
+    case 6: // tree trunk
+      ctx.fillStyle = '#3a5f43'; ctx.fillRect(px, py, TILE, TILE);
+      if (assets.tree && assets.tree.complete) {
+        const fw = assets.tree.naturalWidth / 4;
+        const fi = Math.floor(performance.now() / 360) % 4;
+        ctx.drawImage(assets.tree, fi * fw, 20, fw, 14, px + 6, py + 16, TILE - 12, 18);
+      } else { ctx.fillStyle = '#5a3a1a'; ctx.fillRect(px + 18, py + 18, 12, 22); }
+      break;
+    case 7: // sparkle
+      const t = performance.now() / 1000;
+      const flicker = 0.5 + 0.5 * Math.sin(t * 4 + gridX * 3 + gridY * 7);
+      ctx.globalAlpha = flicker;
+      ctx.fillStyle = '#fff5a0';
+      const cx = px + 24, cy = py + 12;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 5);
+      ctx.lineTo(cx + 2, cy - 2); ctx.lineTo(cx + 5, cy);
+      ctx.lineTo(cx + 2, cy + 2); ctx.lineTo(cx, cy + 5);
+      ctx.lineTo(cx - 2, cy + 2); ctx.lineTo(cx - 5, cy);
+      ctx.lineTo(cx - 2, cy - 2); ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      break;
+  }
+}
+
+// ===== Player rendering (real sprite) =====
+const CHAR_NINJA_TILE = 16;
+const DIR_COL = { down: 0, up: 1, left: 2, right: 3 };
+const WALK_CYCLE = [0, 1, 0, 2];
+
+function drawPlayer() {
+  const sx = PLAYER.x - camera.x;
+  const sy = PLAYER.y - camera.y;
+  const r = PLAYER.radius;
+  const isMoving = PLAYER.walkFrame !== 0 && !isMenuOpen;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.beginPath();
+  ctx.ellipse(sx, sy + r * 0.7, r * 0.9, r * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pickup radius indicator (faint circle)
+  if (!isMenuOpen) {
+    ctx.strokeStyle = 'rgba(255, 213, 74, 0.18)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r + 6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Sprite
+  const sprite = isMoving ? assets.player_walk : (assets.player_idle || assets.player_walk);
+  if (sprite && sprite.complete) {
+    const col = DIR_COL[PLAYER.dir] ?? 0;
+    const row = isMoving ? WALK_CYCLE[PLAYER.walkFrame % 4] : 0;
+    ctx.drawImage(sprite,
+      col * CHAR_NINJA_TILE, row * CHAR_NINJA_TILE, CHAR_NINJA_TILE, CHAR_NINJA_TILE,
+      sx - 16, sy - 16, 32, 32);
+  } else {
+    ctx.fillStyle = '#ff5722';
+    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#2a1500'; ctx.lineWidth = 2; ctx.stroke();
+  }
+}
+
+// ===== World Items rendering (with bob animation) =====
+function drawWorldItems() {
+  const t = performance.now() / 1000;
+  for (const item of itemsInWorld) {
+    const sx = item.x - camera.x;
+    const sy = item.y - camera.y + Math.sin(t * 2 + item.bobOffset) * 3;  // gentle bob
+    // Skip if off-screen
+    if (sx < -40 || sx > canvas.clientWidth + 40 || sy < -40 || sy > canvas.clientHeight + 40) continue;
+
+    // Shadow on ground
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(sx, item.y - camera.y + 16, 10, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Glow halo (highlight item is pickupable when player close)
+    const dist = Math.hypot(PLAYER.x - item.x, PLAYER.y - item.y);
+    if (dist < item.pickupRadius + 30) {
+      const intensity = 1 - (dist / (item.pickupRadius + 30));
+      ctx.fillStyle = `rgba(255, 213, 74, ${0.2 * intensity})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 20, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Item sprite
+    const db = ItemDatabase[item.id];
+    const img = assets[db.assetKey];
+    if (img && img.complete) {
+      const sw = img.naturalWidth, sh = img.naturalHeight;
+      const scale = Math.min(32 / sw, 32 / sh, 3);
+      const dw = sw * scale, dh = sh * scale;
+      ctx.drawImage(img, 0, 0, sw, sh, sx - dw/2, sy - dh/2, dw, dh);
+    } else {
+      ctx.fillStyle = '#ffd54a';
+      ctx.fillRect(sx - 8, sy - 8, 16, 16);
+    }
+  }
+}
+
+// ===== ITEM PICKUP LOGIC =====
+// Circle Collider Trigger via Euclidean Distance.
+// Each frame, check if player overlaps any world item.
+function checkPickups() {
+  if (isMenuOpen) return;  // no pickup while menu open
+  for (let i = itemsInWorld.length - 1; i >= 0; i--) {
+    const item = itemsInWorld[i];
+    // Euclidean distance formula
+    const dx = PLAYER.x - item.x;
+    const dy = PLAYER.y - item.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // Trigger if distance < (player.radius + item.pickupRadius)
+    if (dist < (PLAYER.radius + item.pickupRadius)) {
+      tryPickup(item);  // tryPickup calls showPickupPopup() internally on success
+      itemsInWorld.splice(i, 1);  // Destroy(gameObject) equivalent
+    }
+  }
+}
+
+// Pickup attempt: stacking + first empty slot
+function tryPickup(item) {
+  const db = ItemDatabase[item.id];
+  // LOOP 1: try to stack into existing slot with same itemID
+  for (let i = 0; i < INV_SLOTS; i++) {
+    const slot = inventoryData[i];
+    if (slot && slot.id === item.id && slot.quantity < db.maxStack) {
+      slot.quantity++;
+      toast(`+1 ${db.name} (stacked: ×${slot.quantity})`);
+      showPickupPopup(item, slot.quantity, 'stacked');   // trigger popup notification
+      AudioManager.playPickup();   // SFX: pickup chime
+      if (isMenuOpen && activeTab === 'bag') renderInventory();
+      return;
+    }
+  }
+  // LOOP 2: find first empty slot
+  for (let i = 0; i < INV_SLOTS; i++) {
+    if (!inventoryData[i]) {
+      inventoryData[i] = { id: item.id, quantity: 1 };
+      toast(`+1 ${db.name} (new slot ${i+1})`);
+      showPickupPopup(item, 1, 'new');   // trigger popup notification
+      AudioManager.playPickup();   // SFX: pickup chime
+      if (isMenuOpen && activeTab === 'bag') renderInventory();
+      return;
+    }
+  }
+  // Inventory full — cancel pickup (don't destroy item)
+  toast(`🎒 Inventory penuh! Tidak bisa pickup ${db.name}`, 'warn');
+  itemsInWorld.push(item);  // re-add since we already spliced
+}
+
+// ===== Popup Notification Queue System =====
+// Queue management: activePopups[] array, MAX_POPUPS limit, shift (dequeue) oldest
+// Vertical Layout Group: #popup-container uses CSS flexbox column with gap
+// Coroutine Auto-Fade: setTimeout 1.5s → .fade class → setTimeout 0.4s → .remove()
+const MAX_POPUPS = 3;
+const POPUP_LIFETIME_MS = 1500;   // visible duration before fade
+const POPUP_FADE_MS = 400;        // fade transition duration
+const activePopups = [];           // queue of {el, item} entries
+
+function showPickupPopup(item, count, actionType) {
+  const db = ItemDatabase[item.id];
+  const container = document.getElementById('popup-container');
+  if (!container) return;
+
+  // ===== Create popup DOM element =====
+  const popup = document.createElement('div');
+  popup.className = 'pickup-popup';
+
+  // Real asset thumbnail (img element pointing to actual sprite file)
+  const thumb = document.createElement('img');
+  thumb.className = 'popup-thumb';
+  const assetPath = ASSET_PATHS[db.assetKey];
+  if (assetPath && assets[db.assetKey] && assets[db.assetKey].complete) {
+    thumb.src = assetPath;  // direct path to real asset file
+  }
+  thumb.alt = db.name;
+  thumb.onerror = () => { thumb.style.display = 'none'; };  // hide if fails
+  popup.appendChild(thumb);
+
+  // Text content (name + action label)
+  const textEl = document.createElement('div');
+  textEl.className = 'popup-text';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'popup-name';
+  nameEl.textContent = db.name;
+  textEl.appendChild(nameEl);
+  const actionEl = document.createElement('div');
+  actionEl.className = 'popup-action';
+  actionEl.textContent = actionType === 'stacked' ? `Stacked ×${count}` : 'Dipungut';
+  textEl.appendChild(actionEl);
+  popup.appendChild(textEl);
+
+  // Count badge
+  const countEl = document.createElement('div');
+  countEl.className = 'popup-count';
+  countEl.textContent = '+1';
+  popup.appendChild(countEl);
+
+  container.appendChild(popup);
+
+  // ===== Enqueue =====
+  const entry = { el: popup, item, timers: [] };
+  activePopups.push(entry);
+
+  // ===== Queue limit: shift (dequeue) oldest if exceeds MAX_POPUPS =====
+  if (activePopups.length > MAX_POPUPS) {
+    const evicted = activePopups.shift();   // Dequeue oldest
+    if (evicted) {
+      evicted.timers.forEach((t) => clearTimeout(t));  // cancel pending timers
+      evicted.el.remove();   // Destroy from DOM immediately
+    }
+  }
+
+  // ===== Coroutine: Auto-Fade & Destroy =====
+  // Step 1: after POPUP_LIFETIME_MS, inject .fade class → triggers CSS transition
+  const fadeTimer = setTimeout(() => {
+    popup.classList.add('fade');
+  }, POPUP_LIFETIME_MS);
+  entry.timers.push(fadeTimer);
+
+  // Step 2: after fade transition completes, remove from DOM + dequeue from array
+  const destroyTimer = setTimeout(() => {
+    popup.remove();   // Destroy from DOM
+    const idx = activePopups.indexOf(entry);
+    if (idx !== -1) activePopups.splice(idx, 1);  // remove from queue
+  }, POPUP_LIFETIME_MS + POPUP_FADE_MS);
+  entry.timers.push(destroyTimer);
+}
+
+// ===== Hotbar UI (Viewport Mirroring) =====
+// Hotbar reads from inventoryData[0..4] — NO data duplication.
+// Any change to inventoryData (drag-drop swap, pickup, stacking)
+// triggers renderHotbarUI() to refresh the visual.
+function renderHotbarUI() {
+  const hb = document.getElementById('hotbar');
+  if (!hb) return;
+  hb.innerHTML = '';
+  for (let i = 0; i < HOTBAR_SIZE; i++) {
+    const item = inventoryData[i];
+    const slot = document.createElement('div');
+    slot.className = 'hotbar-slot' + (i === activeHotbarIndex ? ' selected' : '');
+    if (!item) {
+      slot.classList.add('empty');
+      // Key label only
+      const key = document.createElement('span');
+      key.className = 'hb-key';
+      key.textContent = String(i + 1);
+      slot.appendChild(key);
+      hb.appendChild(slot);
+      continue;
+    }
+    const db = ItemDatabase[item.id];
+    // Key label
+    const key = document.createElement('span');
+    key.className = 'hb-key';
+    key.textContent = String(i + 1);
+    slot.appendChild(key);
+    // Real asset thumbnail (img element)
+    const thumb = document.createElement('img');
+    thumb.className = 'hb-thumb';
+    const assetPath = ASSET_PATHS[db.assetKey];
+    if (assetPath && assets[db.assetKey] && assets[db.assetKey].complete) {
+      thumb.src = assetPath;
+    }
+    thumb.alt = db.name;
+    thumb.onerror = () => { thumb.style.display = 'none'; };
+    slot.appendChild(thumb);
+    // Count badge (if quantity > 1)
+    if (item.quantity > 1) {
+      const count = document.createElement('div');
+      count.className = 'hb-count';
+      count.textContent = '×' + item.quantity;
+      slot.appendChild(count);
+    }
+    hb.appendChild(slot);
+  }
+}
+
+// ===== Drop Item System (Right-Click → Instantiate to world) =====
+// Simulates Unity's Instantiate(prefab) by pushing a new plain JS object
+// to itemsInWorld[]. Item spawns at player position with Y offset (+25px)
+// so it appears dropped just below the player's feet (not stacked on player).
+function dropItem(slotIndex) {
+  const item = inventoryData[slotIndex];
+  if (!item) {
+    toast('Slot kosong — tidak ada item untuk di-drop', 'warn');
+    return;
+  }
+  const db = ItemDatabase[item.id];
+
+  // ===== Realtime Object Instantiation =====
+  // Create new world entity via plain JS object literal (Instantiate equivalent)
+  // Offset Y = +55px so item lands OUTSIDE pickup radius (player.radius 16
+  // + item.pickupRadius 22 = 38px threshold). +55 > 38 = safe from instant re-pickup.
+  const droppedItem = {
+    id: item.id,
+    x: PLAYER.x,                    // player's current X
+    y: PLAYER.y + 55,               // +55px below player (beyond pickup radius)
+    pickupRadius: 22,
+    bobOffset: Math.random() * 6.28,  // random phase for bob animation
+  };
+  itemsInWorld.push(droppedItem);
+  AudioManager.playDrop();   // SFX: drop thud
+
+  // ===== Array Nullification =====
+  // Decrement quantity or clear slot entirely
+  if (item.quantity > 1) {
+    item.quantity--;
+  } else {
+    inventoryData[slotIndex] = null;   // clear slot
+  }
+
+  // ===== Visual Re-Sync =====
+  // Trigger UI redraw so empty/updated slot reflects instantly
+  renderInventory();   // re-renders Bag grid + calls renderHotbarUI()
+
+  // Toast + popup feedback
+  toast(`🗑️ Dropped: ${db.name}`, 'info');
+  showPopup(item.id, db.name, 'pickup', '−1');
+}
+
+// ===== Inventory UI (drag-drop) =====
+function renderInventory() {
+  const grid = document.getElementById('inventoryGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  let occupied = 0;
+  for (let i = 0; i < INV_SLOTS; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'inv-slot';
+    slot.dataset.slotIndex = i;
+    if (!inventoryData[i]) slot.classList.add('empty');
+
+    slot.addEventListener('dragover', handleDragOver);
+    slot.addEventListener('drop', handleDrop);
+    slot.addEventListener('dragleave', handleDragLeave);
+
+    const item = inventoryData[i];
+    if (item) {
+      occupied++;
+      const db = ItemDatabase[item.id];
+      const itemEl = document.createElement('div');
+      itemEl.className = 'inv-item';
+      itemEl.draggable = true;
+      itemEl.dataset.slotIndex = i;
+      itemEl.dataset.itemId = item.id;
+
+      const itemCanvas = document.createElement('canvas');
+      itemCanvas.width = 48; itemCanvas.height = 48;
+      const ictx = itemCanvas.getContext('2d');
+      ictx.imageSmoothingEnabled = false;
+      const img = assets[db.assetKey];
+      if (img && img.complete) {
+        const sw = img.naturalWidth, sh = img.naturalHeight;
+        const scale = Math.min(48 / sw, 48 / sh, 4);
+        const dw = sw * scale, dh = sh * scale;
+        ictx.drawImage(img, 0, 0, sw, sh, (48-dw)/2, (48-dh)/2, dw, dh);
+      } else {
+        ictx.fillStyle = '#444'; ictx.fillRect(8, 8, 32, 32);
+      }
+      itemEl.appendChild(itemCanvas);
+
+      itemEl.addEventListener('dragstart', handleDragStart);
+      itemEl.addEventListener('dragend', handleDragEnd);
+      // Right-click → Drop item (Context Menu Hijacking)
+      itemEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();   // block browser context menu
+        dropItem(i);
+      });
+
+      if (item.quantity > 1) {
+        const count = document.createElement('div');
+        count.className = 'inv-count';
+        count.textContent = '×' + item.quantity;
+        slot.appendChild(count);
+      }
+      const tip = document.createElement('div');
+      tip.className = 'inv-tooltip';
+      tip.textContent = `${db.name} (${db.type}) ×${item.quantity} — maxStack ${db.maxStack}`;
+      slot.appendChild(tip);
+      slot.appendChild(itemEl);
+    }
+    grid.appendChild(slot);
+  }
+  document.getElementById('ui-inv-count').textContent = `${occupied} / ${INV_SLOTS}`;
+  document.getElementById('hud-inv').textContent = `${occupied}/${INV_SLOTS}`;
+  renderHotbarUI();   // sync hotbar with inventory changes
+}
+
+// Drag-drop handlers
+let draggedFromSlot = null;
+function handleDragStart(e) {
+  const slotIndex = parseInt(e.target.dataset.slotIndex, 10);
+  draggedFromSlot = slotIndex;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(slotIndex));
+  e.target.closest('.inv-slot').classList.add('dragging');
+}
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+function handleDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  const targetSlot = parseInt(e.currentTarget.dataset.slotIndex, 10);
+  const sourceSlot = parseInt(e.dataTransfer.getData('text/plain') || draggedFromSlot, 10);
+  e.currentTarget.classList.remove('drag-over');
+  document.querySelectorAll('.inv-slot.dragging').forEach((s) => s.classList.remove('dragging'));
+  if (isNaN(sourceSlot) || sourceSlot === targetSlot) { draggedFromSlot = null; return; }
+  // Swap
+  const tmp = inventoryData[targetSlot];
+  inventoryData[targetSlot] = inventoryData[sourceSlot];
+  inventoryData[sourceSlot] = tmp;
+  renderInventory();
+  const moved = inventoryData[targetSlot];
+  if (moved) toast(`🔄 Swapped: ${ItemDatabase[moved.id].name} → slot ${targetSlot+1}`);
+  draggedFromSlot = null;
+}
+function handleDragEnd(e) {
+  document.querySelectorAll('.inv-slot.dragging, .inv-slot.drag-over').forEach((s) => {
+    s.classList.remove('dragging', 'drag-over');
+  });
+  draggedFromSlot = null;
+}
+
+// ===== Status tab =====
+function renderStatusTab() {
+  const grid = document.getElementById('ui-status-grid');
+  if (!grid) return;
+  let totalItems = 0;
+  for (const slot of inventoryData) if (slot) totalItems += slot.quantity;
+  grid.innerHTML = `
+    <div class="ui-status-row"><span class="label">💰 Gold</span><span class="value">${PLAYER.gold}g</span></div>
+    <div class="ui-status-row"><span class="label">🎒 Inventory</span><span class="value">${totalItems} items</span></div>
+    <div class="ui-status-row"><span class="label">🌍 World Items</span><span class="value">${itemsInWorld.length}</span></div>
+    <div class="ui-status-row"><span class="label">📋 Item Types</span><span class="value">${Object.keys(ItemDatabase).length}</span></div>
+    <div class="ui-status-row"><span class="label">🗺️ Map Size</span><span class="value">${COLS}×${ROWS}</span></div>
+    <div class="ui-status-row"><span class="label">📐 Tile Size</span><span class="value">${TILE}px</span></div>
+  `;
+}
+
+// ===== Dynamic Zone Registry & Find Method =====
+// Static zone database. Each zone has boundary box (pixel coords).
+// Runtime: Array.find() checks if player is inside any zone's boundary.
+const zoneRegistry = [
+  {
+    id: 'town',
+    name: 'Town',
+    icon: '🏠',
+    desc: 'Area perkotaan dengan jalan setapak & benteng. Aman untuk berdagang.',
+    minX: 0, maxX: 10 * TILE - 1,   // cols 0-9 (0 to 479px)
+    minY: 0, maxY: MAP_H_PX - 1,
+    color: '#88c0ff',
+  },
+  {
+    id: 'forest',
+    name: 'Forest',
+    icon: '🌲',
+    desc: 'Hutan lebat dengan pohon tinggi & peti harta. Hati-hati!',
+    minX: 10 * TILE, maxX: MAP_W_PX - 1,   // cols 10-19 (480 to 959px)
+    minY: 0, maxY: MAP_H_PX - 1,
+    color: '#2ee6a8',
+  },
+];
+
+let currentZoneId = null;   // tracked for boundary transition detection
+
+// Runtime Find Method: check which zone player is in each frame.
+// Uses Array.prototype.find() — equivalent to Unity's List.Find().
+function updateCurrentZone() {
+  const zone = zoneRegistry.find(z =>
+    PLAYER.x >= z.minX && PLAYER.x <= z.maxX &&
+    PLAYER.y >= z.minY && PLAYER.y <= z.maxY
+  );
+  const newZoneId = zone ? zone.id : null;
+
+  // Boundary trigger: if zone changed, fire popup + update UI
+  if (newZoneId !== currentZoneId) {
+    currentZoneId = newZoneId;
+    if (zone) {
+      toast(`📍 Memasuki: ${zone.name}`, 'info');
+      AudioManager.playZone();   // SFX: zone transition chime
+      // Zone transition doesn't need item popup (zone id not in ItemDatabase)
+    }
+    // Update Map tab zone cards highlight (real-time visual tinting)
+    updateZoneHighlight();
+    // Update HUD + Map tab text
+    const zoneLabel = zone ? zone.name : 'Unknown';
+    const currentZoneEl = document.getElementById('ui-current-zone');
+    if (currentZoneEl) currentZoneEl.textContent = zoneLabel;
+    const mapZoneEl = document.getElementById('ui-map-zone');
+    if (mapZoneEl) mapZoneEl.textContent = zoneLabel;
+  }
+}
+
+// Render zone cards in Map tab (called once on init + on zone change)
+function renderZoneCards() {
+  const grid = document.getElementById('zoneGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  for (const zone of zoneRegistry) {
+    const card = document.createElement('div');
+    card.className = 'zone-card' + (zone.id === currentZoneId ? ' highlighted' : '');
+    card.dataset.zoneId = zone.id;
+    card.innerHTML = `
+      <div class="zone-icon">${zone.icon}</div>
+      <div class="zone-name">${zone.name}</div>
+      <div class="zone-desc">${zone.desc}</div>
+      <div class="zone-coords">x: ${zone.minX}-${zone.maxX} | y: ${zone.minY}-${zone.maxY}</div>
+    `;
+    grid.appendChild(card);
+  }
+}
+
+// Update .highlighted class on zone cards (dynamic visual tinting)
+function updateZoneHighlight() {
+  document.querySelectorAll('.zone-card').forEach(card => {
+    card.classList.toggle('highlighted', card.dataset.zoneId === currentZoneId);
+  });
+  // Also update zone label text
+  const zone = zoneRegistry.find(z => z.id === currentZoneId);
+  const label = zone ? zone.name : 'Unknown';
+  const el1 = document.getElementById('ui-current-zone');
+  if (el1) el1.textContent = label;
+  const el2 = document.getElementById('ui-map-zone');
+  if (el2) el2.textContent = label;
+}
+
+function updateMapTab() {
+  const tile = document.getElementById('ui-map-tile');
+  const px = document.getElementById('ui-map-px');
+  const cam = document.getElementById('ui-map-cam');
+  if (tile) tile.textContent = `(${Math.floor(PLAYER.x / TILE)}, ${Math.floor(PLAYER.y / TILE)})`;
+  if (px) px.textContent = `(${Math.round(PLAYER.x)}, ${Math.round(PLAYER.y)})`;
+  if (cam) cam.textContent = `(${Math.round(camera.x)}, ${Math.round(camera.y)})`;
+}
+
+// ===== HUD =====
+const hudPx = document.getElementById('hud-px');
+const hudCam = document.getElementById('hud-cam');
+const hudMenu = document.getElementById('hud-menu');
+const hudItems = document.getElementById('hud-items');
+const hudAssets = document.getElementById('hud-assets');
+const hudFps = document.getElementById('hud-fps');
+let frameCount = 0, lastFpsTime = performance.now(), fps = 60;
+
+function updateHUD() {
+  hudPx.textContent = `${Math.round(PLAYER.x)},${Math.round(PLAYER.y)}`;
+  hudCam.textContent = `${Math.round(camera.x)},${Math.round(camera.y)}`;
+  hudMenu.textContent = isMenuOpen ? `OPEN (${activeTab})` : 'closed';
+  hudMenu.style.color = isMenuOpen ? '#ff8a5c' : '#ffe04a';
+  hudItems.textContent = itemsInWorld.length;
+  hudAssets.textContent = `${Object.keys(assets).length}/${Object.keys(ASSET_PATHS).length}`;
+  const hudZone = document.getElementById('hud-zone');
+  if (hudZone) {
+    const z = zoneRegistry.find(zn => zn.id === currentZoneId);
+    hudZone.textContent = z ? z.name : '—';
+  }
+  hudFps.textContent = Math.round(fps);
+  if (isMenuOpen && activeTab === 'map') updateMapTab();
+}
+
+// ===== Toast =====
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+function toast(msg, type = '') {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
+}
+
+// ===== Main render =====
+function render() {
+  const vw = canvas.clientWidth, vh = canvas.clientHeight;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, vw, vh);
+  drawLayer(Layer_Ground);        // Layer 1
+  drawLayer(Layer_WalkInFront);   // Layer 2
+  drawWorldItems();                // World items (above paths, below player)
+  drawInteractables();              // Interactable objects (chests + signboards)
+  drawLayer(Layer_Collision);     // Layer 3
+  drawPlayer();                    // Layer 3.5
+  drawLayer(Layer_WalkBehind);    // Layer 4 (canopy covers player)
+  drawLayer(Layer_Decor);          // Layer 5
+}
+
+// ===== Interactable Renderer (Chests + Signboards + [E] Indicator) =====
+// Renders all interactableObjects with camera offset.
+// Shows floating [E] indicator above objects when player is within interactionRadius.
+function drawInteractables() {
+  for (const obj of interactableObjects) {
+    const sx = obj.x - camera.x;
+    const sy = obj.y - camera.y;
+    if (sx < -TILE || sy < -TILE || sx > canvas.clientWidth + TILE || sy > canvas.clientHeight + TILE) continue;
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(sx + TILE/2, sy + TILE - 4, 18, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Render based on type (polymorphic rendering)
+    if (obj.type === 'chest') {
+      // Chest sprite — LittleTreasureChest.png (32×16, 2 frames)
+      const chestImg = assets.chest_small;
+      if (chestImg && chestImg.complete && chestImg.naturalWidth) {
+        const frameW = 14, frameH = 16;
+        const sx_src = obj.isOpened ? 17 : 1;
+        const dh = TILE;
+        const dw = TILE * (frameW / frameH);
+        const dx = sx + (TILE - dw) / 2;
+        const dy = sy;
+        ctx.drawImage(chestImg, sx_src, 0, frameW, frameH, dx, dy, dw, dh);
+      } else {
+        ctx.fillStyle = '#8a5a2a';
+        ctx.fillRect(sx + 6, sy + 10, TILE - 12, TILE - 14);
+      }
+    } else if (obj.type === 'signboard') {
+      // Signboard sprite — Book.png (16×16, scaled to fill tile)
+      const signImg = assets.signboard;
+      if (signImg && signImg.complete && signImg.naturalWidth) {
+        const sw = signImg.naturalWidth, sh = signImg.naturalHeight;
+        const scale = TILE / Math.max(sw, sh);  // fill tile
+        const dw = sw * scale, dh = sh * scale;
+        const dx = sx + (TILE - dw) / 2;
+        const dy = sy + (TILE - dh) / 2;
+        ctx.drawImage(signImg, 0, 0, sw, sh, dx, dy, dw, dh);
+      } else {
+        // Fallback: brown post with sign
+        ctx.fillStyle = '#5a3a1a';
+        ctx.fillRect(sx + TILE/2 - 3, sy + 20, 6, 20);
+        ctx.fillStyle = '#8a6a3a';
+        ctx.fillRect(sx + 6, sy + 8, TILE - 12, 16);
+        ctx.fillStyle = '#6a4a2a';
+        ctx.fillRect(sx + 6, sy + 8, TILE - 12, 3);
+      }
+    }
+
+    // ===== Floating [E] Interaction Indicator =====
+    // Overlap Circle Check: if player within interactionRadius, show [E]
+    const dist = Math.hypot(PLAYER.x - (obj.x + TILE/2), PLAYER.y - (obj.y + TILE/2));
+    if (dist < obj.interactionRadius) {
+      const intensity = 1 - (dist / obj.interactionRadius);
+      // Highlight border
+      ctx.strokeStyle = `rgba(255, 213, 74, ${0.6 + 0.4 * intensity})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx + 2, sy + 2, TILE - 4, TILE - 4);
+
+      // Floating [E] button indicator above object
+      const bobY = Math.sin(performance.now() / 300) * 3;  // gentle bob
+      const ex = sx + TILE / 2;
+      const ey = sy - 14 + bobY;
+
+      // [E] background bubble
+      ctx.fillStyle = `rgba(255, 213, 74, ${0.8 + 0.2 * intensity})`;
+      ctx.beginPath();
+      ctx.arc(ex, ey, 10, 0, Math.PI * 2);
+      ctx.fill();
+      // [E] border
+      ctx.strokeStyle = `rgba(255, 255, 255, ${intensity})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // [E] text
+      ctx.fillStyle = '#2a1500';
+      ctx.font = 'bold 12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('E', ex, ey);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+}
+
+// ===== Interaction System: Find Nearest + Execute .interact() =====
+// Called when E/Spasi pressed. Finds nearest interactable within range,
+// calls its polymorphic .interact() method (IInteractable pattern).
+function tryInteract() {
+  let closest = null;
+  let closestDist = Infinity;
+  for (const obj of interactableObjects) {
+    const dist = Math.hypot(PLAYER.x - (obj.x + TILE/2), PLAYER.y - (obj.y + TILE/2));
+    if (dist < obj.interactionRadius && dist < closestDist) {
+      closest = obj;
+      closestDist = dist;
+    }
+  }
+  if (closest) {
+    closest.interact();   // Polymorphic call — duck-typing (IInteractable)
+    AudioManager.playInteract();   // SFX: interact click
+    return true;
+  }
+  return false;
+}
+
+// ===== Game Loop =====
+function loop(now) {
+  const dt = Math.min(0.05, (now - (loop.lastFrame || now)) / 1000);
+  loop.lastFrame = now;
+  frameCount++;
+  if (now - lastFpsTime >= 500) {
+    fps = (frameCount * 1000) / (now - lastFpsTime);
+    frameCount = 0; lastFpsTime = now;
+  }
+  // ===== Pause System: Time.timeScale = 0 simulation =====
+  // When paused: skip ALL update functions (physics, player, camera, pickup, zone)
+  // but KEEP render() running — this creates the "freeze frame" visual.
+  // Game world stays visible but frozen. Pause menu overlay shows on top.
+  if (!isPaused) {
+    updatePlayer(dt);
+    updateCamera();
+    updateCurrentZone();
+    checkPickups();
+  }
+  // Render always runs (even when paused) — frozen frame stays visible
+  render();
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+
+// ===== Boot =====
+(async () => {
+  const loadingEl = document.getElementById('loading');
+  const loadingStatus = document.getElementById('loading-status');
+  loadingStatus.textContent = 'Loading ' + Object.keys(ASSET_PATHS).length + ' assets...';
+  await loadAssets();
+
+  spawnWorldItems();   // initial items on ground
+  renderInventory();   // also calls renderHotbarUI() internally
+  renderHotbarUI();    // explicit initial render
+  renderZoneCards();   // render zone cards in Map tab
+  updateCurrentZone(); // detect initial zone (triggers first popup)
+
+  loadingEl.classList.add('hidden');
+  setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
+  toast('🎮 Ready! Walk over items to auto-pickup. Press Tab for Bag, 1-5 for hotbar, R to respawn.');
+  AudioManager.playBGM();   // Start background music (real .ogg file)
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

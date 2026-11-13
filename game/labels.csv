@@ -1,0 +1,36 @@
+0x08034F00,func_08034F00,NPC schedule execution (NAKED asm, 627 lines)
+0x0805E860,func_0805E860,SpriteAnimator setup (vtable chain)
+0x08032090,func_08032090,Sprite data getter
+0x080AC070,func_080AC070,Collision check
+0x0800E2E4,func_0800E2E4,Get season name
+0x0800E304,func_0800E304,Get weekday name
+0x0800E324,func_0800E324,Get displayed season (day rollover 6AM)
+0x0800EAFC,func_0800EAFC,Acquire Power Berry (+10 max stamina)
+0x0800EAF0,func_0800EAF0,Acquire Kappa Berry (halve fatigue)
+0x0800EA68,func_0800EA68,Adjust fatigue (double if !kappa)
+0x0800E9E4,func_0800E9E4,Adjust stamina (clamp to maxStamina)
+0x0800E51C,func_0800E51C,Max stamina formula (150 + PB*10)
+0x0803DA24,func_0803DA24,Schedule select function (asm)
+0x080D7ECC,func_080D7ECC,Binary search (schedule entries)
+0x080DC96C,func_080DC96C,Binary search (path points)
+0x08008E64,func_08008E64,CpuFastSet (DMA copy)
+0x080F89D4,gUnk_080F89D4,Event script pointer table (1328 entries)
+0x0869B284,gUnk_0869B284,Field/crop sprite data (238KB)
+0x086D6458,gUnk_086D6458,Stage 0 sprite struct (192 bytes)
+0x086D6518,gUnk_086D6518,Untilled tile sprite table
+0x086D6520,gUnk_086D6520,Dry tilled tile sprite table
+0x086D6528,gUnk_086D6528,Watered tile sprite table
+0x0529794,gPal_block1,Palette block 1 (grass + character colors)
+0x04FA7A0,gPal_block0,Palette block 0
+0x052CA40,gPal_block2,Palette block 2
+0x0731940,gPal_block3,Palette block 3
+0x074E330,gPal_block4,Palette block 4
+0x0531420,grass_tiles,Grass tile data (raw 4bpp, 512 bytes)
+0x0530000,field_tiles,Field tile data (grass+soil+crops, raw 4bpp)
+0x0E8D14,gUnk_080E8D14,Crop growth table (21x21x4 bytes)
+0x074A9C0,char_sprite_block,Character sprite data (popuri compressed, 32KB decompressed)
+0x080202F0,GameObject_vfunc_68,Get sprite source object
+0x080202A0,GameObject_vfunc_0C,Animation lookup (vfunc_0C)
+0x080E6284,GameObject_vtable,GameObject vtable (30 entries)
+0x08000640,ASprite_vtable3_init,Sprite source init + return data ptr
+0x080E5A28,ASprite_vtable,ASprite vtable (5 entries)

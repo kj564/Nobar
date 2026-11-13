@@ -674,36 +674,48 @@ async function handleRequestInner(req: Request): Promise<Response> {
     }
   }
 
-  // ─── mzfi play proxy (browser sends token, Worker calls play API) ──
+  // ─── mzfi play proxy (uses h5-api.aoneroom.com — NOT mzfi.me) ──
   // GET /mzfi-play?subjectId={id}&detailPath={path}&token={token}&kind={kind}
-  // Browser gets token from mzfi /home (x-user header, CORS-open)
-  // Worker calls mzfi /subject/play with mb_token cookie (browser can't set it)
+  // h5-api.aoneroom.com does NOT 429 CF Worker (unlike mzfi.me).
+  // mb_token cookie is required (mzfi SPA sets via JavaScript).
   if (path === "/mzfi-play" || path === "/mzfi-play/") {
     const subjectId = url.searchParams.get("subjectId") || "";
     const detailPath = url.searchParams.get("detailPath") || "";
     const token = url.searchParams.get("token") || "";
     const kind = url.searchParams.get("kind") || "movie";
-    
+
     if (!subjectId || !detailPath || !token) {
       return Response.json({ error: "subjectId, detailPath, token required" }, { status: 400, headers: corsHeaders });
     }
-    
+
+    // Cache at CF edge (5h — streams URL valid for 6h based on JWT ws field).
+    // KEY: h5-api rate-limits per IP — first call returns streams, subsequent
+    // calls return hasResource=false. Caching means we only hit h5-api ONCE
+    // per movie, then serve from edge cache forever.
+    const cacheKey = `mzfi-play:${subjectId}:${detailPath}`;
+    const cache = (caches as any).default;
+    const cacheReq = new Request(`https://nobar-cdn-proxy.internal/${cacheKey}`);
+    const cached = await cache.match(cacheReq);
+    if (cached) {
+      const data = await cached.json();
+      return Response.json({ ...data, cached: true }, { headers: corsHeaders });
+    }
+
     const seParam = kind === "tv" ? "1" : "0";
     const epParam = kind === "tv" ? "1" : "0";
-    const playUrl = `https://mzfi.me/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${seParam}&ep=${epParam}&detailPath=${detailPath}&streamSignType=1&supportCodecs%5Bh264%5D=1`;
-    
+    const playUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${seParam}&ep=${epParam}&detailPath=${detailPath}&streamSignType=1&supportCodecs%5Bh264%5D=1`;
+
     // mb_token = URL-encoded JSON string: %22<jwt>%22
-    // mzfi SPA sets: document.cookie = "mb_token=" + JSON.stringify(token)
     const mbTokenValue = encodeURIComponent(JSON.stringify(token));
-    
+
     try {
       const playRes = await fetch(playUrl, {
         headers: {
           ...MZFI_HEADERS,
           Authorization: `Bearer ${token}`,
-          // KEY: mb_token cookie is required — without it hasResource=false
           Cookie: `mb_token=${mbTokenValue}; mb_guest_token=${mbTokenValue}; token=${token}`,
           Referer: `https://mzfi.me/spa/videoPlayPage/movies/${detailPath}?id=${subjectId}`,
+          Origin: "https://mzfi.me",
         },
       });
       const playText = await playRes.text();
@@ -711,27 +723,36 @@ async function handleRequestInner(req: Request): Promise<Response> {
       try { playData = JSON.parse(playText); } catch { playData = null; }
       const data = playData?.data;
       if (!data) {
-        return Response.json({ sources: [], subtitles: [], error: `play failed: HTTP ${playRes.status}, body: ${playText.slice(0, 200)}` }, { headers: corsHeaders });
+        return Response.json({ sources: [], subtitles: [], error: `play failed: HTTP ${playRes.status}` }, { headers: corsHeaders });
       }
-      
+
       const streams = data.streams || [];
       const sources: any[] = [];
-      
+
       for (const s of streams) {
         if (s.url) {
-          // Return DIRECT URL — SW will inject Referer: mzfi.me
           sources.push({
             quality: `${s.resolutions || s.id || "auto"}p`,
-            url: s.url,
-            provider: "mzfi.me (bcdnxw)",
+            url: s.url, // direct URL — SW injects Referer:mzfi.me
+            provider: "mzfi (bcdnxw)",
             type: "mp4",
           });
         }
       }
-      
-      return Response.json({ sources, subtitles: [] }, { headers: corsHeaders });
+
+      const responseData = { sources, subtitles: [] };
+
+      // Cache successful results (5h) — h5-api rate-limits per IP.
+      if (sources.length > 0) {
+        const cacheRes = new Response(JSON.stringify(responseData), {
+          headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=18000" },
+        });
+        cache.put(cacheReq, cacheRes.clone()).catch(() => {});
+      }
+
+      return Response.json(responseData, { headers: corsHeaders });
     } catch (e: any) {
-      return Response.json({ sources: [], subtitles: [], error: e.message }, { headers: corsHeaders });
+      return Response.json({ sources: [], subtitles: [], error: e.message }, { status: 502, headers: corsHeaders });
     }
   }
 

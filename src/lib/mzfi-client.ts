@@ -22,7 +22,7 @@
 // browser IP is accepted by bcdnxw (which it should be — bcdnxw blocks CF,
 // not regular users).
 
-const MZFI_BASE = "https://mzfi.me";
+const MZFI_BASE = "https://h5-api.aoneroom.com"; // NOT mzfi.me (429s CF Worker)
 
 // Get token from mzfi /home endpoint (x-user header, CORS-exposed).
 // NOTE: mzfi returns ACAO:* but rejects credentials:include cross-origin.

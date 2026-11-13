@@ -93,24 +93,36 @@ export async function resolveStream(
   // bcdnxw. → played DIRECTLY in browser (no proxy needed! <video> doesn't
   //   require CORS for media playback). CF Worker can't reach bcdnxw (427),
   //   but the browser CAN — bcdnxw blocks CF IPs, not user IPs.
-  // other → try via Worker proxy
+  // bcdn. → Worker /mp4-socket (no UA, TCP socket, 206)
+  // bcdnxw. → external bcdnxw-proxy (non-CF IP, adds Referer:mzfi.me, 206)
+  //   Set NEXT_PUBLIC_BCDNXW_PROXY_URL env var to your proxy URL.
+  //   If not set, bcdnxw falls through to error recovery → embed.
   const mp4ProxyPath = isStaticMode ? "/mp4-socket" : "/mp4";
+  const bcdnxwProxyUrl = process.env.NEXT_PUBLIC_BCDNXW_PROXY_URL || "";
   const mp4Sources = (data.sources || [])
     .filter((s: any) => s.type === "mp4" && s.url)
     .map((s: any) => {
       if (s.url.includes("bcdnxw.")) {
-        // bcdnxw: play DIRECTLY in browser (no proxy).
-        // <video> element doesn't need CORS for media playback.
-        // bcdnxw blocks CF Worker IP (427) but accepts browser IP.
-        console.log("[NOBAR] bcdnxw MP4 — playing directly in browser (no proxy):", s.quality);
+        if (bcdnxwProxyUrl) {
+          // Route through external proxy (non-CF IP, adds Referer:mzfi.me)
+          console.log("[NOBAR] bcdnxw MP4 — via external proxy:", s.quality);
+          return {
+            quality: s.quality,
+            url: `${bcdnxwProxyUrl}/?url=${encodeURIComponent(s.url)}`,
+            provider: s.provider || "vidlink.pro",
+            type: "mp4",
+          };
+        }
+        // No proxy configured — try direct (will likely fail → error recovery)
+        console.log("[NOBAR] bcdnxw MP4 — direct (no proxy, may fail):", s.quality);
         return {
           quality: s.quality,
-          url: s.url, // direct URL, no proxy
+          url: s.url,
           provider: s.provider || "vidlink.pro",
           type: "mp4",
         };
       }
-      // bcdn. → proxy via TCP socket (ad-free)
+      // bcdn. → proxy via TCP socket (no UA, ad-free)
       return {
         quality: s.quality,
         url: proxyUrl(`${mp4ProxyPath}?url=${encodeURIComponent(s.url)}`),

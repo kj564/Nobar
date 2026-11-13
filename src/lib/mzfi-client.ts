@@ -24,22 +24,14 @@
 
 const MZFI_BASE = "https://h5-api.aoneroom.com"; // NOT mzfi.me (429s CF Worker)
 
-// Get token from mzfi /home endpoint (x-user header, CORS-exposed).
-// NOTE: mzfi returns ACAO:* but rejects credentials:include cross-origin.
-// So we CANNOT use credentials here — use credentials:omit + extract token
-// from x-user header. For /subject/play, we pass the token as Authorization
-// header + Cookie header manually (via setRequestHeader trick won't work
-// cross-origin either). So mzfi play ONLY works same-origin (from mzfi.me).
-//
-// SOLUTION: Two-step approach:
-//   1. Fetch /home with credentials:omit → get token from x-user header
-//   2. Fetch /subject/play with credentials:omit + Authorization: Bearer
-//   3. If play returns hasResource:false (no cookie), try the /detail
-//      endpoint which returns stream URLs in some regions
+// Get token from h5-api.aoneroom.com /home endpoint.
+// h5-api returns ACAO: <specific-origin> + ACAC: true → credentials:include works!
+// This means Set-Cookie (token) from /home IS stored by browser for h5-api domain.
+// Subsequent /subject/play with credentials:include sends the token cookie.
 async function getMzfiToken(): Promise<string | null> {
   try {
     const res = await fetch(`${MZFI_BASE}/wefeed-h5api-bff/home?page=1`, {
-      credentials: "omit",
+      credentials: "include",
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return null;
@@ -59,7 +51,7 @@ async function searchMzfi(
   try {
     const res = await fetch(`${MZFI_BASE}/wefeed-h5api-bff/subject/search`, {
       method: "POST",
-      credentials: "omit",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
@@ -88,10 +80,9 @@ async function searchMzfi(
   }
 }
 
-// Get play URLs for a movie via Worker proxy (Worker sets mb_token cookie).
-// Browser CANNOT set Cookie header in cross-origin fetch (CORS security).
-// Worker CAN set Cookie header freely (server-side, no CORS restriction).
-// Worker also gets 429 from mzfi /home — BUT /subject/play might work.
+// Get play URLs via Worker /mzfi-play (Worker sets mb_token cookie).
+// Worker can set Cookie header freely (server-side, no CORS).
+// Worker uses h5-api.aoneroom.com (NOT mzfi.me — 429s CF Worker).
 async function playMzfi(
   token: string,
   subjectId: string,
@@ -104,7 +95,6 @@ async function playMzfi(
   | null
 > {
   try {
-    // Call Worker /mzfi-play which proxies to mzfi /subject/play with mb_token cookie.
     const CDN_PROXY_URL = process.env.NEXT_PUBLIC_CDN_PROXY_URL || "";
     const isStatic = CDN_PROXY_URL.length > 0;
     const workerUrl = isStatic
@@ -112,15 +102,13 @@ async function playMzfi(
       : `/mzfi-play?subjectId=${subjectId}&detailPath=${detailPath}&token=${encodeURIComponent(token)}&kind=${kind}&XTransformPort=3003`;
 
     const res = await fetch(workerUrl, { credentials: "omit" });
-    const data = (await res.json())?.data || {};
-    // Worker returns { sources: [...], subtitles: [] }
     const result = await res.json();
     const sources = result?.sources || [];
     if (sources.length === 0) {
-      console.log("[MZFI] Worker play: no streams (hasResource=" + result?.data?.hasResource + ")");
+      console.log("[MZFI] Worker play: no streams (error=" + (result?.error || 'none') + ")");
       return null;
     }
-    console.log("[MZFI] Worker play: " + sources.length + " streams");
+    console.log("[MZFI] Worker play: " + sources.length + " streams, first:", sources[0].url.slice(0, 60));
     return { sources, subtitles: [] };
   } catch (e) {
     console.warn("[MZFI] Worker play error:", e);

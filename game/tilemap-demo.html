@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>2D Tilemap System — 5-Layer Sorting Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #1a1a2e;
+    color: #e8e8e8;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+    gap: 12px;
+  }
+  h1 { font-size: 18px; font-weight: 700; color: #b8e986; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 8px; }
+  canvas {
+    background: #000;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    border: 2px solid #444;
+    border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .hint {
+    font-size: 12px;
+    color: #aaa;
+    text-align: center;
+    max-width: 480px;
+    line-height: 1.5;
+  }
+  .hint kbd {
+    background: #2a2a4a;
+    border: 1px solid #444;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 11px;
+    color: #b8e986;
+  }
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 6px;
+    max-width: 480px;
+    font-size: 11px;
+  }
+  .legend div {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .swatch {
+    width: 14px; height: 14px;
+    border-radius: 2px;
+    border: 1px solid #333;
+  }
+</style>
+</head>
+<body>
+  <h1>2D Tilemap System — 5-Layer Sorting Demo</h1>
+  <div class="subtitle">48px tiles · 10×10 grid · 5 modular layer arrays</div>
+  <canvas id="game" width="480" height="480"></canvas>
+  <div class="hint">
+    Move: <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> ·
+    Try walking into <strong style="color:#7c81ad">walls</strong> (collision),
+    under the <strong style="color:#2f5233">canopy</strong> (walk-behind sorting),
+    and over <strong style="color:#557a46">paths</strong> (walk-in-front).
+  </div>
+  <div class="legend">
+    <div><span class="swatch" style="background:#3a5f43"></span>1 Ground</div>
+    <div><span class="swatch" style="background:#557a46"></span>2 Path (WalkInFront)</div>
+    <div><span class="swatch" style="background:#7c81ad"></span>3 Wall (Collision)</div>
+    <div><span class="swatch" style="background:#2f5233"></span>4 Canopy (WalkBehind)</div>
+    <div><span class="swatch" style="background:#f4ce14"></span>5 Flower (Decor)</div>
+  </div>
+
+<script>
+'use strict';
+/* ============================================================
+   2D TILEMAP SYSTEM — Self-contained demo
+   Demonstrates: 5-layer sorting, grid collision, palette rendering
+   ============================================================ */
+
+// ---------- Config ----------
+const TILE = 48;          // tile size in pixels
+const COLS = 10;          // grid columns
+const ROWS = 10;          // grid rows
+
+// ---------- Tile Palette: numeric ID -> HEX color ----------
+// 0 = transparent (no draw), 1-5 = visible tile types
+const TilePalette = {
+  0: 'transparent',
+  1: '#3a5f43',  // Ground (grass)
+  2: '#557a46',  // Path
+  3: '#7c81ad',  // Wall (collision solid)
+  4: '#2f5233',  // Canopy/Roof (walk-behind)
+  5: '#f4ce14',  // Flower (decor)
+};
+
+// ---------- 5 Modular Layer Arrays (10x10 each) ----------
+// Layer 1: GROUND — bottom-most, always rendered first
+// All grass (1). No empty cells.
+const Layer_Ground = [
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1],
+];
+
+// Layer 2: WALK_IN_FRONT — paths/flowers rendered above ground but below player.
+// Player walks on top of these (visible under feet).
+const Layer_WalkInFront = [
+  [0,0,0,5,0,0,5,0,0,0],
+  [0,0,0,0,2,2,0,0,0,0],
+  [0,0,0,0,2,2,0,0,0,0],
+  [0,0,0,0,2,2,0,0,0,0],
+  [0,0,0,0,2,2,0,0,0,0],
+  [2,2,2,2,2,2,2,2,2,2],
+  [0,0,0,0,2,2,0,0,0,0],
+  [0,0,0,0,2,2,0,0,0,0],
+  [0,0,0,0,2,2,0,0,0,0],
+  [0,0,0,0,2,2,0,0,0,5],
+];
+
+// Layer 3: COLLISION — solid walls. Player cannot enter these tiles.
+// Renders above path (visible), but player renders ON TOP of this layer.
+const Layer_Collision = [
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,3,3,0,0,0,0,3,3,0],
+  [0,3,3,0,0,0,0,3,3,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [3,3,0,0,0,0,0,0,3,3],
+  [0,0,0,0,0,0,0,0,0,0],
+];
+
+// Layer 4: WALK_BEHIND — canopy/roof. Renders ABOVE player.
+// When player walks under these tiles, the canopy covers them (player hidden).
+const Layer_WalkBehind = [
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,4,4,0,0,0,0],
+  [0,0,0,0,4,4,0,0,0,0],
+  [0,0,0,0,4,4,0,0,0,0],
+  [0,0,0,0,4,4,0,0,0,0],
+];
+
+// Layer 5: DECOR — top-most. Renders above everything including player and canopy.
+// Used for particles, floating sparkles, or topmost decorations.
+const Layer_Decor = [
+  [0,0,5,0,0,0,0,5,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0,0],
+  [0,5,0,0,0,0,0,0,5,0],
+];
+
+// ---------- Player state ----------
+// Grid-based position (col, row). Integer coords for tile-locked movement.
+const player = { x: 5, y: 5 };  // start center, on a path tile
+let moveCooldown = 0;            // frames to wait before next move (debounce)
+// Expose for debugging/testing via browser console
+window.__player = player;
+window.__checkCollision = checkCollision;
+
+// ---------- Input handling ----------
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  // Prevent page scroll on arrow keys / space
+  if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) {
+    e.preventDefault();
+  }
+});
+window.addEventListener('keyup', (e) => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+// ---------- Collision check ----------
+// Returns true if the target tile blocks movement.
+// Blocks occur when: out of bounds OR CollisionMatrix[Y][X] > 0
+function checkCollision(targetX, targetY) {
+  // Out of bounds = blocked
+  if (targetX < 0 || targetX >= COLS || targetY < 0 || targetY >= ROWS) {
+    return true;
+  }
+  // Collision layer has any non-zero tile = solid
+  return Layer_Collision[targetY][targetX] > 0;
+}
+
+// ---------- Movement (grid-locked, debounced) ----------
+function tryMove(dx, dy) {
+  if (moveCooldown > 0) return;  // still in cooldown, ignore
+  const tx = player.x + dx;
+  const ty = player.y + dy;
+  if (!checkCollision(tx, ty)) {
+    player.x = tx;
+    player.y = ty;
+    moveCooldown = 8;  // ~8 frames between moves at 60fps = ~133ms
+  }
+}
+
+function update() {
+  if (moveCooldown > 0) moveCooldown--;
+  // Only one move per cooldown window (prevents diagonal spam)
+  if (moveCooldown === 0) {
+    if (keys['arrowup']    || keys['w']) tryMove(0, -1);
+    else if (keys['arrowdown']  || keys['s']) tryMove(0,  1);
+    else if (keys['arrowleft']  || keys['a']) tryMove(-1, 0);
+    else if (keys['arrowright'] || keys['d']) tryMove( 1, 0);
+  }
+}
+
+// ---------- Render engine ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+// Draw a single layer matrix to canvas using TilePalette
+function drawLayer(layer) {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const id = layer[r][c];
+      if (id === 0) continue;  // transparent, skip
+      ctx.fillStyle = TilePalette[id];
+      ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
+    }
+  }
+}
+
+// Draw the player as a circle (per spec: use ctx.arc)
+function drawPlayer() {
+  const cx = player.x * TILE + TILE / 2;  // center X in pixels
+  const cy = player.y * TILE + TILE / 2;  // center Y in pixels
+  const radius = TILE / 3;               // ~16px radius
+
+  // Soft shadow under player
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + radius * 0.7, radius * 0.9, radius * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Player body (yellow circle)
+  ctx.fillStyle = '#ffd54a';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Outline
+  ctx.strokeStyle = '#2a1500';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Highlight (small white dot, top-left)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.beginPath();
+  ctx.arc(cx - radius * 0.35, cy - radius * 0.35, radius * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ---------- Main render: draws layers in stack order ----------
+// Sorting layer depth (bottom to top):
+//   1. Ground           (bottom-most)
+//   2. WalkInFront      (paths under feet)
+//   3. Collision        (walls, player renders on top of these)
+//   3.5 Player          (dynamic entity, between collision and walk-behind)
+//   4. WalkBehind       (canopy covers player)
+//   5. Decor            (top-most particles/decor)
+function render() {
+  // Clear canvas
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw stack in depth order
+  drawLayer(Layer_Ground);        // Layer 1
+  drawLayer(Layer_WalkInFront);   // Layer 2
+  drawLayer(Layer_Collision);     // Layer 3
+  drawPlayer();                   // Layer 3.5 (player)
+  drawLayer(Layer_WalkBehind);    // Layer 4 (covers player when under)
+  drawLayer(Layer_Decor);         // Layer 5 (top-most)
+}
+
+// ---------- Game loop ----------
+function loop() {
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+<svg fill="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 256" width="680" height="256" role="img" aria-labelledby="t"><title>NOBAR</title>
+  <title id="t">NOBAR — horizontal lockup</title>
+  <g id="symbol">
+    <path fill-rule="evenodd" d="
+      M 56,48 L 88,48 L 88,208 L 56,208 Z
+      M 168,48 L 200,48 L 200,208 L 168,208 Z
+      M 88,48 L 88,208 L 168,128 Z
+    " fill="#ffffff"/>
+  </g>
+  <g id="wordmark" transform="translate(256, 0)">
+    <path fill-rule="evenodd" d="M 20,88 L 40,88 L 40,168 L 20,168 Z M 80,88 L 100,88 L 100,168 L 80,168 Z M 40,88 L 40,168 L 80,128 Z" fill="#ffffff"/>
+    <path fill-rule="evenodd" d="M 140,86 A 30,42 0 1 1 139.99,86 Z M 140,108 A 10,22 0 1 0 140.01,108 Z" fill="#ffffff"/>
+    <path d="M 180,88 L 200,88 L 200,168 L 180,168 Z M 200,88 A 20,20 0 0 1 220,108 A 20,20 0 0 1 200,128 L 200,88 Z M 200,128 A 20,20 0 0 1 220,148 A 20,20 0 0 1 200,168 L 200,128 Z" fill="#ffffff"/>
+    <path fill-rule="evenodd" d="M 270,88 L 230,168 L 250,168 L 270,120 L 290,168 L 310,168 L 270,88 Z M 261,132 L 261,148 L 279,140 Z" fill="#ffffff"/>
+    <path d="M 320,88 L 340,88 L 340,168 L 320,168 Z M 340,88 A 20,20 0 0 1 360,108 A 20,20 0 0 1 340,128 L 340,88 Z M 340,128 L 360,128 L 380,168 L 360,168 Z" fill="#ffffff"/>
+  </g>
+</svg>

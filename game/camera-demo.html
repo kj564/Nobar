@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Virtual Camera System — Cinemachine Confiner Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a1a;
+    color: #e8e8e8;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+    gap: 12px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #88c0ff;
+    letter-spacing: 0.5px;
+  }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 4px; }
+  canvas {
+    background: #000;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    border: 2px solid #444;
+    border-radius: 6px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.7), 0 0 0 1px rgba(136, 192, 255, 0.2);
+  }
+  .hint {
+    font-size: 12px;
+    color: #aaa;
+    text-align: center;
+    max-width: 560px;
+    line-height: 1.6;
+  }
+  .hint kbd {
+    background: #1a1a3a;
+    border: 1px solid #444;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 11px;
+    color: #88c0ff;
+    font-weight: 700;
+  }
+  .hud {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: rgba(10, 10, 26, 0.85);
+    border: 1px solid rgba(136, 192, 255, 0.4);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: #c8d8ff;
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.5;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+  }
+  .hud .label { color: #88a0c0; }
+  .hud .val { color: #ffe04a; font-weight: 700; }
+  .canvas-wrap { position: relative; }
+  .legend {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 560px;
+  }
+  .legend div {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .swatch {
+    width: 12px; height: 12px;
+    border-radius: 2px;
+    border: 1px solid #333;
+  }
+</style>
+</head>
+<body>
+  <h1>🎥 Virtual Camera System — Cinemachine Confiner</h1>
+  <div class="subtitle">20×20 grid · 48px tiles · pixel-based movement · smooth lerp camera · boundary clamping</div>
+
+  <div class="canvas-wrap">
+    <canvas id="game" width="720" height="480"></canvas>
+    <div class="hud" id="hud">
+      <div><span class="label">player.px:</span> <span class="val" id="hud-px">0,0</span></div>
+      <div><span class="label">camera.xy:</span> <span class="val" id="hud-cam">0,0</span></div>
+      <div><span class="label">clamped:</span> <span class="val" id="hud-clamp">no</span></div>
+      <div><span class="label">fps:</span> <span class="val" id="hud-fps">60</span></div>
+    </div>
+  </div>
+
+  <div class="hint">
+    Move: <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> atau <kbd>↑↓←→</kbd> (diagonal aktif!) ·
+    Walk toward map edges untuk lihat <strong style="color:#88c0ff">camera confiner</strong> clamp.
+    Walk ke benteng batu di tengah untuk test <strong style="color:#7c81ad">collision</strong>.
+  </div>
+  <div class="legend">
+    <div><span class="swatch" style="background:#3a5f43"></span>Ground</div>
+    <div><span class="swatch" style="background:#557a46"></span>Path</div>
+    <div><span class="swatch" style="background:#7c81ad"></span>Wall (solid)</div>
+    <div><span class="swatch" style="background:#2f5233"></span>Canopy</div>
+    <div><span class="swatch" style="background:#f4ce14"></span>Flower</div>
+    <div><span class="swatch" style="background:#ff5722"></span>Player</div>
+  </div>
+
+<script>
+'use strict';
+/* ============================================================
+   VIRTUAL CAMERA SYSTEM — Cinemachine Confiner Style
+   Self-contained demo: pixel-based movement + smooth camera follow
+   ============================================================ */
+
+// ---------- Config ----------
+const TILE = 48;             // tile size in pixels
+const COLS = 20;            // grid columns (expanded from 10 → 20)
+const ROWS = 20;            // grid rows (expanded from 10 → 20)
+const MAP_W_PX = COLS * TILE;  // 960px
+const MAP_H_PX = ROWS * TILE;  // 960px
+
+// ---------- Tile Palette: numeric ID → HEX color ----------
+const TilePalette = {
+  0: 'transparent',
+  1: '#3a5f43',  // Ground (grass)
+  2: '#557a46',  // Path
+  3: '#7c81ad',  // Wall (collision solid)
+  4: '#2f5233',  // Canopy (walk-behind)
+  5: '#f4ce14',  // Flower (decor)
+};
+
+// ---------- Map Bounds (Cinemachine Confiner) ----------
+// Camera position (camera.x, camera.y) is clamped to these bounds
+// so the viewport never shows area outside the map (no black bleed).
+const MapBounds = {
+  minX: 0,
+  minY: 0,
+  maxX: MAP_W_PX,  // 960
+  maxY: MAP_H_PX,  // 960
+};
+
+// ---------- Camera Config ----------
+const CAMERA_CONFIG = {
+  dampening: 0.08,  // lerp factor — lower = smoother/slower, higher = snappier
+  lensSize: 1,       // zoom multiplier (1 = no zoom)
+};
+
+// ---------- Player Stats ----------
+const PLAYER = {
+  x: 120,           // start in open grass area (top-left, away from fortress)
+  y: 120,
+  speed: 4,          // pixels per frame at 60fps
+  radius: 16,        // collision circle radius
+  color: '#ff5722',
+};
+
+// ---------- Camera State ----------
+const camera = {
+  x: 0,  // top-left world coordinate visible on screen
+  y: 0,
+  // Target is where camera WANTS to be (player centered on screen).
+  // Camera lerps toward target each frame for smooth follow.
+  targetX: 0,
+  targetY: 0,
+};
+
+// ---------- 5 Modular Layer Arrays (20x20 each) ----------
+// Generated dynamically. Layer 1 (Ground) fills entire map with grass,
+// then paths, walls, canopies, and flowers are placed on top.
+
+// Layer 1: GROUND — grass everywhere
+const Layer_Ground = [];
+for (let y = 0; y < ROWS; y++) {
+  const row = [];
+  for (let x = 0; x < COLS; x++) row.push(1);
+  Layer_Ground.push(row);
+}
+
+// Layer 2: WALK_IN_FRONT — paths and flowers under player feet
+const Layer_WalkInFront = [];
+for (let y = 0; y < ROWS; y++) {
+  const row = [];
+  for (let x = 0; x < COLS; x++) row.push(0);
+  Layer_WalkInFront.push(row);
+}
+// Cross paths through center
+for (let i = 0; i < COLS; i++) Layer_WalkInFront[10][i] = 2;  // horizontal path
+for (let i = 0; i < ROWS; i++) Layer_WalkInFront[i][10] = 2;   // vertical path
+// Scattered flowers
+for (let i = 0; i < 25; i++) {
+  const fx = Math.floor(Math.random() * COLS);
+  const fy = Math.floor(Math.random() * ROWS);
+  if (Layer_WalkInFront[fy][fx] === 0) Layer_WalkInFront[fy][fx] = 5;
+}
+
+// Layer 3: COLLISION — stone fortress walls in center for collision testing
+const Layer_Collision = [];
+for (let y = 0; y < ROWS; y++) {
+  const row = [];
+  for (let x = 0; x < COLS; x++) row.push(0);
+  Layer_Collision.push(row);
+}
+// Build a stone fortress ring in center (rows 7-12, cols 7-12)
+// with WIDE gaps for entry on each side (player radius = 16, tile = 48, gap = 2 tiles safe)
+for (let y = 7; y <= 12; y++) {
+  for (let x = 7; x <= 12; x++) {
+    // Outer ring only (perimeter)
+    if (y === 7 || y === 12 || x === 7 || x === 12) {
+      // Leave 2-tile-wide gaps at middle of each side for easy entry
+      if ((y === 7 || y === 12) && (x === 9 || x === 10)) continue;  // gap top/bottom
+      if ((x === 7 || x === 12) && (y === 9 || y === 10)) continue;  // gap left/right
+      Layer_Collision[y][x] = 3;
+    }
+  }
+}
+// No internal pillars — keep fortress interior open for safe exploration
+
+// Layer 4: WALK_BEHIND — canopy tiles (player walks behind these)
+const Layer_WalkBehind = [];
+for (let y = 0; y < ROWS; y++) {
+  const row = [];
+  for (let x = 0; x < COLS; x++) row.push(0);
+  Layer_WalkBehind.push(row);
+}
+// Place canopy clusters in corners (decorative trees)
+[[2,2],[2,3],[3,2], [2,17],[2,16],[3,17], [17,2],[16,2],[17,3], [17,17],[16,17],[17,16]].forEach(([y,x]) => {
+  if (Layer_WalkBehind[y] && Layer_WalkBehind[y][x] !== undefined) {
+    Layer_WalkBehind[y][x] = 4;
+  }
+});
+
+// Layer 5: DECOR — sparkles (top-most)
+const Layer_Decor = [];
+for (let y = 0; y < ROWS; y++) {
+  const row = [];
+  for (let x = 0; x < COLS; x++) row.push(0);
+  Layer_Decor.push(row);
+}
+// Sparkles on some flowers
+for (let y = 0; y < ROWS; y++) {
+  for (let x = 0; x < COLS; x++) {
+    if (Layer_WalkInFront[y][x] === 5 && Math.random() < 0.4) {
+      Layer_Decor[y][x] = 5;
+    }
+  }
+}
+
+// ---------- Input: Multi-key state object ----------
+// Supports diagonal movement (multiple keys pressed simultaneously).
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  // Prevent page scroll on arrow keys
+  if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) {
+    e.preventDefault();
+  }
+});
+window.addEventListener('keyup', (e) => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+// ---------- Collision check (pixel-based, multi-point hitbox) ----------
+// Returns true if the target pixel position would collide with a solid tile.
+// We check multiple sample points around the player's collision circle.
+function checkCollision(targetX, targetY) {
+  const r = PLAYER.radius;
+  // Sample 8 points around the player's collision circle
+  // (cardinal + diagonal directions for robust collision)
+  const samplePoints = [
+    [targetX,         targetY - r],     // top
+    [targetX,         targetY + r],     // bottom
+    [targetX - r,     targetY],         // left
+    [targetX + r,     targetY],         // right
+    [targetX - r*0.7, targetY - r*0.7], // top-left
+    [targetX + r*0.7, targetY - r*0.7], // top-right
+    [targetX - r*0.7, targetY + r*0.7], // bottom-left
+    [targetX + r*0.7, targetY + r*0.7], // bottom-right
+  ];
+  for (const [px, py] of samplePoints) {
+    const tx = Math.floor(px / TILE);
+    const ty = Math.floor(py / TILE);
+    // Out of bounds = blocked
+    if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) return true;
+    // CollisionMatrix[Y][X] > 0 = solid
+    if (Layer_Collision[ty][tx] > 0) return true;
+  }
+  return false;
+}
+
+// ---------- Player movement (pixel-based, diagonal-aware) ----------
+function updatePlayer() {
+  let dx = 0, dy = 0;
+  // Multi-key check: allows simultaneous direction presses (diagonal movement)
+  if (keys['arrowup']    || keys['w']) dy -= 1;
+  if (keys['arrowdown']  || keys['s']) dy += 1;
+  if (keys['arrowleft']  || keys['a']) dx -= 1;
+  if (keys['arrowright'] || keys['d']) dx += 1;
+
+  // Normalize diagonal movement so diagonal speed == cardinal speed
+  // (without this, diagonal would be ~1.41x faster)
+  if (dx !== 0 && dy !== 0) {
+    dx *= 0.7071;  // 1/√2
+    dy *= 0.7071;
+  }
+
+  // If no input, do nothing
+  if (dx === 0 && dy === 0) return;
+
+  // Attempt movement on X axis (with collision check)
+  const newPx = PLAYER.x + dx * PLAYER.speed;
+  if (!checkCollision(newPx, PLAYER.y)) {
+    PLAYER.x = newPx;
+  }
+  // Attempt movement on Y axis (with collision check)
+  // Separated X/Y so player can slide along walls (instead of stopping dead)
+  const newPy = PLAYER.y + dy * PLAYER.speed;
+  if (!checkCollision(PLAYER.x, newPy)) {
+    PLAYER.y = newPy;
+  }
+}
+
+// ---------- Camera update: Lerp + Confiner Clamp ----------
+// This is the core of the Virtual Camera System.
+function updateCamera() {
+  const canvasW = canvas.width;
+  const canvasH = canvas.height;
+
+  // ===== Step 1: Calculate IDEAL target position =====
+  // We want player centered on screen, so target = player position - half viewport.
+  // Target is in world coordinates (where camera top-left should be).
+  camera.targetX = PLAYER.x - canvasW / 2;
+  camera.targetY = PLAYER.y - canvasH / 2;
+
+  // ===== Step 2: Smooth dampening via Linear Interpolation (Lerp) =====
+  // Lerp formula: current = current + (target - current) * dampening
+  // dampening 0.08 = camera moves 8% toward target each frame → smooth follow
+  // (lower = smoother/slower, higher = snappier/faster)
+  camera.x += (camera.targetX - camera.x) * CAMERA_CONFIG.dampening;
+  camera.y += (camera.targetY - camera.y) * CAMERA_CONFIG.dampening;
+
+  // ===== Step 3: Cinemachine Confiner — clamp to MapBounds =====
+  // Prevent camera from showing area outside the map (no black bleed).
+  // Max camera.x = mapWidth - viewportWidth (so right edge of map meets right edge of screen)
+  // Min camera.x = 0 (so left edge of map meets left edge of screen)
+  const maxX = MapBounds.maxX - canvasW;
+  const maxY = MapBounds.maxY - canvasH;
+  camera.x = Math.max(MapBounds.minX, Math.min(maxX, camera.x));
+  camera.y = Math.max(MapBounds.minY, Math.min(maxY, camera.y));
+}
+
+// ---------- Render engine ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+// Draw a single layer matrix, offset by camera position
+function drawLayer(layer) {
+  // Calculate visible tile range (only render tiles in viewport = perf optimization)
+  const startX = Math.max(0, Math.floor(camera.x / TILE));
+  const endX = Math.min(COLS - 1, Math.ceil((camera.x + canvas.width) / TILE));
+  const startY = Math.max(0, Math.floor(camera.y / TILE));
+  const endY = Math.min(ROWS - 1, Math.ceil((camera.y + canvas.height) / TILE));
+
+  for (let y = startY; y <= endY; y++) {
+    for (let x = startX; x <= endX; x++) {
+      const id = layer[y][x];
+      if (id === 0) continue;  // transparent
+      // Camera offset: subtract camera.x/y from world position
+      const px = x * TILE - camera.x;
+      const py = y * TILE - camera.y;
+      ctx.fillStyle = TilePalette[id];
+      ctx.fillRect(px, py, TILE, TILE);
+    }
+  }
+}
+
+// Draw player as circle, offset by camera position
+function drawPlayer() {
+  // Camera offset: subtract camera.x/y from player world position
+  const sx = PLAYER.x - camera.x;
+  const sy = PLAYER.y - camera.y;
+  const r = PLAYER.radius;
+
+  // Soft shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(sx, sy + r * 0.7, r * 0.9, r * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Player body (per spec: ctx.arc)
+  ctx.fillStyle = PLAYER.color;
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Outline
+  ctx.strokeStyle = '#2a1500';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Highlight (small white dot, top-left)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+  ctx.beginPath();
+  ctx.arc(sx - r * 0.35, sy - r * 0.35, r * 0.25, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Crosshair indicator (center marker for testing camera follow)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2 - 10, canvas.height / 2);
+  ctx.lineTo(canvas.width / 2 + 10, canvas.height / 2);
+  ctx.moveTo(canvas.width / 2, canvas.height / 2 - 10);
+  ctx.lineTo(canvas.width / 2, canvas.height / 2 + 10);
+  ctx.stroke();
+}
+
+// ---------- Main render: draws layers in stack order ----------
+function render() {
+  // Clear canvas
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw stack in depth order (1 → 2 → 3 → player → 4 → 5)
+  drawLayer(Layer_Ground);        // Layer 1
+  drawLayer(Layer_WalkInFront);   // Layer 2 (paths, flowers)
+  drawLayer(Layer_Collision);     // Layer 3 (walls)
+  drawPlayer();                   // Layer 3.5 (player, camera-offset)
+  drawLayer(Layer_WalkBehind);    // Layer 4 (canopy covers player)
+  drawLayer(Layer_Decor);          // Layer 5 (top-most sparkles)
+
+  // Draw camera bounds indicator (debug visualization)
+  // Shows where the confiner is clamping
+  const clampedX = camera.x === MapBounds.minX || camera.x === MapBounds.maxX - canvas.width;
+  const clampedY = camera.y === MapBounds.minY || camera.y === MapBounds.maxY - canvas.height;
+  if (clampedX || clampedY) {
+    ctx.strokeStyle = '#ff5722';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+  }
+}
+
+// ---------- HUD update ----------
+const hudPx = document.getElementById('hud-px');
+const hudCam = document.getElementById('hud-cam');
+const hudClamp = document.getElementById('hud-clamp');
+const hudFps = document.getElementById('hud-fps');
+let frameCount = 0, lastFpsTime = performance.now(), fps = 60;
+
+function updateHUD() {
+  hudPx.textContent = `${Math.round(PLAYER.x)},${Math.round(PLAYER.y)}`;
+  hudCam.textContent = `${Math.round(camera.x)},${Math.round(camera.y)}`;
+  const clamped = camera.x <= MapBounds.minX || camera.x >= MapBounds.maxX - canvas.width
+               || camera.y <= MapBounds.minY || camera.y >= MapBounds.maxY - canvas.height;
+  hudClamp.textContent = clamped ? 'YES (edge reached)' : 'no';
+  hudClamp.style.color = clamped ? '#ff8a5c' : '#ffe04a';
+  hudFps.textContent = Math.round(fps);
+}
+
+// ---------- Game loop ----------
+function loop(now) {
+  // FPS calculation
+  frameCount++;
+  if (now - lastFpsTime >= 500) {
+    fps = (frameCount * 1000) / (now - lastFpsTime);
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+
+  updatePlayer();        // pixel-based movement with collision
+  updateCamera();        // lerp + confiner clamp (BEFORE render!)
+  render();              // draw all layers with camera offset
+  updateHUD();           // debug overlay
+  requestAnimationFrame(loop);
+}
+
+// Expose for debugging
+window.__cameraDemo = {
+  player: PLAYER,
+  camera,
+  MapBounds,
+  checkCollision,
+  keys,  // expose for testing/debugging
+  // Helper: simulate key press for testing
+  pressKey(k) { keys[k] = true; },
+  releaseKey(k) { keys[k] = false; },
+};
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

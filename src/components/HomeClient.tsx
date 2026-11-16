@@ -195,21 +195,21 @@ export function HomeClient({ categories }: HomeClientProps) {
       <section id="featured" className="w-full bg-black px-3 sm:px-5 py-10 section-enter">
         <div className="max-w-[1520px] mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-white text-2xl font-bold font-display flex items-center gap-3">
+            <h2 className="text-white text-2xl font-bold font-display tracking-[-0.02em] flex items-center gap-3">
               <span className="w-1 h-6 bg-brand-500 rounded-full"></span>
               Trending Now
             </h2>
           </div>
           {featured.length === 0 ? (
-            <div className="flex gap-4 overflow-x-auto pb-4">
+            <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-4">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex-none w-40 md:w-48 rounded-lg overflow-hidden border border-white/5">
+                <div key={i} className="flex-none w-40 md:w-48 rounded-xl overflow-hidden border border-white/5">
                   <div className="skeleton aspect-[2/3]"></div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="flex gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
+            <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
               {featured.map((m, i) => (
                 <MovieCard
                   key={m.id}
@@ -227,22 +227,22 @@ export function HomeClient({ categories }: HomeClientProps) {
       <section id="series" className="w-full bg-black px-3 sm:px-5 py-10 section-enter">
         <div className="max-w-[1520px] mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-white text-2xl font-bold font-display flex items-center gap-3">
+            <h2 className="text-white text-2xl font-bold font-display tracking-[-0.02em] flex items-center gap-3">
               <span className="w-1 h-6 bg-brand-500 rounded-full"></span>
               <Tv className="w-6 h-6 text-brand-500" />
               Trending Series
             </h2>
           </div>
           {tvSeries.length === 0 ? (
-            <div className="flex gap-4 overflow-x-auto pb-4">
+            <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-4">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex-none w-40 md:w-48 rounded-lg overflow-hidden border border-white/5">
+                <div key={i} className="flex-none w-40 md:w-48 rounded-xl overflow-hidden border border-white/5">
                   <div className="skeleton aspect-[2/3]"></div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="flex gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
+            <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
               {tvSeries.map((s, i) => (
                 <SeriesCard
                   key={s.id}
@@ -261,7 +261,7 @@ export function HomeClient({ categories }: HomeClientProps) {
         <section id="mzfi-trending" className="w-full bg-black px-3 sm:px-5 py-10 section-enter">
           <div className="max-w-[1520px] mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-              <h2 className="text-white text-2xl font-bold font-display flex items-center gap-3">
+              <h2 className="text-white text-2xl font-bold font-display tracking-[-0.02em] flex items-center gap-3">
                 <span className="w-1 h-6 bg-brand-500 rounded-full"></span>
                 <Flame className="w-6 h-6 text-brand-500" />
                 Trending di mzfi
@@ -270,12 +270,12 @@ export function HomeClient({ categories }: HomeClientProps) {
                 {mzfiTrending.length} judul · dijamin dapat diputar
               </span>
             </div>
-            <div className="flex gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
+            <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-4 pt-2 -mx-1 px-1 snap-x scroll-row">
               {mzfiTrending.map((s, i) => (
                 <Link
                   key={s.subjectId || i}
                   href={`/search?q=${encodeURIComponent(s.title)}`}
-                  className="flex-none w-40 md:w-48 rounded-lg overflow-hidden border border-white/5 hover:border-brand-500/50 transition group"
+                  className="flex-none w-40 md:w-48 rounded-xl overflow-hidden border border-white/5 hover:border-brand-500/50 transition group"
                 >
                   <div className="relative aspect-[2/3] bg-white/5">
                     {s.posterUrl ? (
@@ -328,7 +328,7 @@ export function HomeClient({ categories }: HomeClientProps) {
       {/* Movie Grid */}
       <main id="kategori" className="w-full bg-black px-3 sm:px-5 py-8 flex-1">
         <div className="max-w-[1520px] mx-auto">
-          {/* Filter chips */}
+          {/* Filter chips — Apple HIG pill: glass-clear active, glass-regular on hover */}
           <div className="flex flex-wrap gap-2 mb-8">
             {categories.map((cat) => {
               const active = !isSearching && cat.id === activeCategory.id;
@@ -337,21 +337,28 @@ export function HomeClient({ categories }: HomeClientProps) {
                   key={cat.id}
                   onClick={() => switchCategory(cat)}
                   disabled={loading}
-                  className={`px-4 py-1.5 rounded-full text-sm font-medium border transition ${
-                    active
-                      ? "bg-brand-500 border-brand-500 text-white"
-                      : "bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white"
+                  className={`group relative inline-flex items-center justify-center px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                    active ? "text-white" : "text-gray-300 hover:text-white"
                   }`}
                 >
-                  {cat.name}
+                  {/* Glass background layer — glass-clear when active, glass-regular on hover */}
+                  <span
+                    aria-hidden="true"
+                    className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
+                      active
+                        ? "glass-clear opacity-100"
+                        : "glass-regular opacity-0 group-hover:opacity-100"
+                    }`}
+                  />
+                  <span className="relative z-10">{cat.name}</span>
                 </button>
               );
             })}
           </div>
 
-          {/* Search indicator */}
+          {/* Search indicator — Liquid Glass pill */}
           {isSearching && (
-            <div className="mb-4 flex items-center justify-between gap-3 bg-brand-500/10 border border-brand-500/20 rounded-lg px-4 py-2.5">
+            <div className="mb-4 flex items-center justify-between gap-3 glass-regular rounded-full px-4 py-2.5">
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-gray-300">Mencari:</span>
                 <span className="font-semibold text-white">"{searchQuery}"</span>
@@ -367,9 +374,9 @@ export function HomeClient({ categories }: HomeClientProps) {
 
           {/* Grid */}
           {loading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
               {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="rounded-lg overflow-hidden border border-white/5">
+                <div key={i} className="rounded-xl overflow-hidden border border-white/5">
                   <div className="skeleton aspect-[2/3]"></div>
                   <div className="p-2">
                     <div className="skeleton h-3 rounded w-3/4"></div>
@@ -378,7 +385,7 @@ export function HomeClient({ categories }: HomeClientProps) {
               ))}
             </div>
           ) : error ? (
-            <div className="text-center py-12 px-4">
+            <div className="glass-regular rounded-2xl text-center py-12 px-4 max-w-md mx-auto">
               <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-brand-500/15 text-brand-400 mb-3">
                 <X className="w-6 h-6" />
               </div>
@@ -394,7 +401,7 @@ export function HomeClient({ categories }: HomeClientProps) {
           ) : movies.length === 0 ? (
             <p className="text-center text-gray-400 py-12">Tidak ada film untuk kategori ini.</p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
               {movies.map((m) => (
                 <MovieCard
                   key={m.id}
@@ -404,17 +411,26 @@ export function HomeClient({ categories }: HomeClientProps) {
             </div>
           )}
 
-          {/* Load more */}
+          {/* Load more — Apple HIG pill button, glass-regular on hover */}
           {!loading && !error && page < totalPages && (
             <div className="flex flex-col items-center gap-3 mt-8">
               <button
                 onClick={loadMore}
                 disabled={loadingMore}
-                className={`px-6 py-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-sm font-semibold transition ${
-                  loadingMore ? "opacity-60 cursor-wait" : ""
+                className={`group relative inline-flex items-center justify-center px-6 py-2.5 rounded-full text-sm font-semibold transition-colors ${
+                  loadingMore ? "text-white opacity-60 cursor-wait" : "text-white hover:text-white"
                 }`}
               >
-                {loadingMore ? "Memuat…" : "Muat Lebih Banyak"}
+                {/* glass-regular background layer — visible on hover or while loading */}
+                <span
+                  aria-hidden="true"
+                  className={`absolute inset-0 rounded-full glass-regular transition-opacity duration-200 ${
+                    loadingMore ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                />
+                <span className="relative z-10">
+                  {loadingMore ? "Memuat…" : "Muat Lebih Banyak"}
+                </span>
               </button>
               <p className="text-xs text-gray-500">
                 Halaman {page} dari {totalPages}
@@ -468,4 +484,3 @@ export function HomeClient({ categories }: HomeClientProps) {
 
 // ─── Inline card definitions removed — using shared components from
 // ─── src/components/MovieCard.tsx (MovieCard + SeriesCard) ──────────────
-

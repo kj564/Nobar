@@ -66,11 +66,11 @@ export function MovieCard({
       href={href}
       onMouseEnter={prefetch}
       onFocus={prefetch}
-      className={`group video-card flex flex-col gap-2 fade-in ${
+      className={`group video-card touch-target flex flex-col gap-2 fade-in items-stretch! justify-start! ${
         featured ? "flex-none w-40 md:w-48 snap-start" : ""
       }`}
     >
-      <div className="card-thumb relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-500/50 transition-all">
+      <div className="card-thumb relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-500/50 transition-all">
         {movie.poster_path ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -96,15 +96,15 @@ export function MovieCard({
         {/* Gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent z-0 pointer-events-none"></div>
 
-        {/* Quality badge (top-right) — derive from vote_average as proxy */}
+        {/* Quality badge (top-right) — Liquid Glass regular material */}
         <div className="absolute top-2 right-2 z-10">
-          <span className={`quality-badge q-${movie.vote_average && movie.vote_average >= 8 ? "1080" : movie.vote_average && movie.vote_average >= 6 ? "720" : "480"}`}>
+          <span className="glass-regular rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
             HD
           </span>
         </div>
 
         {/* Rating + views (bottom) */}
-        <div className="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+        <div className="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold glass-regular rounded-md px-1.5 py-0.5">
           <Star className="w-2.5 h-2.5 fill-yellow-500 text-yellow-500" />
           {movie.vote_average ? movie.vote_average.toFixed(1) : "—"}
         </div>
@@ -113,9 +113,9 @@ export function MovieCard({
           {formatViews(movie.vote_count)}
         </div>
 
-        {/* Play button overlay (idlixku hover reveal) */}
+        {/* Play button overlay (idlixku hover reveal) — Liquid Glass clear material */}
         <div className="card-play absolute inset-0 flex items-center justify-center bg-black/30">
-          <div className="w-12 h-12 rounded-full bg-brand-500/90 group-hover:bg-brand-500 flex items-center justify-center shadow-xl ring-2 ring-white/20">
+          <div className="w-12 h-12 rounded-full glass-clear flex items-center justify-center shadow-xl ring-2 ring-white/20">
             <Play className="w-6 h-6 fill-white ml-0.5" />
           </div>
         </div>
@@ -123,7 +123,7 @@ export function MovieCard({
 
       {/* Title + year (idlixku-style truncate + muted year) */}
       <h3 className="text-sm font-medium text-white truncate group-hover:text-brand-400 transition-colors">{title}</h3>
-      <p className="text-[11px] text-gray-500 -mt-1">{formatYear(movie.release_date)}</p>
+      <p className="text-[11px] text-white/60 -mt-1">{formatYear(movie.release_date)}</p>
     </Link>
   );
 }
@@ -146,11 +146,11 @@ export function SeriesCard({
       href={href}
       onMouseEnter={prefetch}
       onFocus={prefetch}
-      className={`group video-card flex flex-col gap-2 fade-in ${
+      className={`group video-card touch-target flex flex-col gap-2 fade-in items-stretch! justify-start! ${
         featured ? "flex-none w-40 md:w-48 snap-start" : ""
       }`}
     >
-      <div className="card-thumb relative aspect-[2/3] rounded-lg overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-500/50 transition-all">
+      <div className="card-thumb relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-2 group-hover:ring-brand-500/50 transition-all">
         {series.poster_path ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -185,7 +185,7 @@ export function SeriesCard({
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent z-0 pointer-events-none"></div>
 
         {/* Rating + views */}
-        <div className="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold">
+        <div className="absolute bottom-2 left-2 z-10 text-[10px] text-white flex items-center gap-1 font-semibold glass-regular rounded-md px-1.5 py-0.5">
           <Star className="w-2.5 h-2.5 fill-yellow-500 text-yellow-500" />
           {series.vote_average ? series.vote_average.toFixed(1) : "—"}
         </div>
@@ -194,16 +194,16 @@ export function SeriesCard({
           {formatViews(series.vote_count)}
         </div>
 
-        {/* Play button overlay */}
+        {/* Play button overlay — Liquid Glass clear material */}
         <div className="card-play absolute inset-0 flex items-center justify-center bg-black/30">
-          <div className="w-12 h-12 rounded-full bg-brand-500/90 group-hover:bg-brand-500 flex items-center justify-center shadow-xl ring-2 ring-white/20">
+          <div className="w-12 h-12 rounded-full glass-clear flex items-center justify-center shadow-xl ring-2 ring-white/20">
             <Play className="w-6 h-6 fill-white ml-0.5" />
           </div>
         </div>
       </div>
 
       <h3 className="text-sm font-medium text-white truncate group-hover:text-brand-400 transition-colors">{title}</h3>
-      <p className="text-[11px] text-gray-500 -mt-1">{formatYear(series.first_air_date)}</p>
+      <p className="text-[11px] text-white/60 -mt-1">{formatYear(series.first_air_date)}</p>
     </Link>
   );
 }

@@ -1124,20 +1124,23 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
           preload="auto"
         />
 
-        {/* Buffering spinner */}
+        {/* Buffering spinner — brand color on a subtle glass-clear disc */}
         {buffering && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <Loader2 className="w-12 h-12 text-white/80 animate-spin" />
+            <div className="relative flex items-center justify-center">
+              <div className="absolute w-16 h-16 rounded-full glass-clear" />
+              <Loader2 className="relative w-12 h-12 text-brand-500 animate-spin" />
+            </div>
           </div>
         )}
 
-        {/* Play button — CENTERED, not full overlay (was 342x192px = entire video) */}
+        {/* Play button — Liquid Glass disc, white glyph. 64px mobile / 80px desktop. */}
         {!playing && !buffering && (
           <div
             className="absolute inset-0 flex items-center justify-center"
             onClick={togglePlay}
           >
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-brand-500/90 hover:bg-brand-500 flex items-center justify-center shadow-2xl transition-transform hover:scale-110 pointer-events-none">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full glass-clear touch-target flex items-center justify-center shadow-2xl transition-transform hover:scale-110 pointer-events-none">
               <Play className="w-8 h-8 sm:w-10 sm:h-10 fill-white text-white ml-1" />
             </div>
           </div>
@@ -1147,7 +1150,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
         {/* Desktop: hover to show (group-hover) */}
         {/* Mobile: controlsVisible state controls visibility */}
         <div
-          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-3 sm:px-4 pt-16 sm:pt-12 pb-2 transition-opacity duration-200 ${
+          className={`absolute bottom-0 left-0 right-0 player-controls-glass px-3 sm:px-4 pt-16 sm:pt-12 pb-2 transition-opacity duration-200 ${
             isTouchDevice
               ? controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
               : "opacity-0 group-hover:opacity-100"
@@ -1156,7 +1159,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
         >
           {/* Seek bar — bigger touch target on mobile (h-2.5 vs h-1.5) */}
           <div
-            className="relative w-full h-2.5 sm:h-1.5 bg-white/20 rounded-full mb-3 cursor-pointer touch-none"
+            className="relative w-full h-3 sm:h-1.5 glass-clear rounded-full mb-3 cursor-pointer touch-none"
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               seek(((e.clientX - rect.left) / rect.width) * duration);
@@ -1184,7 +1187,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
             {/* Play/Pause — 44px touch target */}
             <button
               onClick={(e) => { e.stopPropagation(); togglePlay(); showControls(); }}
-              className="text-white hover:text-brand-500 transition p-2 -m-2 touch-manipulation"
+              className="text-white/80 hover:text-white transition-colors duration-150 touch-target p-2 -m-2 touch-manipulation"
               aria-label={playing ? "Pause" : "Play"}
             >
               {playing ? <Pause className="w-6 h-6 sm:w-5 sm:h-5" /> : <Play className="w-6 h-6 sm:w-5 sm:h-5 fill-white" />}
@@ -1193,7 +1196,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
             {/* Volume — hidden on mobile (hardware volume), shown on desktop */}
             {!isTouchDevice && (
               <div className="flex items-center gap-2 group/vol">
-                <button onClick={toggleMute} className="text-white hover:text-brand-500 transition" aria-label="Mute">
+                <button onClick={toggleMute} className="text-white/80 hover:text-white transition-colors duration-150 touch-target" aria-label="Mute">
                   {muted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                 </button>
                 <input
@@ -1212,7 +1215,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
             {isTouchDevice && (
               <button
                 onClick={(e) => { e.stopPropagation(); toggleMute(); showControls(); }}
-                className="text-white p-2 -m-2 touch-manipulation"
+                className="text-white/80 hover:text-white transition-colors duration-150 touch-target p-2 -m-2 touch-manipulation"
                 aria-label="Mute"
               >
                 {muted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
@@ -1239,7 +1242,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
               <div className="relative">
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowSettings(showSettings === "q" ? "" : "q"); showControls(); }}
-                  className="text-white hover:text-brand-500 transition flex items-center gap-1 p-2 -m-2 touch-manipulation"
+                  className="text-white/80 hover:text-white transition-colors duration-150 flex items-center gap-1 p-2 -m-2 touch-manipulation touch-target"
                   aria-label="Quality"
                 >
                   <Settings className="w-6 h-6 sm:w-5 sm:h-5" />
@@ -1248,7 +1251,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
                   </span>
                 </button>
                 {showSettings === "q" && (
-                  <div className="absolute bottom-10 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[140px] max-h-72 overflow-y-auto scroll-row z-20">
+                  <div className="absolute bottom-10 right-0 glass-regular rounded-lg p-2 min-w-[140px] max-h-72 overflow-y-auto scroll-row z-20">
                     {dashSource && (
                       <button
                         onClick={() => { usingDash && abrEnabled ? enableAutoDash() : switchToDash(); }}
@@ -1285,14 +1288,14 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
               <div className="relative">
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowSettings(showSettings === "s" ? "" : "s"); showControls(); }}
-                  className={`text-white transition flex items-center gap-1 p-2 -m-2 touch-manipulation ${activeSubtitle ? "text-brand-400" : ""}`}
+                  className={`flex items-center gap-1 p-2 -m-2 touch-manipulation touch-target transition-colors duration-150 ${activeSubtitle ? "text-brand-400" : "text-white/80 hover:text-white"}`}
                   aria-label="Subtitles"
                 >
                   <Subtitles className="w-6 h-6 sm:w-5 sm:h-5" />
                   {activeSubtitle && <span className="text-[10px] text-brand-400 hidden sm:inline">ON</span>}
                 </button>
                 {showSettings === "s" && (
-                  <div className="absolute bottom-10 right-0 bg-ink-900/95 backdrop-blur border border-white/10 rounded-lg p-2 min-w-[140px] max-h-60 overflow-y-auto scroll-row z-20">
+                  <div className="absolute bottom-10 right-0 glass-regular rounded-lg p-2 min-w-[140px] max-h-60 overflow-y-auto scroll-row z-20">
                     <button
                       onClick={() => {
                         setActiveSubtitle(null);
@@ -1333,7 +1336,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
             {/* Fullscreen */}
             <button
               onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
-              className="text-white hover:text-brand-500 transition p-2 -m-2 touch-manipulation"
+              className="text-white/80 hover:text-white transition-colors duration-150 touch-target p-2 -m-2 touch-manipulation"
               aria-label="Fullscreen"
             >
               <Maximize className="w-6 h-6 sm:w-5 sm:h-5" />
@@ -1343,7 +1346,7 @@ export function NativePlayer({ tmdbId, title, kind = "movie", season, episode, y
       </div>
 
       {/* Info bar */}
-      <div className="flex items-center justify-between text-xs text-gray-500 flex-wrap gap-2">
+      <div className="flex items-center justify-between text-xs text-white/60 flex-wrap gap-2">
         <span>
           ✓ Ad-free ·{" "}
           <span className="text-gray-300">{usingDash ? dashSource?.provider : activeSource?.provider}</span>
